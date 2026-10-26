@@ -159,14 +159,13 @@ Versions follow [Semantic Versioning](https://semver.org): the patch number for 
 **Option B — the vsce command.** Create an Azure DevOps personal access token with the *Marketplace (Manage)* scope, then:
 
 ```bash
-npx --yes @vscode/vsce login <publisher>
+npx --yes @vscode/vsce login sidh1999
 npx --yes @vscode/vsce publish --packagePath dist/git-tree-<version>.vsix
 ```
 
 Before either one, check:
 
-- `publisher` in `package.json` is the Marketplace publisher's ID.
-- The license allows publishing: see [License](README.md#license) in the README.
+- `publisher` in `package.json` is `sidh1999`, the Marketplace publisher.
 - The GitHub repository is public and pushed, so the README's images load on the Marketplace.
 - The changelog's new section is complete.
 

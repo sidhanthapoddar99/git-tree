@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- The publisher is `sidh1999`, so the extension's ID is `sidh1999.git-tree`.
+
 ## [0.3.2] - 2026-10-26
 
 ### Added
