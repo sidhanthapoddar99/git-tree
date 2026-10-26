@@ -84,7 +84,7 @@ The engine (`native/`) reads repositories in-process, so loading the view spawns
 
 Each engine read returns the records that the Git command prints, and `DataSource` interprets them with the same code as Git's output, so the two paths can't drift apart. When the engine can't be certain that its answer is the one Git would give, it answers `unsupported` with a reason, and `DataSource` runs the Git command instead. Examples are SHA-256 and shallow repositories, replacement objects, grafts, commits in another encoding, a mailmap, and settings it doesn't model, such as `branch.sort`. The Git commands stay the reference: git status, and every action that changes the repository, always run Git.
 
-Build it with `mise run engine` (`npm run build-engine`). Cargo runs at most four jobs, unless `CARGO_BUILD_JOBS` says otherwise. `npm run build-engine -- --debug` builds without optimisations, which is quicker while you work on it. The Rust tests run with `cargo test` in `native/`.
+Build it with `mise run engine` (`npm run build-engine`). On Linux the script builds with cargo-zigbuild against glibc 2.28, the oldest glibc Visual Studio Code supports, so the module also loads on older systems and in the Snap build of VS Code; `mise install` installs zig and cargo-zigbuild. Cargo runs at most four jobs, unless `CARGO_BUILD_JOBS` says otherwise. `npm run build-engine -- --debug` builds without optimisations, which is quicker while you work on it. The Rust tests run with `cargo test` in `native/`.
 
 ### The build
 
@@ -211,3 +211,4 @@ Before either one, check:
 - **Line endings.** The TypeScript, CSS and build scripts use CRLF, and the linter checks it. Keep CRLF when you edit them.
 - **Message types.** A new message needs its request and response types in `src/types.ts`, a case in `GitTreeView.respondToMessage`, and a case in the webview's message handler.
 - **vsce** isn't a dependency; `npx --yes @vscode/vsce` fetches it when needed.
+- **Performance in commit messages.** A commit that changes speed, memory or package size says what it measured, before and after, in its message: what was measured, on which repository, and the numbers. For example: "Opening the view, 6,750 commits: 19.4 ms → 7.0 ms (median of 25 runs, Linux x64)". `git log` is then the record of what each change gained.
