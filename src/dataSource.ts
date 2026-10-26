@@ -1,6 +1,7 @@
 import * as cp from 'child_process';
 import * as fs from 'fs';
 import { decode, encodingExists } from 'iconv-lite';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
@@ -1318,7 +1319,7 @@ export class DataSource extends Disposable {
 			return { errors: [<ErrorInfo>errorMessage], path: null };
 		}
 
-		const absolutePath = getPathFromStr(path.resolve(mainWorktreePath, worktreePath));
+		const absolutePath = resolveWorktreePath(worktreePath, mainWorktreePath);
 		const args = ['worktree', 'add'];
 		if (newBranch !== null) args.push('-b', newBranch);
 		args.push(absolutePath, commitish);
@@ -2061,6 +2062,21 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 	}
 
 	return fileChanges;
+}
+
+/**
+ * Resolve the path of a new worktree. `{repo}` becomes the folder name of the main worktree, a leading `~` becomes the
+ * home directory, and a relative path is taken from the main worktree.
+ * @param worktreePath The path entered for the new worktree.
+ * @param mainWorktreePath The path of the main worktree.
+ * @returns The absolute path of the new worktree.
+ */
+export function resolveWorktreePath(worktreePath: string, mainWorktreePath: string) {
+	let resolved = worktreePath.trim().replace(/\{repo\}/g, path.basename(mainWorktreePath));
+	if (resolved === '~' || resolved.startsWith('~/') || resolved.startsWith('~\\')) {
+		resolved = path.join(os.homedir(), resolved.substring(1));
+	}
+	return getPathFromStr(path.resolve(mainWorktreePath, resolved));
 }
 
 /**

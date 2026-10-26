@@ -1847,7 +1847,7 @@ class GitTreeView {
 
 		if (isBranch) {
 			dialog.showForm('Create a worktree with the branch <b><i>' + escapeHtml(commitish) + '</i></b> checked out:', [
-				{ type: DialogInputType.Text, name: 'Folder', default: '', placeholder: getFolder('', commitish), info: 'A path relative to the main worktree, or an absolute path. Leave it blank to use the default.' },
+				{ type: DialogInputType.Text, name: 'Folder', default: '', placeholder: getFolder('', commitish), info: 'Relative to the main worktree, ~ for your home folder, or an absolute path. {repo} stands for the repository\'s folder name. Leave it blank to use the default from the Git Tree settings.' },
 				{ type: DialogInputType.Checkbox, name: 'Open in a new window', value: false }
 			], 'Create Worktree', (values) => {
 				runCreateWorktree(getFolder(<string>values[0], commitish), null, <boolean>values[1]);
@@ -1855,7 +1855,7 @@ class GitTreeView {
 		} else {
 			dialog.showForm('Create a worktree at commit <b><i>' + abbrevCommit(commitish) + '</i></b>:', [
 				{ type: DialogInputType.Text, name: 'New Branch', default: '', placeholder: 'Leave blank for a detached HEAD', info: 'Git creates this branch at the commit, and checks it out in the worktree.' },
-				{ type: DialogInputType.Text, name: 'Folder', default: '', placeholder: location + '/<branch name>', info: 'A path relative to the main worktree, or an absolute path. Leave it blank to use the default.' },
+				{ type: DialogInputType.Text, name: 'Folder', default: '', placeholder: location + '/<branch name>', info: 'Relative to the main worktree, ~ for your home folder, or an absolute path. {repo} stands for the repository\'s folder name. Leave it blank to use the default from the Git Tree settings.' },
 				{ type: DialogInputType.Checkbox, name: 'Open in a new window', value: false }
 			], 'Create Worktree', (values) => {
 				const newBranch = (<string>values[0]).trim();

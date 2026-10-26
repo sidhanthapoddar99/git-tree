@@ -8,9 +8,10 @@ jest.mock('../src/logger');
 import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as iconv from 'iconv-lite';
+import * as os from 'os';
 import * as path from 'path';
 import { ConfigurationChangeEvent } from 'vscode';
-import { DataSource, GitConfigKey } from '../src/dataSource';
+import { DataSource, GitConfigKey, resolveWorktreePath } from '../src/dataSource';
 import { Logger } from '../src/logger';
 import { CommitOrdering, GitConfigLocation, GitPushBranchMode, GitResetMode, GitSignature, GitSignatureStatus, MergeActionOn, RebaseActionOn, TagType } from '../src/types';
 import * as utils from '../src/utils';
@@ -6846,6 +6847,21 @@ describe('DataSource', () => {
 			expect(spyOnSpawn).toHaveBeenCalledTimes(3);
 		});
 
+		it('Should create a worktree outside the repository, without excluding its folder', async () => {
+			// Setup
+			mockGitSuccessOnce(mainWorktreeList);
+			mockGitSuccessOnce();
+			jest.spyOn(os, 'homedir').mockReturnValueOnce('/home/user');
+
+			// Run
+			const result = await dataSource.createWorktree('/path/to/repo', '~/worktrees/{repo}-feature', 'feature', null);
+
+			// Assert
+			expect(result).toStrictEqual({ errors: [null, null], path: '/home/user/worktrees/repo-feature' });
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['worktree', 'add', '/home/user/worktrees/repo-feature', 'feature'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
+		});
+
 		it('Should create a worktree with an existing branch, and add its folder to the exclude file', async () => {
 			// Setup
 			mockGitSuccessOnce(mainWorktreeList);
@@ -7293,5 +7309,39 @@ describe('DataSource', () => {
 			// Assert
 			expect(result).toBe('');
 		});
+	});
+});
+
+describe('resolveWorktreePath', () => {
+	beforeEach(() => {
+		jest.spyOn(os, 'homedir').mockReturnValue('/home/user');
+	});
+
+	afterEach(() => {
+		jest.restoreAllMocks();
+	});
+
+	it('Should resolve a relative path from the main worktree', () => {
+		expect(resolveWorktreePath('.worktrees/feature', '/path/to/repo')).toBe('/path/to/repo/.worktrees/feature');
+		expect(resolveWorktreePath('../repo-feature', '/path/to/repo')).toBe('/path/to/repo-feature');
+	});
+
+	it('Should replace {repo} with the folder name of the main worktree', () => {
+		expect(resolveWorktreePath('{repo}/.worktrees/feature', '/path/to/repo')).toBe('/path/to/repo/repo/.worktrees/feature');
+		expect(resolveWorktreePath('../{repo}-worktrees/feature', '/path/to/repo')).toBe('/path/to/repo-worktrees/feature');
+	});
+
+	it('Should resolve ~ to the home folder', () => {
+		expect(resolveWorktreePath('~', '/path/to/repo')).toBe('/home/user');
+		expect(resolveWorktreePath('~/worktrees/{repo}/feature', '/path/to/repo')).toBe('/home/user/worktrees/repo/feature');
+	});
+
+	it('Should keep an absolute path, and only expand a leading ~', () => {
+		expect(resolveWorktreePath('/srv/worktrees/feature', '/path/to/repo')).toBe('/srv/worktrees/feature');
+		expect(resolveWorktreePath('~feature', '/path/to/repo')).toBe('/path/to/repo/~feature');
+	});
+
+	it('Should ignore spaces around the path', () => {
+		expect(resolveWorktreePath('  .worktrees/feature  ', '/path/to/repo')).toBe('/path/to/repo/.worktrees/feature');
 	});
 });
