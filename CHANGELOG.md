@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-26
+
+### Changed
+
+- The extension's ID is `sidh1999.git-tree-rs`, because the Marketplace already has an extension named `git-tree`. Its commands, views and `git-tree.*` settings keep their names.
+
+### Fixed
+
+- The Marketplace page links to the MIT license.
+
 ## [0.3.3] - 2026-10-26
 
 ### Changed
@@ -107,7 +117,8 @@ The first version of Git Tree.
 
 - Telemetry. Git Tree sends no usage data.
 
-[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.2.0...v0.3.1

@@ -18,7 +18,7 @@ mise run setup      # npm ci, then builds the demo repository
 | `mise run test` | Runs the Jest tests. |
 | `mise run gate` | What CI runs: lint, build and test. |
 | `mise run demo` | Rebuilds the demo repository from scratch. |
-| `mise run package` | Packages `dist/git-tree-<version>.vsix`. |
+| `mise run package` | Packages `dist/git-tree-rs-<version>.vsix`. |
 | `mise run install` | Packages the extension and installs it in Visual Studio Code. |
 | `mise run screenshots` | Converts the README screenshots to WebP. |
 
@@ -136,7 +136,7 @@ agent-ks img docs/images/raw/*.png --format webp --max-dim 1600 --quality 90 --s
 
 ```bash
 mise run build              # lint, then build out/ and media/
-mise run package            # dist/git-tree-<version>.vsix
+mise run package            # dist/git-tree-rs-<version>.vsix
 npx --yes @vscode/vsce ls   # what the package would contain
 ```
 
@@ -160,7 +160,7 @@ Versions follow [Semantic Versioning](https://semver.org): the patch number for 
 
 ```bash
 npx --yes @vscode/vsce login sidh1999
-npx --yes @vscode/vsce publish --packagePath dist/git-tree-<version>.vsix
+npx --yes @vscode/vsce publish --packagePath dist/git-tree-rs-<version>.vsix
 ```
 
 Before either one, check:

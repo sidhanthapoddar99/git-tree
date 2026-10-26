@@ -3,8 +3,8 @@
 **A Git graph for Visual Studio Code that understands worktrees.** See every branch, tag, stash and worktree in one graph, see each worktree's uncommitted changes, and run Git actions from a right-click.
 
 <!-- Marketplace badges, once Git Tree is published:
-[![Version](https://vsmarketplacebadges.dev/version-short/sidh1999.git-tree.png)](https://marketplace.visualstudio.com/items?itemName=sidh1999.git-tree)
-[![Installs](https://vsmarketplacebadges.dev/installs-short/sidh1999.git-tree.png)](https://marketplace.visualstudio.com/items?itemName=sidh1999.git-tree)
+[![Version](https://vsmarketplacebadges.dev/version-short/sidh1999.git-tree-rs.png)](https://marketplace.visualstudio.com/items?itemName=sidh1999.git-tree-rs)
+[![Installs](https://vsmarketplacebadges.dev/installs-short/sidh1999.git-tree-rs.png)](https://marketplace.visualstudio.com/items?itemName=sidh1999.git-tree-rs)
 -->
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.82%2B-007ACC.svg)](https://code.visualstudio.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

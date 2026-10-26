@@ -23,13 +23,13 @@ description = "Rebuild the demo repository in dev-workspace/ from scratch."
 run = "scripts/make-demo-repo.sh --force"
 
 [tasks.package]
-description = "Package the extension into dist/git-tree-<version>.vsix."
+description = "Package the extension into dist/git-tree-rs-<version>.vsix."
 run = "npx --yes @vscode/vsce package --out dist/"
 
 [tasks.install]
 description = "Package the extension, and install it in Visual Studio Code."
 depends = ["package"]
-run = "code --install-extension dist/git-tree-$(node -p \"require('./package.json').version\").vsix --force"
+run = "code --install-extension dist/git-tree-rs-$(node -p \"require('./package.json').version\").vsix --force"
 
 [tasks.screenshots]
 description = "Convert the PNG screenshots in docs/images/ to WebP."

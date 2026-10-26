@@ -1,7 +1,7 @@
 {
-	"name": "git-tree",
+	"name": "git-tree-rs",
 	"displayName": "git-tree-rs",
-	"version": "0.3.3",
+	"version": "0.3.4",
 	"publisher": "sidh1999",
 	"author": {
 		"name": "Sidhantha Poddar"
@@ -26,7 +26,7 @@
 	"bugs": {
 		"url": "https://github.com/sidhanthapoddar99/git-tree/issues"
 	},
-	"license": "SEE LICENSE IN 'LICENSE'",
+	"license": "MIT",
 	"icon": "resources/icon.png",
 	"engines": {
 		"vscode": "^1.82.0"
