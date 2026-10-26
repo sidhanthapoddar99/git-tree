@@ -64,7 +64,7 @@ export class AskpassManager extends Disposable {
 		req.on('data', (d) => reqData += d);
 		req.on('end', () => {
 			let data = JSON.parse(reqData) as AskpassRequest;
-			vscode.window.showInputBox({ placeHolder: data.request, prompt: 'Git Graph: ' + data.host, password: /password/i.test(data.request), ignoreFocusOut: true }).then(result => {
+			vscode.window.showInputBox({ placeHolder: data.request, prompt: 'Git Tree: ' + data.host, password: /password/i.test(data.request), ignoreFocusOut: true }).then(result => {
 				res.writeHead(200);
 				res.end(JSON.stringify(result || ''));
 			}, () => {
@@ -91,10 +91,10 @@ export class AskpassManager extends Disposable {
 
 function getIPCHandlePath(nonce: string): string {
 	if (process.platform === 'win32') {
-		return '\\\\.\\pipe\\git-graph-askpass-' + nonce + '-sock';
+		return '\\\\.\\pipe\\git-tree-askpass-' + nonce + '-sock';
 	} else if (process.env['XDG_RUNTIME_DIR']) {
-		return path.join(process.env['XDG_RUNTIME_DIR'] as string, 'git-graph-askpass-' + nonce + '.sock');
+		return path.join(process.env['XDG_RUNTIME_DIR'] as string, 'git-tree-askpass-' + nonce + '.sock');
 	} else {
-		return path.join(os.tmpdir(), 'git-graph-askpass-' + nonce + '.sock');
+		return path.join(os.tmpdir(), 'git-tree-askpass-' + nonce + '.sock');
 	}
 }

@@ -82,7 +82,7 @@ type DialogTarget = {
 } | RepoTarget;
 
 /**
- * Implements the Git Graph View's dialogs.
+ * Implements the Git Tree View's dialogs.
  */
 class Dialog {
 	private elem: HTMLElement | null = null;
@@ -322,7 +322,7 @@ class Dialog {
 	}
 
 	/**
-	 * Show a dialog in the Git Graph View.
+	 * Show a dialog in the Git Tree View.
 	 * @param type The type of dialog being shown.
 	 * @param html The HTML content for the dialog.
 	 * @param actionName The name of the primary (default) action.
@@ -364,7 +364,7 @@ class Dialog {
 	}
 
 	/**
-	 * Close the dialog (if one is currently open in the Git Graph View).
+	 * Close the dialog (if one is currently open in the Git Tree View).
 	 */
 	public close() {
 		eventOverlay.remove();
@@ -381,7 +381,7 @@ class Dialog {
 	}
 
 	/**
-	 * Close the action running dialog (if one is currently open in the Git Graph View).
+	 * Close the action running dialog (if one is currently open in the Git Tree View).
 	 */
 	public closeActionRunning() {
 		if (this.type === DialogType.ActionRunning) this.close();
@@ -395,9 +395,9 @@ class Dialog {
 	}
 
 	/**
-	 * Refresh the dialog (if one is currently open in the Git Graph View). If the dialog has a dynamic source, re-link
-	 * it to the newly rendered HTML Element, or close it if the target is no longer visible in the Git Graph View.
-	 * @param commits The new array of commits that is rendered in the Git Graph View.
+	 * Refresh the dialog (if one is currently open in the Git Tree View). If the dialog has a dynamic source, re-link
+	 * it to the newly rendered HTML Element, or close it if the target is no longer visible in the Git Tree View.
+	 * @param commits The new array of commits that is rendered in the Git Tree View.
 	 */
 	public refresh(commits: ReadonlyArray<GG.GitCommit>) {
 		if (!this.isOpen() || this.target === null || this.target.type === TargetType.Repo) {
@@ -436,7 +436,7 @@ class Dialog {
 	}
 
 	/**
-	 * Is a dialog currently open in the Git Graph View.
+	 * Is a dialog currently open in the Git Tree View.
 	 * @returns TRUE => A dialog is open, FALSE => No dialog is open
 	 */
 	public isOpen() {
@@ -444,7 +444,7 @@ class Dialog {
 	}
 
 	/**
-	 * Is the target of the dialog dynamic (i.e. is it tied to a Git object & HTML Element in the Git Graph View).
+	 * Is the target of the dialog dynamic (i.e. is it tied to a Git object & HTML Element in the Git Tree View).
 	 * @returns TRUE => The dialog is dynamic, FALSE => The dialog is not dynamic
 	 */
 	public isTargetDynamicSource() {

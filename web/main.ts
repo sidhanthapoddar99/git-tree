@@ -189,7 +189,7 @@ class GitGraphView {
 				this.loadViewTo = loadViewTo;
 			} else {
 				this.loadViewTo = null;
-				showErrorMessage('Unable to load the Git Graph View for the repository "' + loadViewTo.repo + '". It is not currently included in Git Graph.');
+				showErrorMessage('Unable to load the Git Tree View for the repository "' + loadViewTo.repo + '". It is not currently included in Git Tree.');
 			}
 		} else {
 			this.loadViewTo = null;
@@ -1191,7 +1191,7 @@ class GitGraphView {
 				title: 'Drop' + ELLIPSIS,
 				visible: visibility.drop && this.graph.dropCommitPossible(this.commitLookup[hash]),
 				onClick: () => {
-					dialog.showConfirmation('Are you sure you want to permanently drop commit <b><i>' + abbrevCommit(hash) + '</i></b>?' + (this.onlyFollowFirstParent ? '<br/><i>Note: By enabling "Only follow the first parent of commits", some commits may have been hidden from the Git Graph View that could affect the outcome of performing this action.</i>' : ''), 'Yes, drop', () => {
+					dialog.showConfirmation('Are you sure you want to permanently drop commit <b><i>' + abbrevCommit(hash) + '</i></b>?' + (this.onlyFollowFirstParent ? '<br/><i>Note: By enabling "Only follow the first parent of commits", some commits may have been hidden from the Git Tree View that could affect the outcome of performing this action.</i>' : ''), 'Yes, drop', () => {
 						runAction({ command: 'dropCommit', repo: this.currentRepo, commitHash: hash }, 'Dropping Commit');
 					}, target);
 				}
@@ -1960,8 +1960,8 @@ class GitGraphView {
 			selectionBackgroundColor = !!getVSCodeStyle(CSS_PROP_SELECTION_BACKGROUND);
 
 		const setFlashColour = (colour: string) => {
-			document.body.style.setProperty('--git-graph-flashPrimary', modifyColourOpacity(colour, 0.7));
-			document.body.style.setProperty('--git-graph-flashSecondary', modifyColourOpacity(colour, 0.5));
+			document.body.style.setProperty('--git-tree-flashPrimary', modifyColourOpacity(colour, 0.7));
+			document.body.style.setProperty('--git-tree-flashSecondary', modifyColourOpacity(colour, 0.5));
 		};
 		const setSelectionBackgroundColorExists = () => {
 			alterClass(document.body, 'selection-background-color-exists', selectionBackgroundColor);

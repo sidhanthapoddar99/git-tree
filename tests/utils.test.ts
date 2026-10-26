@@ -945,7 +945,7 @@ describe('openExtensionSettings', () => {
 		const result = await openExtensionSettings();
 
 		// Assert
-		expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.openSettings', '@ext:mhutchie.git-graph');
+		expect(vscode.commands.executeCommand).toHaveBeenCalledWith('workbench.action.openSettings', '@ext:sidhanthapoddar99.git-tree');
 		expect(result).toBe(null);
 	});
 
@@ -957,7 +957,7 @@ describe('openExtensionSettings', () => {
 		const result = await openExtensionSettings();
 
 		// Assert
-		expect(result).toBe('Visual Studio Code was unable to open the Git Graph Extension Settings.');
+		expect(result).toBe('Visual Studio Code was unable to open the Git Tree Extension Settings.');
 	});
 });
 
@@ -1620,7 +1620,7 @@ describe('openGitTerminal', () => {
 			env: {
 				PATH: '/path/to/executable:/path/to/git'
 			},
-			name: 'Git Graph: Name'
+			name: 'Git Tree: Name'
 		});
 		expect(terminal.sendText).toHaveBeenCalledTimes(0);
 		expect(terminal.show).toHaveBeenCalled();
@@ -1636,7 +1636,7 @@ describe('openGitTerminal', () => {
 			env: {
 				PATH: '/path/to/executable:/path/to/git'
 			},
-			name: 'Git Graph: Name'
+			name: 'Git Tree: Name'
 		});
 		expect(terminal.sendText).toHaveBeenCalledWith('git rebase');
 		expect(terminal.show).toHaveBeenCalled();
@@ -1655,7 +1655,7 @@ describe('openGitTerminal', () => {
 			env: {
 				PATH: '/path/to/git'
 			},
-			name: 'Git Graph: Name'
+			name: 'Git Tree: Name'
 		});
 		expect(terminal.sendText).toHaveBeenCalledWith('git rebase');
 		expect(terminal.show).toHaveBeenCalled();
@@ -1674,7 +1674,7 @@ describe('openGitTerminal', () => {
 			env: {
 				PATH: '/path/to/executable:/path/to/git'
 			},
-			name: 'Git Graph: Name',
+			name: 'Git Tree: Name',
 			shellPath: '/path/to/shell'
 		});
 		expect(terminal.sendText).toHaveBeenCalledWith('git rebase');
@@ -1694,7 +1694,7 @@ describe('openGitTerminal', () => {
 			env: {
 				PATH: '/path/to/executable;/path/to/git'
 			},
-			name: 'Git Graph: Name'
+			name: 'Git Tree: Name'
 		});
 		expect(terminal.sendText).toHaveBeenCalledWith('git rebase');
 		expect(terminal.show).toHaveBeenCalled();
@@ -1713,7 +1713,7 @@ describe('openGitTerminal', () => {
 			env: {
 				PATH: '/path/to/executable;/path/to/git'
 			},
-			name: 'Git Graph: Name'
+			name: 'Git Tree: Name'
 		});
 		expect(terminal.sendText).toHaveBeenCalledWith('git rebase');
 		expect(terminal.show).toHaveBeenCalled();
@@ -1732,7 +1732,7 @@ describe('openGitTerminal', () => {
 			env: {
 				PATH: '/path/to/executable;/path/to/git'
 			},
-			name: 'Git Graph: Name'
+			name: 'Git Tree: Name'
 		});
 		expect(terminal.sendText).toHaveBeenCalledWith('git rebase');
 		expect(terminal.show).toHaveBeenCalled();
@@ -2499,5 +2499,5 @@ describe('constructIncompatibleGitVersionMessage', () => {
 function expectedValueGitGraphUri(filePath: string, commit: string, repo: string, exists: boolean) {
 	const extIndex = filePath.indexOf('.', filePath.lastIndexOf('/') + 1);
 	const extension = exists && extIndex > -1 ? filePath.substring(extIndex) : '';
-	return 'git-graph://file' + extension + '?' + Buffer.from(JSON.stringify({ filePath: filePath, commit: commit, repo: repo, exists: exists })).toString('base64');
+	return 'git-tree://file' + extension + '?' + Buffer.from(JSON.stringify({ filePath: filePath, commit: commit, repo: repo, exists: exists })).toString('base64');
 }

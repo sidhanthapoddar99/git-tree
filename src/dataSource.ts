@@ -35,7 +35,7 @@ const GPG_STATUS_CODE_PARSING_DETAILS: Readonly<{ [statusCode: string]: GpgStatu
 };
 
 /**
- * Interfaces Git Graph with the Git executable to provide all Git integrations.
+ * Interfaces Git Tree with the Git executable to provide all Git integrations.
  */
 export class DataSource extends Disposable {
 	private readonly logger: Logger;
@@ -47,10 +47,10 @@ export class DataSource extends Disposable {
 	private gitFormatStash!: string;
 
 	/**
-	 * Creates the Git Graph Data Source.
-	 * @param gitExecutable The Git executable available to Git Graph at startup.
-	 * @param onDidChangeGitExecutable The Event emitting the Git executable for Git Graph to use.
-	 * @param logger The Git Graph Logger instance.
+	 * Creates the Git Tree Data Source.
+	 * @param gitExecutable The Git executable available to Git Tree at startup.
+	 * @param onDidChangeGitExecutable The Event emitting the Git executable for Git Tree to use.
+	 * @param logger The Git Tree Logger instance.
 	 */
 	constructor(gitExecutable: GitExecutable | null, onDidChangeConfiguration: Event<vscode.ConfigurationChangeEvent>, onDidChangeGitExecutable: Event<GitExecutable>, logger: Logger) {
 		super();
@@ -63,9 +63,9 @@ export class DataSource extends Disposable {
 		this.registerDisposables(
 			onDidChangeConfiguration((event) => {
 				if (
-					event.affectsConfiguration('git-graph.date.type') || event.affectsConfiguration('git-graph.dateType') ||
-					event.affectsConfiguration('git-graph.repository.commits.showSignatureStatus') || event.affectsConfiguration('git-graph.showSignatureStatus') ||
-					event.affectsConfiguration('git-graph.repository.useMailmap') || event.affectsConfiguration('git-graph.useMailmap')
+					event.affectsConfiguration('git-tree.date.type') || event.affectsConfiguration('git-tree.dateType') ||
+					event.affectsConfiguration('git-tree.repository.commits.showSignatureStatus') || event.affectsConfiguration('git-tree.showSignatureStatus') ||
+					event.affectsConfiguration('git-tree.repository.useMailmap') || event.affectsConfiguration('git-tree.useMailmap')
 				) {
 					this.generateGitCommandFormats();
 				}
@@ -273,7 +273,7 @@ export class DataSource extends Disposable {
 	}
 
 	/**
-	 * Get various Git config variables for a repository that are consumed by the Git Graph View.
+	 * Get various Git config variables for a repository that are consumed by the Git Tree View.
 	 * @param repo The path of the repository.
 	 * @param remotes An array of known remotes.
 	 * @returns The config data.
@@ -1663,7 +1663,7 @@ export class DataSource extends Disposable {
 				parsingDetails = GPG_STATUS_CODE_PARSING_DETAILS[records[i][1]];
 				if (parsingDetails) {
 					if (signature !== null) {
-						throw new Error('Multiple Signatures Exist: As Git currently doesn\'t support them, nor does Git Graph (for consistency).');
+						throw new Error('Multiple Signatures Exist: As Git currently doesn\'t support them, nor does Git Tree (for consistency).');
 					} else {
 						signature = {
 							status: parsingDetails.status,
@@ -1789,10 +1789,10 @@ export class DataSource extends Disposable {
 	}
 
 	/**
-	 * Run a Git command (typically for a Git Graph View action).
+	 * Run a Git command (typically for a Git Tree View action).
 	 * @param args The arguments to pass to Git.
 	 * @param repo The repository to run the command in.
-	 * @returns The returned ErrorInfo (suitable for being sent to the Git Graph View).
+	 * @returns The returned ErrorInfo (suitable for being sent to the Git Tree View).
 	 */
 	private runGitCommand(args: string[], repo: string): Promise<ErrorInfo> {
 		return this._spawnGit(args, repo, () => null).catch((errorMessage: string) => errorMessage);

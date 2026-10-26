@@ -128,7 +128,7 @@
 }
 
 .findMatch{
-	background-color:var(--git-graph-findMatch, transparent);
+	background-color:var(--git-tree-findMatch, transparent);
 	outline:1px solid var(--vscode-editor-findMatchHighlightBorder, transparent);
 	outline-offset:-1px;
 }

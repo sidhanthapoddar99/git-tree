@@ -13,7 +13,7 @@ import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
 
 /**
- * Manages the registration and execution of Git Graph Commands.
+ * Manages the registration and execution of Git Tree Commands.
  */
 export class CommandManager extends Disposable {
 	private readonly context: vscode.ExtensionContext;
@@ -25,15 +25,15 @@ export class CommandManager extends Disposable {
 	private gitExecutable: GitExecutable | null;
 
 	/**
-	 * Creates the Git Graph Command Manager.
+	 * Creates the Git Tree Command Manager.
 	 * @param extensionPath The absolute file path of the directory containing the extension.
-	 * @param avatarManger The Git Graph AvatarManager instance.
-	 * @param dataSource The Git Graph DataSource instance.
-	 * @param extensionState The Git Graph ExtensionState instance.
-	 * @param repoManager The Git Graph RepoManager instance.
-	 * @param gitExecutable The Git executable available to Git Graph at startup.
-	 * @param onDidChangeGitExecutable The Event emitting the Git executable for Git Graph to use.
-	 * @param logger The Git Graph Logger instance.
+	 * @param avatarManger The Git Tree AvatarManager instance.
+	 * @param dataSource The Git Tree DataSource instance.
+	 * @param extensionState The Git Tree ExtensionState instance.
+	 * @param repoManager The Git Tree RepoManager instance.
+	 * @param gitExecutable The Git executable available to Git Tree at startup.
+	 * @param onDidChangeGitExecutable The Event emitting the Git executable for Git Tree to use.
+	 * @param logger The Git Tree Logger instance.
 	 */
 	constructor(context: vscode.ExtensionContext, avatarManger: AvatarManager, dataSource: DataSource, extensionState: ExtensionState, repoManager: RepoManager, gitExecutable: GitExecutable | null, onDidChangeGitExecutable: Event<GitExecutable>, logger: Logger) {
 		super();
@@ -46,16 +46,16 @@ export class CommandManager extends Disposable {
 		this.gitExecutable = gitExecutable;
 
 		// Register Extension Commands
-		this.registerCommand('git-graph.view', (arg) => this.view(arg));
-		this.registerCommand('git-graph.addGitRepository', () => this.addGitRepository());
-		this.registerCommand('git-graph.removeGitRepository', () => this.removeGitRepository());
-		this.registerCommand('git-graph.clearAvatarCache', () => this.clearAvatarCache());
-		this.registerCommand('git-graph.fetch', () => this.fetch());
-		this.registerCommand('git-graph.endAllWorkspaceCodeReviews', () => this.endAllWorkspaceCodeReviews());
-		this.registerCommand('git-graph.endSpecificWorkspaceCodeReview', () => this.endSpecificWorkspaceCodeReview());
-		this.registerCommand('git-graph.resumeWorkspaceCodeReview', () => this.resumeWorkspaceCodeReview());
-		this.registerCommand('git-graph.version', () => this.version());
-		this.registerCommand('git-graph.openFile', (arg) => this.openFile(arg));
+		this.registerCommand('git-tree.view', (arg) => this.view(arg));
+		this.registerCommand('git-tree.addGitRepository', () => this.addGitRepository());
+		this.registerCommand('git-tree.removeGitRepository', () => this.removeGitRepository());
+		this.registerCommand('git-tree.clearAvatarCache', () => this.clearAvatarCache());
+		this.registerCommand('git-tree.fetch', () => this.fetch());
+		this.registerCommand('git-tree.endAllWorkspaceCodeReviews', () => this.endAllWorkspaceCodeReviews());
+		this.registerCommand('git-tree.endSpecificWorkspaceCodeReview', () => this.endSpecificWorkspaceCodeReview());
+		this.registerCommand('git-tree.resumeWorkspaceCodeReview', () => this.resumeWorkspaceCodeReview());
+		this.registerCommand('git-tree.version', () => this.version());
+		this.registerCommand('git-tree.openFile', (arg) => this.openFile(arg));
 
 		this.registerDisposable(
 			onDidChangeGitExecutable((gitExecutable) => {
@@ -65,14 +65,14 @@ export class CommandManager extends Disposable {
 
 		// Register Extension Contexts
 		try {
-			this.registerContext('git-graph:codiconsSupported', doesVersionMeetRequirement(vscode.version, VsCodeVersionRequirement.Codicons));
+			this.registerContext('git-tree:codiconsSupported', doesVersionMeetRequirement(vscode.version, VsCodeVersionRequirement.Codicons));
 		} catch (_) {
-			this.logger.logError('Unable to set Visual Studio Code Context "git-graph:codiconsSupported"');
+			this.logger.logError('Unable to set Visual Studio Code Context "git-tree:codiconsSupported"');
 		}
 	}
 
 	/**
-	 * Register a Git Graph command with Visual Studio Code.
+	 * Register a Git Tree command with Visual Studio Code.
 	 * @param command A unique identifier for the command.
 	 * @param callback A command handler function.
 	 */
@@ -101,7 +101,7 @@ export class CommandManager extends Disposable {
 	/* Commands */
 
 	/**
-	 * The method run when the `git-graph.view` command is invoked.
+	 * The method run when the `git-tree.view` command is invoked.
 	 * @param arg An optional argument passed to the command (when invoked from the Visual Studio Code Git Extension).
 	 */
 	private async view(arg: any) {
@@ -124,7 +124,7 @@ export class CommandManager extends Disposable {
 	}
 
 	/**
-	 * The method run when the `git-graph.addGitRepository` command is invoked.
+	 * The method run when the `git-tree.addGitRepository` command is invoked.
 	 */
 	private addGitRepository() {
 		if (this.gitExecutable === null) {
@@ -138,20 +138,20 @@ export class CommandManager extends Disposable {
 				if (isPathInWorkspace(path)) {
 					this.repoManager.registerRepo(path, false).then(status => {
 						if (status.error === null) {
-							showInformationMessage('The repository "' + status.root! + '" was added to Git Graph.');
+							showInformationMessage('The repository "' + status.root! + '" was added to Git Tree.');
 						} else {
-							showErrorMessage(status.error + ' Therefore it could not be added to Git Graph.');
+							showErrorMessage(status.error + ' Therefore it could not be added to Git Tree.');
 						}
 					});
 				} else {
-					showErrorMessage('The folder "' + path + '" is not within the opened Visual Studio Code workspace, and therefore could not be added to Git Graph.');
+					showErrorMessage('The folder "' + path + '" is not within the opened Visual Studio Code workspace, and therefore could not be added to Git Tree.');
 				}
 			}
 		}, () => { });
 	}
 
 	/**
-	 * The method run when the `git-graph.removeGitRepository` command is invoked.
+	 * The method run when the `git-tree.removeGitRepository` command is invoked.
 	 */
 	private removeGitRepository() {
 		if (this.gitExecutable === null) {
@@ -166,21 +166,21 @@ export class CommandManager extends Disposable {
 		}));
 
 		vscode.window.showQuickPick(items, {
-			placeHolder: 'Select a repository to remove from Git Graph:',
+			placeHolder: 'Select a repository to remove from Git Tree:',
 			canPickMany: false
 		}).then((item) => {
 			if (item && item.description !== undefined) {
 				if (this.repoManager.ignoreRepo(item.description)) {
-					showInformationMessage('The repository "' + item.label + '" was removed from Git Graph.');
+					showInformationMessage('The repository "' + item.label + '" was removed from Git Tree.');
 				} else {
-					showErrorMessage('The repository "' + item.label + '" is not known to Git Graph.');
+					showErrorMessage('The repository "' + item.label + '" is not known to Git Tree.');
 				}
 			}
 		}, () => { });
 	}
 
 	/**
-	 * The method run when the `git-graph.clearAvatarCache` command is invoked.
+	 * The method run when the `git-tree.clearAvatarCache` command is invoked.
 	 */
 	private clearAvatarCache() {
 		this.avatarManager.clearCache().then((errorInfo) => {
@@ -195,7 +195,7 @@ export class CommandManager extends Disposable {
 	}
 
 	/**
-	 * The method run when the `git-graph.fetch` command is invoked.
+	 * The method run when the `git-tree.fetch` command is invoked.
 	 */
 	private fetch() {
 		const repos = this.repoManager.getRepos();
@@ -217,7 +217,7 @@ export class CommandManager extends Disposable {
 			}
 
 			vscode.window.showQuickPick(items, {
-				placeHolder: 'Select the repository you want to open in Git Graph, and fetch from remote(s):',
+				placeHolder: 'Select the repository you want to open in Git Tree, and fetch from remote(s):',
 				canPickMany: false
 			}).then((item) => {
 				if (item && item.description) {
@@ -240,7 +240,7 @@ export class CommandManager extends Disposable {
 	}
 
 	/**
-	 * The method run when the `git-graph.endAllWorkspaceCodeReviews` command is invoked.
+	 * The method run when the `git-tree.endAllWorkspaceCodeReviews` command is invoked.
 	 */
 	private endAllWorkspaceCodeReviews() {
 		this.extensionState.endAllWorkspaceCodeReviews();
@@ -248,7 +248,7 @@ export class CommandManager extends Disposable {
 	}
 
 	/**
-	 * The method run when the `git-graph.endSpecificWorkspaceCodeReview` command is invoked.
+	 * The method run when the `git-tree.endSpecificWorkspaceCodeReview` command is invoked.
 	 */
 	private endSpecificWorkspaceCodeReview() {
 		const codeReviews = this.extensionState.getCodeReviews();
@@ -276,7 +276,7 @@ export class CommandManager extends Disposable {
 	}
 
 	/**
-	 * The method run when the `git-graph.resumeWorkspaceCodeReview` command is invoked.
+	 * The method run when the `git-tree.resumeWorkspaceCodeReview` command is invoked.
 	 */
 	private resumeWorkspaceCodeReview() {
 		const codeReviews = this.extensionState.getCodeReviews();
@@ -305,12 +305,12 @@ export class CommandManager extends Disposable {
 	}
 
 	/**
-	 * The method run when the `git-graph.version` command is invoked.
+	 * The method run when the `git-tree.version` command is invoked.
 	 */
 	private async version() {
 		try {
 			const gitGraphVersion = await getExtensionVersion(this.context);
-			const information = 'Git Graph: ' + gitGraphVersion + '\nVisual Studio Code: ' + vscode.version + '\nOS: ' + os.type() + ' ' + os.arch() + ' ' + os.release() + '\nGit: ' + (this.gitExecutable !== null ? this.gitExecutable.version : '(none)');
+			const information = 'Git Tree: ' + gitGraphVersion + '\nVisual Studio Code: ' + vscode.version + '\nOS: ' + os.type() + ' ' + os.arch() + ' ' + os.release() + '\nGit: ' + (this.gitExecutable !== null ? this.gitExecutable.version : '(none)');
 			vscode.window.showInformationMessage(information, { modal: true }, 'Copy').then((selectedItem) => {
 				if (selectedItem === 'Copy') {
 					copyToClipboard(information).then((result) => {
@@ -326,14 +326,14 @@ export class CommandManager extends Disposable {
 	}
 
 	/**
-	 * Opens a file in Visual Studio Code, based on a Git Graph URI (from the Diff View).
-	 * The method run when the `git-graph.openFile` command is invoked.
-	 * @param arg The Git Graph URI.
+	 * Opens a file in Visual Studio Code, based on a Git Tree URI (from the Diff View).
+	 * The method run when the `git-tree.openFile` command is invoked.
+	 * @param arg The Git Tree URI.
 	 */
 	private openFile(arg?: vscode.Uri) {
 		const uri = arg || vscode.window.activeTextEditor?.document.uri;
 		if (typeof uri === 'object' && uri && uri.scheme === DiffDocProvider.scheme) {
-			// A Git Graph URI has been provided
+			// A Git Tree URI has been provided
 			const request = decodeDiffDocUri(uri);
 			return openFile(request.repo, request.filePath, request.commit, this.dataSource, vscode.ViewColumn.Active).then((errorInfo) => {
 				if (errorInfo !== null) {

@@ -14,14 +14,14 @@ export const enum DiffSide {
  * Manages providing a specific revision of a repository file for use in the Visual Studio Code Diff View.
  */
 export class DiffDocProvider extends Disposable implements vscode.TextDocumentContentProvider {
-	public static scheme = 'git-graph';
+	public static scheme = 'git-tree';
 	private readonly dataSource: DataSource;
 	private readonly docs = new Map<string, DiffDocument>();
 	private readonly onDidChangeEventEmitter = new vscode.EventEmitter<vscode.Uri>();
 
 	/**
-	 * Creates the Git Graph Diff Document Provider.
-	 * @param dataSource The Git Graph DataSource instance.
+	 * Creates the Git Tree Diff Document Provider.
+	 * @param dataSource The Git Tree DataSource instance.
 	 */
 	constructor(dataSource: DataSource) {
 		super();
@@ -43,7 +43,7 @@ export class DiffDocProvider extends Disposable implements vscode.TextDocumentCo
 
 	/**
 	 * Provides the content of a text document at a specific Git revision.
-	 * @param uri The `git-graph://file.ext?encoded-data` URI.
+	 * @param uri The `git-tree://file.ext?encoded-data` URI.
 	 * @returns The content of the text document.
 	 */
 	public provideTextDocumentContent(uri: vscode.Uri): string | Thenable<string> {
@@ -98,7 +98,7 @@ class DiffDocument {
 /* Encoding and decoding URI's */
 
 /**
- * Represents the data passed through `git-graph://file.ext?encoded-data` URI's by the DiffDocProvider.
+ * Represents the data passed through `git-tree://file.ext?encoded-data` URI's by the DiffDocProvider.
  */
 type DiffDocUriData = {
 	filePath: string;
@@ -114,7 +114,7 @@ type DiffDocUriData = {
  * @param commit The commit hash specifying the revision of the file.
  * @param type The Git file status of the change.
  * @param diffSide The side of the Diff View that this URI will be displayed on.
- * @returns A URI of the form `git-graph://file.ext?encoded-data` or `file://path/file.ext`
+ * @returns A URI of the form `git-tree://file.ext?encoded-data` or `file://path/file.ext`
  */
 export function encodeDiffDocUri(repo: string, filePath: string, commit: string, type: GitFileStatus, diffSide: DiffSide): vscode.Uri {
 	if (commit === UNCOMMITTED && type !== GitFileStatus.Deleted) {
@@ -144,7 +144,7 @@ export function encodeDiffDocUri(repo: string, filePath: string, commit: string,
 }
 
 /**
- * Decode the data from a `git-graph://file.ext?encoded-data` URI.
+ * Decode the data from a `git-tree://file.ext?encoded-data` URI.
  * @param uri The URI to decode data from.
  * @returns The decoded DiffDocUriData.
  */

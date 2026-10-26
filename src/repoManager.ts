@@ -18,7 +18,7 @@ export interface RepoChangeEvent {
 }
 
 /**
- * Detects and manages repositories in Git Graph.
+ * Detects and manages repositories in Git Tree.
  */
 export class RepoManager extends Disposable {
 	private readonly dataSource: DataSource;
@@ -39,10 +39,10 @@ export class RepoManager extends Disposable {
 	private readonly checkRepoConfigQueue: BufferedQueue<string>;
 
 	/**
-	 * Creates the Git Graph Repository Manager, and runs startup tasks.
-	 * @param dataSource The Git Graph DataSource instance.
-	 * @param extensionState The Git Graph ExtensionState instance.
-	 * @param logger The Git Graph Logger instance.
+	 * Creates the Git Tree Repository Manager, and runs startup tasks.
+	 * @param dataSource The Git Tree DataSource instance.
+	 * @param extensionState The Git Tree ExtensionState instance.
+	 * @param logger The Git Tree Logger instance.
 	 */
 	constructor(dataSource: DataSource, extensionState: ExtensionState, onDidChangeConfiguration: Event<vscode.ConfigurationChangeEvent>, logger: Logger) {
 		super();
@@ -53,7 +53,7 @@ export class RepoManager extends Disposable {
 		this.ignoredRepos = extensionState.getIgnoredRepos();
 		this.maxDepthOfRepoSearch = getConfig().maxDepthOfRepoSearch;
 
-		this.configWatcher = vscode.workspace.createFileSystemWatcher('**/.vscode/vscode-git-graph.json');
+		this.configWatcher = vscode.workspace.createFileSystemWatcher('**/.vscode/vscode-git-tree.json');
 		this.configWatcher.onDidCreate(this.onConfigWatcherCreateOrChange.bind(this));
 		this.configWatcher.onDidChange(this.onConfigWatcherCreateOrChange.bind(this));
 
@@ -98,7 +98,7 @@ export class RepoManager extends Disposable {
 
 			// Monitor changes to the maxDepthOfRepoSearch Extension Setting, and trigger a new search if needed
 			onDidChangeConfiguration((event) => {
-				if (event.affectsConfiguration('git-graph.maxDepthOfRepoSearch')) {
+				if (event.affectsConfiguration('git-tree.maxDepthOfRepoSearch')) {
 					this.maxDepthOfRepoSearchChanged();
 				}
 			}),
@@ -129,14 +129,14 @@ export class RepoManager extends Disposable {
 	}
 
 	/**
-	 * Get the Event that can be used to subscribe to updates when the repositories available in Git Graph change.
+	 * Get the Event that can be used to subscribe to updates when the repositories available in Git Tree change.
 	 */
 	get onDidChangeRepos() {
 		return this.repoEventEmitter.subscribe;
 	}
 
 	/**
-	 * Apply the new value of `git-graph.maxDepthOfRepoSearch` to the RepoManager.
+	 * Apply the new value of `git-tree.maxDepthOfRepoSearch` to the RepoManager.
 	 */
 	private maxDepthOfRepoSearchChanged() {
 		const newDepth = getConfig().maxDepthOfRepoSearch;
@@ -149,7 +149,7 @@ export class RepoManager extends Disposable {
 	}
 
 	/**
-	 * Run various startup tasks when Git Graph is activated.
+	 * Run various startup tasks when Git Tree is activated.
 	 */
 	private async startupTasks() {
 		this.removeReposNotInWorkspace();
@@ -181,9 +181,9 @@ export class RepoManager extends Disposable {
 	}
 
 	/**
-	 * Register a new repository with Git Graph.
+	 * Register a new repository with Git Tree.
 	 * @param path The path of the repository.
-	 * @param loadRepo If TRUE and the Git Graph View is visible, load the Git Graph View with the repository being registered.
+	 * @param loadRepo If TRUE and the Git Tree View is visible, load the Git Tree View with the repository being registered.
 	 */
 	public registerRepo(path: string, loadRepo: boolean) {
 		return new Promise<{ root: string | null, error: string | null }>(async resolve => {
@@ -205,9 +205,9 @@ export class RepoManager extends Disposable {
 	}
 
 	/**
-	 * Ignore a repository known to Git Graph. Unlike `removeRepo`, ignoring the repository will prevent it from being automatically detected and re-added the next time Visual Studio Code is started.
+	 * Ignore a repository known to Git Tree. Unlike `removeRepo`, ignoring the repository will prevent it from being automatically detected and re-added the next time Visual Studio Code is started.
 	 * @param repo The path of the repository.
-	 * @returns TRUE => Repository was ignored, FALSE => Repository is not know to Git Graph.
+	 * @returns TRUE => Repository was ignored, FALSE => Repository is not know to Git Tree.
 	 */
 	public ignoreRepo(repo: string) {
 		if (this.isKnownRepo(repo)) {
@@ -300,7 +300,7 @@ export class RepoManager extends Disposable {
 	}
 
 	/**
-	 * Add a new repository to Git Graph.
+	 * Add a new repository to Git Tree.
 	 * @param repo The path of the repository.
 	 * @returns TRUE => The repository was added, FALSE => The repository is ignored and couldn't be added.
 	 */
@@ -319,7 +319,7 @@ export class RepoManager extends Disposable {
 	}
 
 	/**
-	 * Remove a known repository from Git Graph.
+	 * Remove a known repository from Git Tree.
 	 * @param repo The path of the repository.
 	 */
 	private removeRepo(repo: string) {
@@ -356,7 +356,7 @@ export class RepoManager extends Disposable {
 
 	/**
 	 * Send the latest set of known repositories to subscribers as they have changed.
-	 * @param loadRepo The optional path of a repository to load in the Git Graph View.
+	 * @param loadRepo The optional path of a repository to load in the Git Tree View.
 	 */
 	private sendRepos(loadRepo: string | null = null) {
 		this.repoEventEmitter.emit({
@@ -647,7 +647,7 @@ export class RepoManager extends Disposable {
 			if (state && file !== null && typeof file.exportedAt === 'number' && file.exportedAt > state.lastImportAt) {
 				const validationError = validateExternalConfigFile(file);
 				if (validationError === null) {
-					const action = isRepoNew ? 'Yes' : await vscode.window.showInformationMessage('A newer Git Graph Repository Configuration File has been detected for the repository "' + (state.name || getRepoName(repo)) + '". Would you like to override your current repository configuration with the new changes?', 'Yes', 'No');
+					const action = isRepoNew ? 'Yes' : await vscode.window.showInformationMessage('A newer Git Tree Repository Configuration File has been detected for the repository "' + (state.name || getRepoName(repo)) + '". Would you like to override your current repository configuration with the new changes?', 'Yes', 'No');
 					if (this.isKnownRepo(repo) && action) {
 						const state = this.repos[repo];
 						if (action === 'Yes') {
@@ -656,12 +656,12 @@ export class RepoManager extends Disposable {
 						state.lastImportAt = file.exportedAt;
 						this.extensionState.saveRepos(this.repos);
 						if (!isRepoNew && action === 'Yes') {
-							showInformationMessage('Git Graph Repository Configuration was successfully imported for the repository "' + (state.name || getRepoName(repo)) + '".');
+							showInformationMessage('Git Tree Repository Configuration was successfully imported for the repository "' + (state.name || getRepoName(repo)) + '".');
 						}
 						return true;
 					}
 				} else {
-					showErrorMessage('The value for "' + validationError + '" in the configuration file "' + getPathFromStr(path.join(repo, '.vscode', 'vscode-git-graph.json')) + '" is invalid.');
+					showErrorMessage('The value for "' + validationError + '" in the configuration file "' + getPathFromStr(path.join(repo, '.vscode', 'vscode-git-tree.json')) + '" is invalid.');
 				}
 			}
 		} catch (_) { }
@@ -803,7 +803,7 @@ export namespace ExternalRepoConfig {
  */
 function readExternalConfigFile(repo: string) {
 	return new Promise<Readonly<ExternalRepoConfig.File> | null>((resolve) => {
-		fs.readFile(path.join(repo, '.vscode', 'vscode-git-graph.json'), (err, data) => {
+		fs.readFile(path.join(repo, '.vscode', 'vscode-git-tree.json'), (err, data) => {
 			if (err) {
 				resolve(null);
 			} else {
@@ -829,16 +829,16 @@ function writeExternalConfigFile(repo: string, file: ExternalRepoConfig.File) {
 		const vscodePath = path.join(repo, '.vscode');
 		fs.mkdir(vscodePath, (err) => {
 			if (!err || err.code === 'EEXIST') {
-				const configPath = path.join(vscodePath, 'vscode-git-graph.json');
+				const configPath = path.join(vscodePath, 'vscode-git-tree.json');
 				fs.writeFile(configPath, JSON.stringify(file, null, 4), (err) => {
 					if (err) {
-						reject('Failed to write the Git Graph Repository Configuration File to "' + getPathFromStr(configPath) + '".');
+						reject('Failed to write the Git Tree Repository Configuration File to "' + getPathFromStr(configPath) + '".');
 					} else {
-						resolve('Successfully exported the Git Graph Repository Configuration to "' + getPathFromStr(configPath) + '".');
+						resolve('Successfully exported the Git Tree Repository Configuration to "' + getPathFromStr(configPath) + '".');
 					}
 				});
 			} else {
-				reject('An unexpected error occurred while checking if the "' + getPathFromStr(vscodePath) + '" directory exists. This directory is used to store the Git Graph Repository Configuration file.');
+				reject('An unexpected error occurred while checking if the "' + getPathFromStr(vscodePath) + '" directory exists. This directory is used to store the Git Tree Repository Configuration file.');
 			}
 		});
 	});

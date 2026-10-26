@@ -129,14 +129,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'api.github.com',
 					path: '/repos/mhutchie/test-repo/commits/1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
 					path: '/u/1?v=4&size=162',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -179,14 +179,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'api.github.com',
 					path: '/repos/mhutchie/test-repo/commits/2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
 					path: '/u/1?v=4&size=162',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -220,14 +220,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'api.github.com',
 					path: '/repos/mhutchie/test-repo/commits/1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -261,14 +261,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'api.github.com',
 					path: '/repos/mhutchie/test-repo/commits/1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -298,14 +298,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'api.github.com',
 					path: '/repos/mhutchie/test-repo/commits/1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
 					path: '/u/1?v=4&size=162',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -506,14 +506,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'gitlab.com',
 					path: '/api/v4/users?search=user4@mhutchie.com',
-					headers: { 'User-Agent': 'vscode-git-graph', 'Private-Token': 'REDACTED-TOKEN' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
 					path: '/',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -547,14 +547,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'gitlab.com',
 					path: '/api/v4/users?search=user4@mhutchie.com',
-					headers: { 'User-Agent': 'vscode-git-graph', 'Private-Token': 'REDACTED-TOKEN' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
 					path: '/',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -588,14 +588,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'gitlab.com',
 					path: '/api/v4/users?search=user4@mhutchie.com',
-					headers: { 'User-Agent': 'vscode-git-graph', 'Private-Token': 'REDACTED-TOKEN' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -629,14 +629,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'gitlab.com',
 					path: '/api/v4/users?search=user4@mhutchie.com',
-					headers: { 'User-Agent': 'vscode-git-graph', 'Private-Token': 'REDACTED-TOKEN' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -666,14 +666,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'gitlab.com',
 					path: '/api/v4/users?search=user4@mhutchie.com',
-					headers: { 'User-Agent': 'vscode-git-graph', 'Private-Token': 'REDACTED-TOKEN' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
 					path: '/',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -843,13 +843,13 @@ describe('AvatarManager', () => {
 				}]);
 				await waitForExpect(() => {
 					expect(spyOnLog).toHaveBeenCalledWith('Saved Avatar for user4@*****');
-					expect(spyOnLog).toHaveBeenCalledWith('Sent Avatar for user4@***** to the Git Graph View');
+					expect(spyOnLog).toHaveBeenCalledWith('Sent Avatar for user4@***** to the Git Tree View');
 				});
 				expect(spyOnGetRemoteUrl).toHaveBeenCalledWith('test-repo', 'test-remote');
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -864,7 +864,7 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -898,14 +898,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=identicon',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -935,14 +935,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=identicon',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -967,7 +967,7 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -1000,7 +1000,7 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -1035,14 +1035,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=identicon',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -1076,14 +1076,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=identicon',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -1117,14 +1117,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=identicon',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -1158,14 +1158,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=identicon',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -1202,14 +1202,14 @@ describe('AvatarManager', () => {
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'secure.gravatar.com',
 					path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=identicon',
-					headers: { 'User-Agent': 'vscode-git-graph' },
+					headers: { 'User-Agent': 'vscode-git-tree' },
 					agent: false,
 					timeout: 15000
 				}, expect.anything());
@@ -1250,7 +1250,7 @@ describe('AvatarManager', () => {
 			expect(spyOnHttpsGet).toHaveBeenCalledWith({
 				hostname: 'secure.gravatar.com',
 				path: '/avatar/57853c107d1aeaa7da6f3096385cb848?s=162&d=404',
-				headers: { 'User-Agent': 'vscode-git-graph' },
+				headers: { 'User-Agent': 'vscode-git-tree' },
 				agent: false,
 				timeout: 15000
 			}, expect.anything());
@@ -1291,7 +1291,7 @@ describe('AvatarManager', () => {
 			expect(spyOnHttpsGet).toHaveBeenCalledWith({
 				hostname: 'secure.gravatar.com',
 				path: '/avatar/57853c107d1aeaa7da6f3096385cb848?s=162&d=404',
-				headers: { 'User-Agent': 'vscode-git-graph' },
+				headers: { 'User-Agent': 'vscode-git-tree' },
 				agent: false,
 				timeout: 15000
 			}, expect.anything());
@@ -1331,7 +1331,7 @@ describe('AvatarManager', () => {
 			expect(spyOnHttpsGet).toHaveBeenCalledWith({
 				hostname: 'secure.gravatar.com',
 				path: '/avatar/e36b61e2afd912d3665f1aa92932aa87?s=162&d=404',
-				headers: { 'User-Agent': 'vscode-git-graph' },
+				headers: { 'User-Agent': 'vscode-git-tree' },
 				agent: false,
 				timeout: 15000
 			}, expect.anything());
@@ -1375,7 +1375,7 @@ describe('AvatarManager', () => {
 			expect(spyOnHttpsGet).toHaveBeenCalledWith({
 				hostname: 'secure.gravatar.com',
 				path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-				headers: { 'User-Agent': 'vscode-git-graph' },
+				headers: { 'User-Agent': 'vscode-git-tree' },
 				agent: false,
 				timeout: 15000
 			}, expect.anything());
@@ -1389,7 +1389,7 @@ describe('AvatarManager', () => {
 			expect(spyOnHttpsGet).toHaveBeenCalledWith({
 				hostname: 'secure.gravatar.com',
 				path: '/avatar/da4173f868c17bcd6353cdba41070ca9?s=162&d=404',
-				headers: { 'User-Agent': 'vscode-git-graph' },
+				headers: { 'User-Agent': 'vscode-git-tree' },
 				agent: false,
 				timeout: 15000
 			}, expect.anything());
@@ -1424,7 +1424,7 @@ describe('AvatarManager', () => {
 			expect(spyOnHttpsGet).toHaveBeenCalledWith({
 				hostname: 'secure.gravatar.com',
 				path: '/avatar/530a7b02594e057f39179d3bd8b849f0?s=162&d=404',
-				headers: { 'User-Agent': 'vscode-git-graph' },
+				headers: { 'User-Agent': 'vscode-git-tree' },
 				agent: false,
 				timeout: 15000
 			}, expect.anything());
@@ -1437,7 +1437,7 @@ describe('AvatarManager', () => {
 			});
 		});
 
-		it('Should fetch a new avatar, but not send it to the Git Graph View', async () => {
+		it('Should fetch a new avatar, but not send it to the Git Tree View', async () => {
 			// Setup
 			spyOnGetRemoteUrl.mockResolvedValueOnce(null);
 			mockHttpsResponse(200, 'binary-image-data');
@@ -1451,13 +1451,13 @@ describe('AvatarManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Saved Avatar for user4@*****');
-				expect(spyOnLog).toHaveBeenCalledWith('Failed to Send Avatar for user4@***** to the Git Graph View');
+				expect(spyOnLog).toHaveBeenCalledWith('Failed to Send Avatar for user4@***** to the Git Tree View');
 			});
 			expect(spyOnGetRemoteUrl).toHaveBeenCalledWith('test-repo', 'test-remote');
 			expect(spyOnHttpsGet).toHaveBeenCalledWith({
 				hostname: 'secure.gravatar.com',
 				path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-				headers: { 'User-Agent': 'vscode-git-graph' },
+				headers: { 'User-Agent': 'vscode-git-tree' },
 				agent: false,
 				timeout: 15000
 			}, expect.anything());
@@ -1469,7 +1469,7 @@ describe('AvatarManager', () => {
 			});
 		});
 
-		it('Should fetch a new avatar, and log when it fails to send it to the Git Graph View', async () => {
+		it('Should fetch a new avatar, and log when it fails to send it to the Git Tree View', async () => {
 			// Setup
 			spyOnGetRemoteUrl.mockResolvedValueOnce(null);
 			mockHttpsResponse(200, 'binary-image-data');
@@ -1481,13 +1481,13 @@ describe('AvatarManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Saved Avatar for user4@*****');
-				expect(spyOnLog).toHaveBeenCalledWith('Avatar for user4@***** is ready to be used the next time the Git Graph View is opened');
+				expect(spyOnLog).toHaveBeenCalledWith('Avatar for user4@***** is ready to be used the next time the Git Tree View is opened');
 			});
 			expect(spyOnGetRemoteUrl).toHaveBeenCalledWith('test-repo', 'test-remote');
 			expect(spyOnHttpsGet).toHaveBeenCalledWith({
 				hostname: 'secure.gravatar.com',
 				path: '/avatar/0ca9d3f228e867bd4feb6d62cc2edbfe?s=162&d=404',
-				headers: { 'User-Agent': 'vscode-git-graph' },
+				headers: { 'User-Agent': 'vscode-git-tree' },
 				agent: false,
 				timeout: 15000
 			}, expect.anything());
@@ -1647,7 +1647,7 @@ describe('AvatarManager', () => {
 
 		it('Should return the error message returned by ExtensionState.clearAvatarCache', async () => {
 			// Setup
-			const errorMessage = 'Visual Studio Code was unable to save the Git Graph Global State Memento.';
+			const errorMessage = 'Visual Studio Code was unable to save the Git Tree Global State Memento.';
 			spyOnClearAvatarCache.mockResolvedValueOnce(errorMessage);
 
 			// Run

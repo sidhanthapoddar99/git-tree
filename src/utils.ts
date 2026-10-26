@@ -171,9 +171,9 @@ export function getRelativeTimeDiff(unixTimestamp: number) {
 }
 
 /**
- * Gets the version of Git Graph.
- * @param extensionContext The extension context of Git Graph.
- * @returns The Git Graph version.
+ * Gets the version of Git Tree.
+ * @param extensionContext The extension context of Git Tree.
+ * @returns The Git Tree version.
  */
 export function getExtensionVersion(extensionContext: vscode.ExtensionContext) {
 	return new Promise<string>((resolve, reject) => {
@@ -339,13 +339,13 @@ export function createPullRequest(config: PullRequestConfig, sourceOwner: string
 }
 
 /**
- * Open the Visual Studio Code Settings Editor to the Git Graph Extension Settings.
+ * Open the Visual Studio Code Settings Editor to the Git Tree Extension Settings.
  * @returns A promise resolving to the ErrorInfo of the executed command.
  */
 export function openExtensionSettings(): Thenable<ErrorInfo> {
-	return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:mhutchie.git-graph').then(
+	return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:sidhanthapoddar99.git-tree').then(
 		() => null,
-		() => 'Visual Studio Code was unable to open the Git Graph Extension Settings.'
+		() => 'Visual Studio Code was unable to open the Git Tree Extension Settings.'
 	);
 }
 
@@ -511,7 +511,7 @@ export function openGitTerminal(cwd: string, gitPath: string, command: string | 
 
 	const options: vscode.TerminalOptions = {
 		cwd: cwd,
-		name: 'Git Graph: ' + name,
+		name: 'Git Tree: ' + name,
 		env: { 'PATH': p }
 	};
 	const shell = getConfig().integratedTerminalShell;
@@ -525,7 +525,7 @@ export function openGitTerminal(cwd: string, gitPath: string, command: string | 
 }
 
 /**
- * Check whether Git Graph is running on a Windows-based platform.
+ * Check whether Git Tree is running on a Windows-based platform.
  * @returns TRUE => Windows-based platform, FALSE => Not a Windows-based platform.
  */
 function isWindows() {
@@ -640,8 +640,8 @@ export interface GitExecutable {
 }
 
 /**
- * Find a Git executable that Git Graph can use.
- * @param extensionState The Git Graph ExtensionState instance.
+ * Find a Git executable that Git Tree can use.
+ * @param extensionState The Git Tree ExtensionState instance.
  * @returns A Git executable.
  */
 export async function findGit(extensionState: ExtensionState) {
@@ -670,7 +670,7 @@ export async function findGit(extensionState: ExtensionState) {
 }
 
 /**
- * Find a Git executable on a Darwin-based platform that Git Graph can use.
+ * Find a Git executable on a Darwin-based platform that Git Tree can use.
  * @returns A Git executable.
  */
 function findGitOnDarwin() {
@@ -697,7 +697,7 @@ function findGitOnDarwin() {
 }
 
 /**
- * Find a Git executable on a Windows-based platform that Git Graph can use.
+ * Find a Git executable on a Windows-based platform that Git Tree can use.
  * @returns A Git executable.
  */
 function findGitOnWin32() {

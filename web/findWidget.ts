@@ -8,7 +8,7 @@ interface FindWidgetState {
 }
 
 /**
- * Implements the Git Graph View's Find Widget.
+ * Implements the Git Tree View's Find Widget.
  */
 class FindWidget {
 	private readonly view: GitGraphView;
@@ -27,7 +27,7 @@ class FindWidget {
 
 	/**
 	 * Construct a new FindWidget instance.
-	 * @param view The Git Graph View that the FindWidget is for.
+	 * @param view The Git Tree View that the FindWidget is for.
 	 * @returns The FindWidget instance.
 	 */
 	constructor(view: GitGraphView) {
@@ -157,8 +157,8 @@ class FindWidget {
 	 * @param colour The base colour for the find matches.
 	 */
 	public setColour(colour: string) {
-		document.body.style.setProperty('--git-graph-findMatch', colour);
-		document.body.style.setProperty('--git-graph-findMatchCommit', modifyColourOpacity(colour, 0.5));
+		document.body.style.setProperty('--git-tree-findMatch', colour);
+		document.body.style.setProperty('--git-tree-findMatchCommit', modifyColourOpacity(colour, 0.5));
 	}
 
 

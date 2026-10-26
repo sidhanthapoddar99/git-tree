@@ -644,7 +644,7 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 .commitHeadDot{
 	width:6px;
 	height:6px;
-	border:2px solid var(--git-graph-color);
+	border:2px solid var(--git-tree-color);
 	display:inline-block;
 	border-radius:6px;
 	margin-right:5px;
@@ -663,7 +663,7 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 }
 
 #commitTable tr.commit.findCurrentCommit {
-	background-image:linear-gradient(var(--git-graph-findMatchCommit), var(--git-graph-findMatchCommit));
+	background-image:linear-gradient(var(--git-tree-findMatchCommit), var(--git-tree-findMatchCommit));
 	outline:1px solid var(--vscode-editor-findMatchHighlightBorder, transparent);
 	outline-offset:-1px;
 }
@@ -683,10 +683,10 @@ body.vscode-high-contrast #commitTable tr.commit.findCurrentCommit{
 }
 @keyframes flash-commit{
 	0%   {}
-	20%  {background-color:var(--git-graph-flashPrimary);}
-	35%  {background-color:var(--git-graph-flashSecondary);}
-	50%  {background-color:var(--git-graph-flashPrimary);}
-	65%  {background-color:var(--git-graph-flashPrimary);}
+	20%  {background-color:var(--git-tree-flashPrimary);}
+	35%  {background-color:var(--git-tree-flashSecondary);}
+	50%  {background-color:var(--git-tree-flashPrimary);}
+	65%  {background-color:var(--git-tree-flashPrimary);}
 	100% {}
 }
 
@@ -708,13 +708,13 @@ body.vscode-high-contrast #commitTable tr.commit.findCurrentCommit{
 	overflow:hidden;
 }
 .gitRef.active{
-	border-color:var(--git-graph-color);
+	border-color:var(--git-tree-color);
 }
 .gitRef.active .gitRefName{
 	font-weight:bold;
 }
 .gitRef > svg{
-	background-color:var(--git-graph-color);
+	background-color:var(--git-tree-color);
 	fill:var(--vscode-editor-background);
 	width:14px;
 	height:14px;
@@ -1020,4 +1020,4 @@ label > input[type=radio]:checked ~ .customRadio:after{
 #commitGraph, #commitTable th, #commitTable td, .gitRef, #loadingHeader, .unselectable, .roundedBtn, #controls label{
 	-webkit-user-select:none;
 	user-select:none;
-}
+}

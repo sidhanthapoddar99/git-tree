@@ -18,7 +18,7 @@ type ContextMenuTarget = {
 } | RepoTarget;
 
 /**
- * Implements the Git Graph View's context menus.
+ * Implements the Git Tree View's context menus.
  */
 class ContextMenu {
 	private elem: HTMLElement | null = null;
@@ -36,7 +36,7 @@ class ContextMenu {
 	}
 
 	/**
-	 * Show a context menu in the Git Graph View.
+	 * Show a context menu in the Git Tree View.
 	 * @param actions The collection of actions to display in the context menu.
 	 * @param checked Should the context menu display checks to the left of each action.
 	 * @param target The target that the context menu was triggered on.
@@ -107,7 +107,7 @@ class ContextMenu {
 	}
 
 	/**
-	 * Close the context menu (if one is currently open in the Git Graph View).
+	 * Close the context menu (if one is currently open in the Git Tree View).
 	 */
 	public close() {
 		if (this.elem !== null) {
@@ -123,9 +123,9 @@ class ContextMenu {
 	}
 
 	/**
-	 * Refresh the context menu (if one is currently open in the Git Graph View). If the context menu has a dynamic source,
-	 * re-link it to the newly rendered HTML Element, or close it if the target is no longer visible in the Git Graph View.
-	 * @param commits The new array of commits that is rendered in the Git Graph View.
+	 * Refresh the context menu (if one is currently open in the Git Tree View). If the context menu has a dynamic source,
+	 * re-link it to the newly rendered HTML Element, or close it if the target is no longer visible in the Git Tree View.
+	 * @param commits The new array of commits that is rendered in the Git Tree View.
 	 */
 	public refresh(commits: ReadonlyArray<GG.GitCommit>) {
 		if (!this.isOpen() || this.target === null || this.target.type === TargetType.Repo) {
@@ -163,7 +163,7 @@ class ContextMenu {
 	}
 
 	/**
-	 * Is a context menu currently open in the Git Graph View.
+	 * Is a context menu currently open in the Git Tree View.
 	 * @returns TRUE => A context menu is open, FALSE => No context menu is open
 	 */
 	public isOpen() {
@@ -171,7 +171,7 @@ class ContextMenu {
 	}
 
 	/**
-	 * Is the target of the context menu dynamic (i.e. is it tied to a Git object & HTML Element in the Git Graph View).
+	 * Is the target of the context menu dynamic (i.e. is it tied to a Git object & HTML Element in the Git Tree View).
 	 * @returns TRUE => The context menu is dynamic, FALSE => The context menu is not dynamic
 	 */
 	public isTargetDynamicSource() {
