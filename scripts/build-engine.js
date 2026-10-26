@@ -6,6 +6,10 @@
 //
 // npm run build-engine compiles src/ first, because the platform name comes from out/engine.js, the
 // same code that loads the module. Cargo runs at most 4 jobs (CARGO_BUILD_JOBS), so the machine stays usable.
+//
+// On glibc Linux it builds with cargo-zigbuild against glibc 2.28, the oldest glibc Visual Studio Code supports.
+// A module built against the build machine's newer glibc fails to load in older systems, and in the Snap
+// build of Visual Studio Code. mise.toml installs zig and cargo-zigbuild (mise install).
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -21,7 +25,19 @@ if (platform === null) {
 	process.exit(1);
 }
 
-const args = ['build', '--manifest-path', path.join(NATIVE, 'Cargo.toml'), '-p', 'git-tree-engine-node', '--locked'];
+// The Rust target for glibc Linux, which cargo-zigbuild builds against GLIBC_TARGET; NULL => the host's own target
+const GLIBC_TARGET = '2.28';
+const RUST_ARCH = { x64: 'x86_64', arm64: 'aarch64' };
+const target = platform.endsWith('-gnu') ? RUST_ARCH[process.arch] + '-unknown-linux-gnu' : null;
+if (target !== null && cp.spawnSync('cargo', ['zigbuild', '--help'], { stdio: 'ignore' }).status !== 0) {
+	console.error('Building the engine for Linux needs cargo-zigbuild and zig. Run mise install, or install them yourself.');
+	process.exit(1);
+}
+
+const args = target !== null
+	? ['zigbuild', '--target', target + '.' + GLIBC_TARGET]
+	: ['build'];
+args.push('--manifest-path', path.join(NATIVE, 'Cargo.toml'), '-p', 'git-tree-engine-node', '--locked');
 if (!debug) args.push('--release');
 const env = Object.assign({}, process.env);
 if (!env.CARGO_BUILD_JOBS) env.CARGO_BUILD_JOBS = '4';
@@ -36,7 +52,7 @@ if (result.status !== 0) {
 const library = process.platform === 'win32'
 	? 'git_tree_engine_node.dll'
 	: 'libgit_tree_engine_node.' + (process.platform === 'darwin' ? 'dylib' : 'so');
-const built = path.join(NATIVE, 'target', debug ? 'debug' : 'release', library);
+const built = path.join(NATIVE, 'target', ...(target !== null ? [target] : []), debug ? 'debug' : 'release', library);
 const destination = getEnginePath(platform);
 fs.mkdirSync(path.dirname(destination), { recursive: true });
 fs.copyFileSync(built, destination);

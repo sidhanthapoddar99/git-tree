@@ -1,5 +1,8 @@
 [tools]
 node = "24"
+# Build the engine for Linux against glibc 2.28, the oldest glibc Visual Studio Code supports
+zig = "0.17.0"
+"cargo:cargo-zigbuild" = "0.24.0"
 
 [tasks.setup]
 description = "Install the npm dependencies, and build the demo repository."

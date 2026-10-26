@@ -169,6 +169,12 @@ function createEngine(native: NativeModule): Engine {
  * Is Node.js running on a Linux that uses the musl C library (for example Alpine), rather than glibc?
  */
 function isMusl() {
-	const report = process.report ? <{ header?: { glibcVersionRuntime?: string } }>process.report.getReport() : null;
-	return report !== null && typeof report.header === 'object' && typeof report.header.glibcVersionRuntime === 'undefined';
+	// musl installs its dynamic loader as /lib/ld-musl-<arch>.so.1. process.report can't tell: in Visual Studio Code's
+	// Electron, getReport() doesn't return the report object that Node.js does. A wrong answer only means the wrong
+	// module fails to load, which loadEngine reports.
+	try {
+		return fs.readdirSync('/lib').some((name) => name.startsWith('ld-musl-'));
+	} catch (_) {
+		return false;
+	}
 }
