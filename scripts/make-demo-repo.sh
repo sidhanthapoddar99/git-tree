@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the demo repository that the Extension Development Host opens (see CONTRIBUTING.md).
 #
-# It writes, under dev-workspace/:
+# It writes, under dev-workspace/ (or under $DEMO_DIR when that is set):
 #   demo-repo/             a small TypeScript project, "Skycast", with about three months of history
 #                          from four authors: feature branches, merges, a release branch, tags,
 #                          a stash, uncommitted changes, and remote branches
@@ -9,13 +9,14 @@
 #   demo-hotfix/           a linked worktree outside the repository
 #   demo-origin.git/       a bare repository that acts as the remote "origin"
 #
-# Usage: scripts/make-demo-repo.sh [--force | --if-missing]
+# Usage: [DEMO_DIR=/some/folder] scripts/make-demo-repo.sh [--force | --if-missing]
 #   --force       delete and rebuild the demo folders
 #   --if-missing  do nothing when the demo repository already exists (used before F5)
+#   DEMO_DIR      build the demo somewhere else, for example a throwaway copy in /tmp
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WS="$ROOT/dev-workspace"
+WS="${DEMO_DIR:-$ROOT/dev-workspace}"
 REPO="$WS/demo-repo"
 ORIGIN="$WS/demo-origin.git"
 HOTFIX="$WS/demo-hotfix"
@@ -27,7 +28,7 @@ case "${1:-}" in
 	*) echo "Usage: $0 [--force | --if-missing]" >&2; exit 2 ;;
 esac
 
-# Only ever delete the generated folders, and only inside dev-workspace/
+# Only ever delete the three generated folders
 if [ -d "$REPO/.git" ]; then git -C "$REPO" worktree list --porcelain | sed -n 's/^worktree //p' | tail -n +2 | while read -r wt; do git -C "$REPO" worktree remove --force "$wt" 2>/dev/null || true; done; fi
 rm -rf "$REPO" "$ORIGIN" "$HOTFIX"
 mkdir -p "$WS"
