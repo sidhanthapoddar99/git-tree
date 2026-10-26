@@ -7,15 +7,23 @@ import { ExtensionState } from './extensionState';
 import { Logger } from './logger';
 import { RepoFileWatcher } from './repoFileWatcher';
 import { RepoManager } from './repoManager';
-import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewInitialState, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
-import { UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, getNonce, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
+import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewConfig, GitTreeViewInitialState, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
+import { UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, getNonce, getRepoName, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
 
 /**
  * Manages the Git Tree View.
  */
 export class GitTreeView extends Disposable {
-	public static currentPanel: GitTreeView | undefined;
+	// Every open Git Tree View, most recently active first. Each view is its own editor tab.
+	private static readonly views: GitTreeView[] = [];
+
+	/**
+	 * The most recently active Git Tree View, if one is open.
+	 */
+	public static get currentPanel(): GitTreeView | undefined {
+		return GitTreeView.views[0];
+	}
 
 	private readonly panel: vscode.WebviewPanel;
 	private readonly extensionPath: string;
@@ -27,14 +35,19 @@ export class GitTreeView extends Disposable {
 	private readonly logger: Logger;
 	private isGraphViewLoaded: boolean = false;
 	private isPanelVisible: boolean = true;
-	private currentRepo: string | null = null;
+	private currentRepo: string | null = null; // The repository the file watcher follows. It is reset to null while the view is hidden.
+	private shownRepo: string | null = null; // The repository this view shows. It is kept while the view is hidden.
 	private loadViewTo: LoadGitTreeViewTo = null; // Is used by the next call to getHtmlForWebview, and is then reset to null
+	private readonly retainContextWhenHidden: boolean;
+	private renderedConfig: string | null = null; // The configuration the loaded HTML was built with, or NULL if the HTML must be rebuilt when next shown
 
 	private loadRepoInfoRefreshId: number = 0;
 	private loadCommitsRefreshId: number = 0;
 
 	/**
-	 * If a Git Tree View already exists, show and update it. Otherwise, create a Git Tree View.
+	 * Show and update a Git Tree View that already exists, or create one.
+	 *
+	 * A repository is shown in the view that already shows it. If no view shows it, it opens in a new view, unless the most recently active view shows no repository yet.
 	 * @param extensionPath The absolute file path of the directory containing the extension.
 	 * @param dataSource The Git Tree DataSource instance.
 	 * @param extensionState The Git Tree ExtensionState instance.
@@ -42,26 +55,45 @@ export class GitTreeView extends Disposable {
 	 * @param repoManager The Git Tree RepoManager instance.
 	 * @param logger The Git Tree Logger instance.
 	 * @param loadViewTo What to load the view to.
+	 * @param inNewTab Always create a new Git Tree View, in its own tab (default: `FALSE`).
 	 */
-	public static createOrShow(extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger, loadViewTo: LoadGitTreeViewTo) {
+	public static createOrShow(extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger, loadViewTo: LoadGitTreeViewTo, inNewTab: boolean = false) {
 		const column = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined;
+		const view = inNewTab ? undefined : GitTreeView.findView(loadViewTo);
 
-		if (GitTreeView.currentPanel) {
-			// If Git Tree panel already exists
-			if (GitTreeView.currentPanel.isPanelVisible) {
+		if (view) {
+			// If a suitable Git Tree panel already exists
+			if (loadViewTo !== null) {
+				view.shownRepo = loadViewTo.repo;
+			}
+			if (view.isPanelVisible) {
 				// If the Git Tree panel is visible
 				if (loadViewTo !== null) {
-					GitTreeView.currentPanel.respondLoadRepos(repoManager.getRepos(), loadViewTo);
+					view.respondLoadRepos(repoManager.getRepos(), loadViewTo);
 				}
 			} else {
 				// If the Git Tree panel is not visible
-				GitTreeView.currentPanel.loadViewTo = loadViewTo;
+				view.loadViewTo = loadViewTo;
 			}
-			GitTreeView.currentPanel.panel.reveal(column);
+			view.panel.reveal(column);
 		} else {
-			// If Git Tree panel doesn't already exist
-			GitTreeView.currentPanel = new GitTreeView(extensionPath, dataSource, extensionState, avatarManager, repoManager, logger, loadViewTo, column);
+			// If no suitable Git Tree panel exists
+			GitTreeView.views.unshift(new GitTreeView(extensionPath, dataSource, extensionState, avatarManager, repoManager, logger, loadViewTo, column));
 		}
+	}
+
+	/**
+	 * Find the open Git Tree View to show.
+	 * @param loadViewTo What to load the view to.
+	 * @returns The view showing the requested repository. If no repository is requested, or no view has shown one yet, the most recently active view. Otherwise undefined.
+	 */
+	private static findView(loadViewTo: LoadGitTreeViewTo) {
+		const recentView = GitTreeView.views[0];
+		if (loadViewTo === null || typeof recentView === 'undefined') {
+			return recentView;
+		}
+		return GitTreeView.views.find((view) => view.shownRepo === loadViewTo.repo)
+			|| (recentView.shownRepo === null ? recentView : undefined);
 	}
 
 	/**
@@ -84,12 +116,14 @@ export class GitTreeView extends Disposable {
 		this.repoManager = repoManager;
 		this.logger = logger;
 		this.loadViewTo = loadViewTo;
+		this.shownRepo = loadViewTo !== null ? loadViewTo.repo : null;
 
 		const config = getConfig();
+		this.retainContextWhenHidden = config.retainContextWhenHidden;
 		this.panel = vscode.window.createWebviewPanel('git-tree', 'Git Tree', column || vscode.ViewColumn.One, {
 			enableScripts: true,
 			localResourceRoots: [vscode.Uri.file(path.join(extensionPath, 'media'))],
-			retainContextWhenHidden: config.retainContextWhenHidden
+			retainContextWhenHidden: this.retainContextWhenHidden
 		});
 		this.panel.iconPath = config.tabIconColourTheme === TabIconColourTheme.Colour
 			? this.getResourcesUri('webview-icon.svg')
@@ -102,7 +136,10 @@ export class GitTreeView extends Disposable {
 		this.registerDisposables(
 			// Dispose Git Tree View resources when disposed
 			toDisposable(() => {
-				GitTreeView.currentPanel = undefined;
+				const index = GitTreeView.views.indexOf(this);
+				if (index > -1) {
+					GitTreeView.views.splice(index, 1);
+				}
 				this.repoFileWatcher.stop();
 			}),
 
@@ -111,9 +148,17 @@ export class GitTreeView extends Disposable {
 
 			// Register a callback that is called when the view is shown or hidden
 			this.panel.onDidChangeViewState(() => {
+				if (this.panel.active) {
+					// Keep the most recently active view first
+					const index = GitTreeView.views.indexOf(this);
+					if (index > 0) {
+						GitTreeView.views.splice(index, 1);
+						GitTreeView.views.unshift(this);
+					}
+				}
 				if (this.panel.visible !== this.isPanelVisible) {
 					if (this.panel.visible) {
-						this.update();
+						this.show();
 					} else {
 						this.currentRepo = null;
 						this.repoFileWatcher.stop();
@@ -124,7 +169,11 @@ export class GitTreeView extends Disposable {
 
 			// Subscribe to events triggered when a repository is added or deleted from Git Tree
 			repoManager.onDidChangeRepos((event) => {
-				if (!this.panel.visible) return;
+				if (!this.panel.visible) {
+					// The HTML holds the known repositories, so rebuild it when the view is next shown
+					this.renderedConfig = null;
+					return;
+				}
 				const loadViewTo = event.loadRepo !== null ? { repo: event.loadRepo } : null;
 				if ((event.numRepos === 0 && this.isGraphViewLoaded) || (event.numRepos > 0 && !this.isGraphViewLoaded)) {
 					this.loadViewTo = loadViewTo;
@@ -446,8 +495,10 @@ export class GitTreeView extends Disposable {
 				});
 				if (msg.repo !== this.currentRepo) {
 					this.currentRepo = msg.repo;
+					this.shownRepo = msg.repo;
 					this.extensionState.setLastActiveRepo(msg.repo);
 					this.repoFileWatcher.start(msg.repo);
+					this.updateTitle();
 				}
 				break;
 			case 'loadRepos':
@@ -681,43 +732,84 @@ export class GitTreeView extends Disposable {
 	}
 
 	/**
+	 * Bring the Webview up to date when it becomes visible.
+	 *
+	 * A Webview kept alive while hidden only needs to catch up, which avoids reloading the whole page on every tab switch. The page is rebuilt if it wasn't kept alive, or if what the HTML was built from has changed.
+	 */
+	private show() {
+		if (!this.retainContextWhenHidden || !this.isGraphViewLoaded || this.renderedConfig !== this.getConfigKey()) {
+			this.update();
+		} else if (this.loadViewTo !== null) {
+			this.respondLoadRepos(this.repoManager.getRepos(), this.loadViewTo);
+			this.loadViewTo = null;
+		} else {
+			this.sendMessage({ command: 'refresh' });
+		}
+	}
+
+	/**
+	 * Set the title of the panel's tab to the name of the repository it shows, so tabs of different repositories can be told apart.
+	 */
+	private updateTitle() {
+		const repo = this.shownRepo !== null ? this.repoManager.getRepos()[this.shownRepo] : undefined;
+		this.panel.title = repo && this.shownRepo !== null ? 'Git Tree: ' + (repo.name || getRepoName(this.shownRepo)) : 'Git Tree';
+	}
+
+	/**
+	 * Get a key for the settings the Webview's HTML is built from, used to tell whether the HTML must be rebuilt.
+	 * @returns The key.
+	 */
+	private getConfigKey() {
+		return JSON.stringify([this.getViewConfig(), this.dataSource.isGitExecutableUnknown()]);
+	}
+
+	/**
+	 * Get the configuration of the Webview.
+	 * @returns The configuration.
+	 */
+	private getViewConfig(): GitTreeViewConfig {
+		const config = getConfig();
+		return {
+			commitDetailsView: config.commitDetailsView,
+			commitOrdering: config.commitOrder,
+			contextMenuActionsVisibility: config.contextMenuActionsVisibility,
+			customBranchGlobPatterns: config.customBranchGlobPatterns,
+			customEmojiShortcodeMappings: config.customEmojiShortcodeMappings,
+			customPullRequestProviders: config.customPullRequestProviders,
+			dateFormat: config.dateFormat,
+			defaultColumnVisibility: config.defaultColumnVisibility,
+			dialogDefaults: config.dialogDefaults,
+			enhancedAccessibility: config.enhancedAccessibility,
+			fetchAndPrune: config.fetchAndPrune,
+			fetchAndPruneTags: config.fetchAndPruneTags,
+			fetchAvatars: config.fetchAvatars && this.extensionState.isAvatarStorageAvailable(),
+			graph: config.graph,
+			includeCommitsMentionedByReflogs: config.includeCommitsMentionedByReflogs,
+			initialLoadCommits: config.initialLoadCommits,
+			keybindings: config.keybindings,
+			loadMoreCommits: config.loadMoreCommits,
+			loadMoreCommitsAutomatically: config.loadMoreCommitsAutomatically,
+			markdown: config.markdown,
+			mute: config.muteCommits,
+			onlyFollowFirstParent: config.onlyFollowFirstParent,
+			onRepoLoad: config.onRepoLoad,
+			referenceLabels: config.referenceLabels,
+			repoDropdownOrder: config.repoDropdownOrder,
+			showRemoteBranches: config.showRemoteBranches,
+			showStashes: config.showStashes,
+			showTags: config.showTags,
+			worktreeDefaultLocation: config.worktreeDefaultLocation
+		};
+	}
+
+	/**
 	 * Get the HTML document to be loaded in the Webview.
 	 * @returns The HTML.
 	 */
 	private getHtmlForWebview() {
-		const config = getConfig(), nonce = getNonce();
+		const nonce = getNonce();
 		const initialState: GitTreeViewInitialState = {
-			config: {
-				commitDetailsView: config.commitDetailsView,
-				commitOrdering: config.commitOrder,
-				contextMenuActionsVisibility: config.contextMenuActionsVisibility,
-				customBranchGlobPatterns: config.customBranchGlobPatterns,
-				customEmojiShortcodeMappings: config.customEmojiShortcodeMappings,
-				customPullRequestProviders: config.customPullRequestProviders,
-				dateFormat: config.dateFormat,
-				defaultColumnVisibility: config.defaultColumnVisibility,
-				dialogDefaults: config.dialogDefaults,
-				enhancedAccessibility: config.enhancedAccessibility,
-				fetchAndPrune: config.fetchAndPrune,
-				fetchAndPruneTags: config.fetchAndPruneTags,
-				fetchAvatars: config.fetchAvatars && this.extensionState.isAvatarStorageAvailable(),
-				graph: config.graph,
-				includeCommitsMentionedByReflogs: config.includeCommitsMentionedByReflogs,
-				initialLoadCommits: config.initialLoadCommits,
-				keybindings: config.keybindings,
-				loadMoreCommits: config.loadMoreCommits,
-				loadMoreCommitsAutomatically: config.loadMoreCommitsAutomatically,
-				markdown: config.markdown,
-				mute: config.muteCommits,
-				onlyFollowFirstParent: config.onlyFollowFirstParent,
-				onRepoLoad: config.onRepoLoad,
-				referenceLabels: config.referenceLabels,
-				repoDropdownOrder: config.repoDropdownOrder,
-				showRemoteBranches: config.showRemoteBranches,
-				showStashes: config.showStashes,
-				showTags: config.showTags,
-				worktreeDefaultLocation: config.worktreeDefaultLocation
-			},
+			config: this.getViewConfig(),
 			lastActiveRepo: this.extensionState.getLastActiveRepo(),
 			loadViewTo: this.loadViewTo,
 			repos: this.repoManager.getRepos(),
@@ -773,6 +865,7 @@ export class GitTreeView extends Disposable {
 		}
 		this.isGraphViewLoaded = numRepos > 0;
 		this.loadViewTo = null;
+		this.renderedConfig = this.getConfigKey();
 
 		return `<!DOCTYPE html>
 		<html lang="en">

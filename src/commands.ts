@@ -47,6 +47,7 @@ export class CommandManager extends Disposable {
 
 		// Register Extension Commands
 		this.registerCommand('git-tree.view', (arg) => this.view(arg));
+		this.registerCommand('git-tree.viewInNewTab', () => this.viewInNewTab());
 		this.registerCommand('git-tree.addGitRepository', () => this.addGitRepository());
 		this.registerCommand('git-tree.removeGitRepository', () => this.removeGitRepository());
 		this.registerCommand('git-tree.clearAvatarCache', () => this.clearAvatarCache());
@@ -107,7 +108,7 @@ export class CommandManager extends Disposable {
 	private async view(arg: any) {
 		let loadRepo: string | null = null;
 
-		if (typeof arg === 'object' && arg.rootUri) {
+		if (typeof arg === 'object' && arg !== null && arg.rootUri) {
 			// If command is run from the Visual Studio Code Source Control View, load the specific repo
 			const repoPath = getPathFromUri(arg.rootUri);
 			loadRepo = await this.repoManager.getKnownRepo(repoPath);
@@ -121,6 +122,34 @@ export class CommandManager extends Disposable {
 		}
 
 		GitTreeView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, loadRepo !== null ? { repo: loadRepo } : null);
+	}
+
+	/**
+	 * The method run when the `git-tree.viewInNewTab` command is invoked.
+	 */
+	private viewInNewTab() {
+		const repos = this.repoManager.getRepos();
+		const repoPaths = getSortedRepositoryPaths(repos, getConfig().repoDropdownOrder);
+
+		if (repoPaths.length > 1) {
+			const items: vscode.QuickPickItem[] = repoPaths.map((path) => ({
+				label: repos[path].name || getRepoName(path),
+				description: path
+			}));
+
+			vscode.window.showQuickPick(items, {
+				placeHolder: 'Select the repository you want to open in a new Git Tree tab:',
+				canPickMany: false
+			}).then((item) => {
+				if (item && item.description) {
+					GitTreeView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, { repo: item.description }, true);
+				}
+			}, () => {
+				showErrorMessage('An unexpected error occurred while running the command "View Git Tree in New Tab".');
+			});
+		} else {
+			GitTreeView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, repoPaths.length === 1 ? { repo: repoPaths[0] } : null, true);
+		}
 	}
 
 	/**

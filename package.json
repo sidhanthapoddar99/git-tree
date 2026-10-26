@@ -51,6 +51,12 @@
 			},
 			{
 				"category": "Git Tree",
+				"command": "git-tree.viewInNewTab",
+				"title": "View Git Tree in New Tab...",
+				"icon": "$(add)"
+			},
+			{
+				"category": "Git Tree",
 				"command": "git-tree.addGitRepository",
 				"title": "Add Git Repository..."
 			},
@@ -1499,6 +1505,23 @@
 					"command": "git-tree.openFile",
 					"group": "navigation",
 					"when": "isInDiffEditor && resourceScheme == git-tree && git-tree:codiconsSupported"
+				},
+				{
+					"command": "git-tree.viewInNewTab",
+					"group": "navigation",
+					"when": "activeWebviewPanelId == 'git-tree'"
+				}
+			],
+			"scm/repository": [
+				{
+					"when": "scmProvider == git && config.git-tree.sourceCodeProviderIntegrationLocation == 'Inline'",
+					"command": "git-tree.view",
+					"group": "inline"
+				},
+				{
+					"when": "scmProvider == git && config.git-tree.sourceCodeProviderIntegrationLocation == 'More Actions'",
+					"command": "git-tree.view",
+					"group": "navigation"
 				}
 			],
 			"scm/title": [

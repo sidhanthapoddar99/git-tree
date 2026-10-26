@@ -79,7 +79,7 @@ describe('GitTreeView', () => {
 	});
 
 	afterEach(() => {
-		if (GitTreeView.currentPanel) {
+		while (GitTreeView.currentPanel) {
 			GitTreeView.currentPanel.dispose();
 		}
 	});
@@ -155,6 +155,76 @@ describe('GitTreeView', () => {
 					}
 				}
 			]);
+		});
+
+		describe('Multiple tabs', () => {
+			it('Should open a repository in a new tab when the open tab shows a different repository', () => {
+				// Setup
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1' });
+
+				// Run
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo2' });
+
+				// Assert
+				expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(2);
+				expect(vscode.getMockedWebviewPanel(0).panel.reveal).not.toHaveBeenCalled();
+				expect(vscode.getMockedWebviewPanel(1).panel.webview.html).toContain('"loadViewTo":{"repo":"/path/to/repo2"}');
+				expect(GitTreeView.currentPanel!['panel']).toBe(vscode.getMockedWebviewPanel(1).panel);
+			});
+
+			it('Should reveal the tab that already shows the repository', () => {
+				// Setup
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1' });
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo2' });
+
+				// Run
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1' });
+
+				// Assert
+				expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(2);
+				expect(vscode.getMockedWebviewPanel(0).panel.reveal).toHaveBeenCalledTimes(1);
+				expect(vscode.getMockedWebviewPanel(1).panel.reveal).not.toHaveBeenCalled();
+			});
+
+			it('Should reveal the most recently active tab when no repository is requested', () => {
+				// Setup
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1' });
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo2' });
+				vscode.getMockedWebviewPanel(0).mocks.panel.onDidChangeViewState({ webviewPanel: vscode.getMockedWebviewPanel(0).panel });
+
+				// Run
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+
+				// Assert
+				expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(2);
+				expect(vscode.getMockedWebviewPanel(0).panel.reveal).toHaveBeenCalledTimes(1);
+			});
+
+			it('Should always open a new tab when asked to', () => {
+				// Setup
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo' });
+
+				// Run
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo' }, true);
+
+				// Assert
+				expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(2);
+				expect(vscode.getMockedWebviewPanel(0).panel.reveal).not.toHaveBeenCalled();
+			});
+
+			it('Should forget a tab when it is closed, and keep the others', () => {
+				// Setup
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1' });
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo2' });
+
+				// Run
+				vscode.getMockedWebviewPanel(1).mocks.panel.onDidDispose();
+
+				// Assert
+				expect(GitTreeView.currentPanel!['panel']).toBe(vscode.getMockedWebviewPanel(0).panel);
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo2' });
+				expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(3);
+			});
 		});
 
 		it('Should construct a new WebviewPanel, providing loadViewTo', () => {
@@ -272,7 +342,7 @@ describe('GitTreeView', () => {
 				expect(GitTreeView.currentPanel!['isPanelVisible']).toBe(false);
 			});
 
-			it('Should transition from not-visible to visible correctly', () => {
+			it('Should transition from not-visible to visible correctly, refreshing the page that was kept alive', () => {
 				// Setup
 				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
 				const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
@@ -283,8 +353,86 @@ describe('GitTreeView', () => {
 				mockedWebviewPanel.mocks.panel.setVisibility(true);
 
 				// Assert
-				expect(mockedWebviewPanel.panel.webview.html).not.toBe('');
+				expect(mockedWebviewPanel.panel.webview.html).toBe('');
+				expect(mockedWebviewPanel.mocks.messages).toStrictEqual([{ command: 'refresh' }]);
 				expect(GitTreeView.currentPanel!['isPanelVisible']).toBe(true);
+			});
+
+			it('Should send the pending loadViewTo to the page that was kept alive', () => {
+				// Setup
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+				const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+				mockedWebviewPanel.mocks.panel.setVisibility(false);
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo' });
+				GitTreeView.currentPanel!['panel']['webview'].html = '';
+
+				// Run
+				mockedWebviewPanel.mocks.panel.setVisibility(true);
+
+				// Assert
+				expect(mockedWebviewPanel.panel.webview.html).toBe('');
+				expect(mockedWebviewPanel.mocks.messages).toStrictEqual([
+					{
+						command: 'loadRepos',
+						lastActiveRepo: null,
+						loadViewTo: { repo: '/path/to/repo' },
+						repos: {
+							'/path/to/repo': mockRepoState()
+						}
+					}
+				]);
+				expect(GitTreeView.currentPanel!['loadViewTo']).toBe(null);
+			});
+
+			it('Should rebuild the page when it is shown, if a setting changed while it was hidden', () => {
+				// Setup
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+				const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+				mockedWebviewPanel.mocks.panel.setVisibility(false);
+				GitTreeView.currentPanel!['panel']['webview'].html = '';
+				vscode.mockExtensionSettingReturnValue('repository.showTags', false);
+
+				// Run
+				mockedWebviewPanel.mocks.panel.setVisibility(true);
+
+				// Assert
+				expect(mockedWebviewPanel.panel.webview.html).toContain('"showTags":false');
+				expect(mockedWebviewPanel.mocks.messages).toStrictEqual([]);
+			});
+
+			it('Should rebuild the page when it is shown, if the repositories changed while it was hidden', () => {
+				// Setup
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+				const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+				mockedWebviewPanel.mocks.panel.setVisibility(false);
+				onDidChangeRepos.emit({
+					repos: { '/path/to/repo': mockRepoState() },
+					numRepos: 1,
+					loadRepo: null
+				});
+				GitTreeView.currentPanel!['panel']['webview'].html = '';
+
+				// Run
+				mockedWebviewPanel.mocks.panel.setVisibility(true);
+
+				// Assert
+				expect(mockedWebviewPanel.panel.webview.html).not.toBe('');
+				expect(mockedWebviewPanel.mocks.messages).toStrictEqual([]);
+			});
+
+			it('Should rebuild the page when it is shown, if it wasn\'t kept alive', () => {
+				// Setup
+				vscode.mockExtensionSettingReturnValue('retainContextWhenHidden', false);
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+				const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+				mockedWebviewPanel.mocks.panel.setVisibility(false);
+				GitTreeView.currentPanel!['panel']['webview'].html = '';
+
+				// Run
+				mockedWebviewPanel.mocks.panel.setVisibility(true);
+
+				// Assert
+				expect(mockedWebviewPanel.panel.webview.html).not.toBe('');
 			});
 
 			it('Should ignore events if they have no effect', () => {
@@ -2449,6 +2597,7 @@ describe('GitTreeView', () => {
 					]);
 					expect(GitTreeView.currentPanel!['currentRepo']).toBe('/path/to/repo');
 					expect(GitTreeView.currentPanel!['loadRepoInfoRefreshId']).toBe(0);
+					expect(GitTreeView.currentPanel!['panel'].title).toBe('Git Tree: repo');
 				});
 			});
 

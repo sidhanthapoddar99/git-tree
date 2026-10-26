@@ -73,7 +73,7 @@ describe('CommandManager', () => {
 
 	it('Should construct a CommandManager, and be disposed', () => {
 		// Assert
-		expect(commandManager['disposables']).toHaveLength(11);
+		expect(commandManager['disposables']).toHaveLength(12);
 		expect(commandManager['gitExecutable']).toStrictEqual({
 			path: '/path/to/git',
 			version: '2.25.0'
@@ -185,6 +185,19 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.view');
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+			});
+		});
+
+		it('Should open the Git Tree View when the argument is null', async () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('openToTheRepoOfTheActiveTextEditorDocument', false);
+
+			// Run
+			vscode.commands.executeCommand('git-tree.view', null);
+
+			// Assert
+			await waitForExpect(() => {
 				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
 			});
 		});
@@ -571,6 +584,77 @@ describe('CommandManager', () => {
 				expect(spyOnClearCache).toBeCalledTimes(1);
 				expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('An unexpected error occurred while running the command "Clear Avatar Cache".');
 			});
+		});
+	});
+
+	describe('git-tree.viewInNewTab', () => {
+		it('Should display a quick pick, and open the selected repository in a new tab', async () => {
+			// Setup
+			spyOnGetRepos.mockReturnValueOnce({
+				'/path/to/repo1': mockRepoState({ name: null, workspaceFolderIndex: 0 }),
+				'/path/to/repo2': mockRepoState({ name: 'Custom Name', workspaceFolderIndex: 0 })
+			});
+			vscode.window.showQuickPick.mockResolvedValueOnce({
+				label: 'Custom Name',
+				description: '/path/to/repo2'
+			});
+
+			// Run
+			vscode.commands.executeCommand('git-tree.viewInNewTab');
+
+			// Assert
+			await waitForExpect(() => {
+				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.viewInNewTab');
+				expect(vscode.window.showQuickPick).toHaveBeenCalledWith(
+					[
+						{
+							label: 'repo1',
+							description: '/path/to/repo1'
+						},
+						{
+							label: 'Custom Name',
+							description: '/path/to/repo2'
+						}
+					],
+					{
+						placeHolder: 'Select the repository you want to open in a new Git Tree tab:',
+						canPickMany: false
+					}
+				);
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo2' }, true);
+			});
+		});
+
+		it('Should open nothing when the quick pick is dismissed', async () => {
+			// Setup
+			spyOnGetRepos.mockReturnValueOnce({
+				'/path/to/repo1': mockRepoState({ name: null, workspaceFolderIndex: 0 }),
+				'/path/to/repo2': mockRepoState({ name: null, workspaceFolderIndex: 0 })
+			});
+			vscode.window.showQuickPick.mockResolvedValueOnce(undefined);
+
+			// Run
+			vscode.commands.executeCommand('git-tree.viewInNewTab');
+
+			// Assert
+			await waitForExpect(() => expect(vscode.window.showQuickPick).toHaveBeenCalled());
+			expect(spyOnGitTreeViewCreateOrShow).not.toHaveBeenCalled();
+		});
+
+		it('Should open the only repository in a new tab, without a quick pick', async () => {
+			// Setup
+			spyOnGetRepos.mockReturnValueOnce({
+				'/path/to/repo1': mockRepoState({ name: null, workspaceFolderIndex: 0 })
+			});
+
+			// Run
+			vscode.commands.executeCommand('git-tree.viewInNewTab');
+
+			// Assert
+			await waitForExpect(() => {
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1' }, true);
+			});
+			expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
 		});
 	});
 
