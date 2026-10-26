@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-10-27
+
+### Changed
+
+- Better Marketplace tags, including `worktrees`, `history`, `git graph` and `rust`, and the *SCM Providers* and *Visualization* categories.
+
 ## [0.3.4] - 2026-10-26
 
 ### Changed
@@ -117,7 +123,8 @@ The first version of Git Tree.
 
 - Telemetry. Git Tree sends no usage data.
 
-[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.1...v0.3.2
