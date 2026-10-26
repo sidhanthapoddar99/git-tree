@@ -1,5 +1,15 @@
 # Change Log
 
+## 0.3.1
+
+* **Choose the worktree to view.** A new *Worktree* dropdown in the top bar lists the main worktree and every linked worktree. The graph, the branch filter, uncommitted changes and Git actions then use that worktree. The tab's title names it when it isn't the main worktree. A worktree's context menu also has *Show This Worktree*.
+* **Uncommitted changes in every worktree.** Each worktree with uncommitted changes gets its own *Uncommitted Changes* row, labelled with the worktree's name and drawn from the commit it's on. Click the row to switch to that worktree and see its changes. When Git can't read a worktree's status, the row says so. Every worktree is watched, including those outside the repository, so the rows stay up to date.
+* **Worktree location setting.** `git-tree.worktree.defaultLocation` now has its own *Worktrees* section in the Settings editor. It takes a path relative to the repository, `~` for your home folder, an absolute path, and `{repo}` for the repository's folder name, for example `~/worktrees/{repo}`. The Create Worktree dialog accepts the same forms.
+* **Copy a file's path in another worktree.** In Commit Details, a file's context menu has *Copy Absolute File Path in Another Worktree...*, because the same file has a different absolute path in each worktree.
+* **A top bar that stays on one row.** In a narrow view, the dropdowns shrink and the text labels hide, instead of the controls wrapping onto more rows. An open dropdown keeps its full width and stays inside the view.
+* **When several worktrees exist, every one is labelled**, including the one being viewed.
+* New logo and icons: three branches growing from one root.
+
 ## 0.2.0
 
 * **One tab per repository.** A repository opens in the tab that already shows it, or in a new tab, so you can keep several repositories open side by side. *View Git Tree in New Tab...* (a command, and a button in the tab's title bar) opens another one. Each tab's title names its repository.

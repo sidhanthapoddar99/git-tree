@@ -6,6 +6,7 @@ Its highlights:
 
 * **Worktrees in the graph.** A branch that is checked out in another worktree shows that worktree's name on its label. A worktree on a detached HEAD gets its own label on its commit.
 * **Worktree actions.** Create a worktree from a commit or a branch, open it in a new or the current window, remove it, or copy its path.
+* **View any worktree.** The *Worktree* dropdown switches the view between the main worktree and its linked worktrees, and each worktree's uncommitted changes get their own row.
 * **One tab per repository.** Keep several repositories open in their own tabs, side by side.
 * **Fast in large repositories.** Git Tree writes Git's commit-graph file when a repository has none, which makes the graph load several times faster.
 * **Colours that follow your theme.** Rows, labels, inputs and the graph palette are tuned for light and dark themes.
@@ -18,9 +19,21 @@ Right-click to use worktrees:
 * **A commit:** *Create Worktree...* Enter a new branch name to create that branch at the commit and check it out in the worktree. Leave the branch blank to check out the commit itself (a detached HEAD).
 * **A branch that isn't checked out:** *Create Worktree...* checks the branch out in a new worktree.
 * **A branch that is checked out in another worktree:** *Open Worktree in New Window*. Git won't check out or delete such a branch, so those actions are hidden.
-* **A worktree label:** open the worktree in a new window or this one, remove it, or copy its path. Double-click a worktree label to open it in a new window.
+* **A worktree label:** show the worktree in this view, open it in a new window or this one, remove it, or copy its path. Double-click a worktree label to open it in a new window.
 
-New worktrees go in the `.worktrees` folder of the main worktree by default, for example `.worktrees/feature-login`. You can type another folder in the dialog, or change the default with `git-tree.worktree.defaultLocation`. When the folder is inside the repository, Git Tree adds it to `.git/info/exclude`, so the worktrees don't show up as untracked files.
+The *Worktree* dropdown in the top bar picks the worktree the view shows. The graph's uncommitted changes, the checked-out branch and every Git action then belong to that worktree. The dropdown appears when the repository has more than one worktree.
+
+Each worktree with uncommitted changes gets its own *Uncommitted Changes* row, labelled with the worktree's name. Click another worktree's row to switch to that worktree and open its changes.
+
+The same file has a different absolute path in each worktree. In Commit Details, right-click a file and choose *Copy Absolute File Path in Another Worktree...* to copy its path in the worktree you pick.
+
+New worktrees go in the `.worktrees` folder of the main worktree by default, for example `.worktrees/feature-login`. You can type another folder in the dialog, or change the default with `git-tree.worktree.defaultLocation`. Both take:
+
+* a path relative to the main worktree, such as `.worktrees` or `../{repo}-worktrees`
+* `~` for your home folder, such as `~/worktrees/{repo}`
+* an absolute path, such as `/srv/worktrees`
+
+`{repo}` is replaced by the repository's folder name. When the folder is inside the repository, Git Tree adds it to `.git/info/exclude`, so the worktrees don't show up as untracked files.
 
 ## Tabs
 
@@ -96,7 +109,7 @@ All settings start with `git-tree.`. Search for "Git Tree" in the Settings edito
 
 Settings that are new in Git Tree:
 
-* `git-tree.worktree.defaultLocation`: The folder new worktrees are created in, relative to the main worktree, or an absolute path. Default: `.worktrees`.
+* `git-tree.worktree.defaultLocation`: The folder new worktrees are created in. It is relative to the main worktree, starts with `~` for your home folder, or is absolute; `{repo}` is the repository's folder name. It has its own *Worktrees* section in the Settings editor. Default: `.worktrees`.
 * `git-tree.repository.writeCommitGraph`: When a repository has no [commit-graph](https://git-scm.com/docs/git-commit-graph) file, write one in the background. It is the file `git gc` writes, and it needs Git 2.24 or later. Default: on.
 
 If `git-tree.graph.colours` is not set, the graph uses a darker palette on light themes. Custom colours are used on every theme.
