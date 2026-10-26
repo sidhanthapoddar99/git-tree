@@ -118,16 +118,19 @@ Before a release, go through these in the demo repository:
 
 ## Screenshots for the README
 
-The README shows the screenshots in `docs/images/`, as WebP. Take them in the demo repository at about 1400 × 800, with the panel and sidebar closed. Save the PNGs in `docs/images/raw/` (not committed) with these names, then run `mise run screenshots`.
+The README shows two screenshots from `docs/images/`, as WebP. Take them in the demo repository: build a throwaway copy with `DEMO_DIR=/tmp/git-tree-demo scripts/make-demo-repo.sh`, and open `/tmp/git-tree-demo/demo-repo` in VS Code with Git Tree installed. Save the PNGs in `docs/images/raw/` (not committed) with these names:
 
-| File | What it shows |
-| --- | --- |
-| `hero-dark.png` | The whole graph in a dark theme, with the Worktree column and the *All* filter |
-| `graph-light.png` | The same view in a light theme |
-| `worktree-filter.png` | The Worktree dropdown open, with *All*, *Root* and the linked worktrees |
-| `worktree-changes.png` | The *Uncommitted Changes* rows of several worktrees |
-| `create-worktree.png` | The Create Worktree dialog |
-| `commit-details.png` | A commit's details, with its file tree and a file's context menu |
+| File | What it shows | Where the README uses it |
+| --- | --- | --- |
+| `worktree-filter.png` | The graph with the Worktree column, and the Worktree dropdown open | At the top |
+| `commit-menu.png` | A commit's context menu, with *Create Worktree...* | Create, open and remove worktrees |
+
+Then convert them, with either tool:
+
+```bash
+mise run screenshots   # ImageMagick: every PNG in docs/images/raw/, at most 1600 px wide
+agent-ks img docs/images/raw/*.png --format webp --max-dim 1600 --quality 90 --strip --out docs/images
+```
 
 ## Building and packaging
 

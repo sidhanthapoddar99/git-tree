@@ -6,11 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-### Changed
-
-- The logo's hub commit sits a little lower, so the three branches above it read taller.
-- The README compares Git Tree with Git Graph on performance and features.
-
 ## [0.3.2] - 2026-10-26
 
 ### Added
@@ -28,7 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   - *Root* is the default, and each repository remembers your choice.
   - Clicking another worktree's *Uncommitted Changes* row, or *Show This Worktree*, picks that worktree in the filter.
 - New logo and icons: three branches at the top meet in one hub commit, and three lines run below it, one through another commit.
-- The README is rewritten for the Marketplace.
+- The README is rewritten for the Marketplace, with screenshots and a comparison with Git Graph on performance and features.
 
 ### Fixed
 

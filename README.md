@@ -9,7 +9,7 @@
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.82%2B-007ACC.svg)](https://code.visualstudio.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-<!-- ![Git Tree showing a repository with three worktrees in a dark theme](docs/images/hero-dark.webp) -->
+![Git Tree showing a repository with its worktrees: the Worktree column, uncommitted changes, and the Worktree filter open](docs/images/worktree-filter.webp)
 
 ## Why Git Tree?
 
@@ -26,8 +26,6 @@ Worktrees let you keep several branches checked out at once, each in its own fol
 - 🔒 **No telemetry.** Git Tree sends no usage data.
 
 And everything you expect from a Git graph: branches, merges, tags, stashes and remote branches; checkout, merge, rebase, cherry-pick, reset, push and pull from a right-click; commit details with diffs; and comparing any two commits.
-
-<!-- ![The same repository in a light theme](docs/images/graph-light.webp) -->
 
 ## Git Tree compared with Git Graph
 
@@ -80,8 +78,6 @@ The **Worktree** column shows which worktree has each commit checked out. A bran
 
 Each worktree with uncommitted changes gets its own **Uncommitted Changes** row, drawn from the commit it's on and labelled with the worktree's name. Git Tree watches every worktree, including those outside the repository's folder, so the rows stay up to date.
 
-<!-- ![Uncommitted changes in three worktrees](docs/images/worktree-changes.webp) -->
-
 ### Filter by worktree
 
 The **Worktree** dropdown in the top bar filters the graph, the way the Branches dropdown does:
@@ -94,8 +90,6 @@ The **Worktree** dropdown in the top bar filters the graph, the way the Branches
 
 Git actions, such as checkout, commit details and opening files, run in the worktree you pick. Branches you pick in the Branches dropdown are shown as well. The dropdown appears when a repository has more than one worktree.
 
-<!-- ![The Worktree dropdown](docs/images/worktree-filter.webp) -->
-
 ### Create, open and remove worktrees
 
 Right-click to work with worktrees:
@@ -107,7 +101,7 @@ Right-click to work with worktrees:
 
 **Ctrl+click** (**Cmd+click** on macOS) or double-click a worktree label to open that worktree in a new VS Code window.
 
-<!-- ![Creating a worktree](docs/images/create-worktree.webp) -->
+![A commit's context menu, with Create Worktree, Checkout, Cherry Pick, Merge and Rebase](docs/images/commit-menu.webp)
 
 ### Where new worktrees go
 
@@ -130,8 +124,6 @@ A file has a different absolute path in each worktree. In Commit Details, Open F
 ### Commit details and comparisons
 
 Click a commit to see its details and changed files. Click a file to see its diff, or right-click it to open the file, view it at that commit, or copy its path. Ctrl+click (Cmd+click) a second commit to compare the two.
-
-<!-- ![A commit's details](docs/images/commit-details.webp) -->
 
 ### Tabs
 
