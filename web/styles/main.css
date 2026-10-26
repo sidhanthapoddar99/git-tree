@@ -822,28 +822,49 @@ body.tagLabelsRightAligned .gitRef.tag{
 /* Controls */
 
 #controls{
-	display:block;
+	display:flex;
+	flex-wrap:nowrap;
+	justify-content:center;
+	align-items:center;
 	position:relative;
 	left:0;
 	right:0;
 	top:0;
+	height:32px;
 	padding:4px 132px 4px 0;
 	border-bottom:1px solid var(--git-tree-border);
 	line-height:32px;
-	text-align:center;
 	font-weight:700;
 	font-size:13px;
+	white-space:nowrap;
 	-webkit-user-select:none;
 	user-select:none;
 }
 
-#repoControl, #branchControl, #showRemoteBranchesControl{
-	display:inline-block;
-	white-space:nowrap;
+/* The controls stay on one row: each one shrinks, and its dropdown shortens its text with an ellipsis. */
+#repoControl, #branchControl, #worktreeControl, #showRemoteBranchesControl{
+	display:flex;
+	align-items:center;
+	flex:0 1 auto;
+	min-width:0;
 	margin:0 10px;
 }
-#repoDropdown, #branchDropdown{
+#controls .dropdown.loaded{
+	display:block;
+	flex:0 1 auto;
+	min-width:64px;
+	max-width:30vw;
+	margin-top:0;
 	margin-left:3px;
+}
+#controls .dropdownCurrentValue{
+	max-width:100%;
+}
+#branchControl{
+	flex-shrink:2;
+}
+#showRemoteBranchesControl{
+	flex-shrink:0;
 }
 #showRemoteBranchesControl > .customCheckbox{
 	margin-right:6px;
@@ -852,11 +873,23 @@ body.tagLabelsRightAligned .gitRef.tag{
 .dropdownCurrentValue{
 	max-width:30vw;
 }
-#controls.singleRepo #repoControl{
+#controls.singleRepo #repoControl, #controls.singleWorktree #worktreeControl{
 	display:none;
 }
-#controls.singleRepo .dropdownCurrentValue{
-	max-width:40vw;
+
+/* Narrow views drop the text labels first, then the side margins. */
+@media (max-width:760px){
+	#controls .controlText{
+		display:none;
+	}
+	#showRemoteBranchesControl > .customCheckbox{
+		margin-right:0;
+	}
+}
+@media (max-width:480px){
+	#repoControl, #branchControl, #worktreeControl, #showRemoteBranchesControl{
+		margin:0 4px;
+	}
 }
 
 #findBtn, #terminalBtn, #settingsBtn, #fetchBtn, #refreshBtn{

@@ -17,6 +17,7 @@ class Dropdown {
 	private lastSelected: number = 0; // Only used when multipleAllowed === false
 	private dropdownVisible: boolean = false;
 	private lastClicked: number = 0;
+	private menuWidth: number = 0;
 	private doubleClickTimeout: NodeJS.Timeout | null = null;
 
 	private readonly elem: HTMLElement;
@@ -73,7 +74,10 @@ class Dropdown {
 					this.filter();
 				}
 				this.elem.classList.toggle('dropdownOpen');
-				if (this.dropdownVisible) this.filterInput.focus();
+				if (this.dropdownVisible) {
+					this.positionMenu();
+					this.filterInput.focus();
+				}
 			} else if (this.dropdownVisible) {
 				if ((<HTMLElement>e.target).closest('.dropdown') !== this.elem) {
 					this.close();
@@ -238,9 +242,24 @@ class Dropdown {
 		// Width must be at least 138px for the filter element.
 		// Don't need to add 12px if showing (info icons or multi checkboxes) and the scrollbar isn't needed. The scrollbar isn't needed if: menuElem height + filter input (25px) < 297px
 		const menuElemRect = this.menuElem.getBoundingClientRect();
-		this.currentValueElem.style.width = Math.max(Math.ceil(menuElemRect.width) + ((this.showInfo || this.multipleAllowed) && menuElemRect.height < 272 ? 0 : 12), 138) + 'px';
+		this.menuWidth = Math.max(Math.ceil(menuElemRect.width) + ((this.showInfo || this.multipleAllowed) && menuElemRect.height < 272 ? 0 : 12), 138);
+		this.currentValueElem.style.width = this.menuWidth + 'px';
 		this.menuElem.style.cssText = 'right:0; overflow-y:auto; max-height:297px;'; // Max height for the dropdown is [filter (31px) + 9.5 * dropdown item (28px) = 297px]
-		if (this.dropdownVisible) this.filter();
+		if (this.dropdownVisible) {
+			this.positionMenu();
+			this.filter();
+		}
+	}
+
+	/**
+	 * Give the menu the full width of its options, even when a narrow view has shrunk the dropdown, and keep the menu inside the view.
+	 */
+	private positionMenu() {
+		const rect = this.elem.getBoundingClientRect(), viewWidth = document.documentElement.clientWidth;
+		const width = Math.min(Math.max(this.menuWidth, rect.width), viewWidth - 8);
+		const left = Math.max(Math.min(rect.right - width, viewWidth - 4 - width), 4);
+		this.menuElem.style.left = (left - rect.left) + 'px';
+		this.menuElem.style.right = (rect.right - left - width) + 'px';
 	}
 
 	/**
