@@ -269,7 +269,8 @@ class Dialog {
 		if (textRefInput > -1) {
 			let dialogInput = <HTMLInputElement>document.getElementById('dialogInput' + textRefInput), dialogAction = document.getElementById('dialogAction')!;
 			if (dialogInput.value === '') this.elem!.classList.add(CLASS_DIALOG_NO_INPUT);
-			dialogInput.addEventListener('keyup', () => {
+			// The input event also catches pasting with the mouse, which keyup misses
+			dialogInput.addEventListener('input', () => {
 				if (this.elem === null) return;
 				if (initialState.config.dialogDefaults.general.referenceInputSpaceSubstitution !== null) {
 					const selectionStart = dialogInput.selectionStart, selectionEnd = dialogInput.selectionEnd;

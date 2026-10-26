@@ -2531,8 +2531,15 @@ class GitTreeView {
 	}
 
 	public createFileTree(gitFiles: ReadonlyArray<GG.GitFileChange>, codeReview: GG.CodeReview | null) {
-		let contents: FileTreeFolderContents = {}, i, j, path, absPath, cur: FileTreeFolder;
-		let files: FileTreeFolder = { type: 'folder', name: '', folderPath: '', contents: contents, open: true, reviewed: true };
+		// Folder contents have no prototype, so a name such as "constructor" isn't mistaken for an existing entry
+		const newContents = (): FileTreeFolderContents => Object.create(null);
+		// A file with the same name as a folder (for example, a folder replaced by a file in one commit) is kept under its own key
+		const fileKey = (folder: FileTreeFolder, name: string) => {
+			const existing = folder.contents[name];
+			return typeof existing !== 'undefined' && existing.type === 'folder' ? name + '\0file' : name;
+		};
+		let i, j, path, absPath, cur: FileTreeFolder, existing: FileTreeNode | undefined;
+		let files: FileTreeFolder = { type: 'folder', name: '', folderPath: '', contents: newContents(), open: true, reviewed: true };
 
 		for (i = 0; i < gitFiles.length; i++) {
 			cur = files;
@@ -2546,13 +2553,18 @@ class GitTreeView {
 					}
 					break;
 				} else if (j < path.length - 1) {
-					if (typeof cur.contents[path[j]] === 'undefined') {
-						contents = {};
-						cur.contents[path[j]] = { type: 'folder', name: path[j], folderPath: absPath.substring(this.currentRepo.length + 1), contents: contents, open: true, reviewed: true };
+					existing = cur.contents[path[j]];
+					if (typeof existing === 'undefined' || existing.type !== 'folder') {
+						if (typeof existing !== 'undefined') {
+							// Move the file aside, so the folder can take the name
+							cur.contents[path[j] + '\0file'] = existing;
+						}
+						existing = { type: 'folder', name: path[j], folderPath: absPath.substring(this.currentRepo.length + 1), contents: newContents(), open: true, reviewed: true };
+						cur.contents[path[j]] = existing;
 					}
-					cur = <FileTreeFolder>cur.contents[path[j]];
+					cur = <FileTreeFolder>existing;
 				} else if (path[j] !== '') {
-					cur.contents[path[j]] = { type: 'file', name: path[j], index: i, reviewed: codeReview === null || !codeReview.remainingFiles.includes(gitFiles[i].newFilePath) };
+					cur.contents[fileKey(cur, path[j])] = { type: 'file', name: path[j], index: i, reviewed: codeReview === null || !codeReview.remainingFiles.includes(gitFiles[i].newFilePath) };
 				}
 			}
 		}

@@ -506,43 +506,46 @@ class Graph {
 			return false; // No parents
 		}
 
-		const isPossible = (v: Vertex): boolean | null => {
+		// Walk the chain of descendants with a loop, because recursion overflows the call stack on long histories.
+		// Every commit in the chain must pass the topological test, and the HEAD must be one of them.
+		let v = this.vertices[i], headFound = false;
+		for (; ;) {
 			if (v.isMerge()) {
 				// Commit is a merge - fails topological test
-				return null;
+				return false;
 			}
 
-			let children = v.getChildren();
+			const children = v.getChildren();
 			if (children.length > 1) {
 				// Commit has multiple children - fails topological test
-				return null;
-			} else if (children.length === 1) {
-				const recursivelyPossible = isPossible(children[0]);
-				if (recursivelyPossible !== false) {
-					// Topological tests failed (recursivelyPossible === NULL), or the HEAD has already been found (recursivelyPossible === TRUE)
-					return recursivelyPossible;
-				}
+				return false;
 			}
-
-			// Check if the current vertex is the HEAD if it has no children, or the HEAD has not been found in its recursive children.
-			return this.commits[v.id].hash === this.commitHead;
-		};
-
-		return isPossible(this.vertices[i]) || false;
+			if (this.commits[v.id].hash === this.commitHead) {
+				headFound = true;
+			}
+			if (children.length === 0) {
+				return headFound;
+			}
+			v = children[0];
+		}
 	}
 
 	private getAllChildren(i: number) {
-		let visited: { [id: string]: number } = {};
-		const rec = (vertex: Vertex) => {
-			const idStr = vertex.id.toString();
-			if (typeof visited[idStr] !== 'undefined') return;
+		// An explicit stack, because recursion overflows the call stack on long histories
+		const visited: boolean[] = [], stack: Vertex[] = [this.vertices[i]];
+		let vertex: Vertex | undefined;
+		while ((vertex = stack.pop()) !== undefined) {
+			if (visited[vertex.id]) continue;
+			visited[vertex.id] = true;
+			const children = vertex.getChildren();
+			for (let j = 0; j < children.length; j++) stack.push(children[j]);
+		}
 
-			visited[idStr] = vertex.id;
-			let children = vertex.getChildren();
-			for (let i = 0; i < children.length; i++) rec(children[i]);
-		};
-		rec(this.vertices[i]);
-		return Object.keys(visited).map((key) => visited[key]).sort((a, b) => a - b);
+		const ids: number[] = [];
+		visited.forEach((isVisited, id) => {
+			if (isVisited) ids.push(id);
+		});
+		return ids;
 	}
 
 	public getMutedCommits(currentHash: string | null) {
@@ -568,15 +571,16 @@ class Graph {
 				ancestor[i] = false;
 			}
 
-			// Recursively discover ancestors of commit head
-			const rec = (vertex: Vertex) => {
-				if (vertex.id === NULL_VERTEX_ID || ancestor[vertex.id]) return;
+			// Discover ancestors of commit head, with an explicit stack because recursion overflows the call stack on long histories
+			const stack: Vertex[] = [this.vertices[this.commitLookup[currentHash]]];
+			let vertex: Vertex | undefined;
+			while ((vertex = stack.pop()) !== undefined) {
+				if (vertex.id === NULL_VERTEX_ID || ancestor[vertex.id]) continue;
 				ancestor[vertex.id] = true;
 
-				let parents = vertex.getParents();
-				for (let i = 0; i < parents.length; i++) rec(parents[i]);
-			};
-			rec(this.vertices[this.commitLookup[currentHash]]);
+				const parents = vertex.getParents();
+				for (let i = 0; i < parents.length; i++) stack.push(parents[i]);
+			}
 
 			for (let i = 0; i < this.commits.length; i++) {
 				if (!ancestor[i] && (this.commits[i].stash === null || typeof this.commitLookup[this.commits[i].stash!.baseHash] !== 'number' || !ancestor[this.commitLookup[this.commits[i].stash!.baseHash]])) {
@@ -659,7 +663,7 @@ class Graph {
 				return Math.max(...children.filter(child => child !== childOnSameBranch).map((child) => child.id));
 			} else {
 				// No child could be found on the same branch as the vertex
-				const childIndexes = children.map((child) => child.id).sort();
+				const childIndexes = children.map((child) => child.id).sort((a, b) => a - b);
 				return childIndexes[childIndexes.length - 2];
 			}
 		} else if (children.length === 1) {

@@ -13,6 +13,8 @@ import { Event } from './utils/event';
 
 const DRIVE_LETTER_PATH_REGEX = /^[a-z]:\//;
 const EOL_REGEX = /\r\n|\r|\n/g;
+// Splits one-line-per-record output. A lone CR can appear inside a commit subject, so it doesn't end a record.
+const RECORD_EOL_REGEX = /\r?\n/g;
 const INVALID_BRANCH_REGEXP = /^\(.* .*\)$/;
 const REMOTE_HEAD_BRANCH_REGEXP = /^remotes\/.*\/HEAD$/;
 const GIT_LOG_SEPARATOR = 'XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb';
@@ -164,10 +166,16 @@ export class DataSource extends Disposable {
 	 */
 	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>): Promise<GitCommitData> {
 		const config = getConfig();
-		return Promise.all([
-			this.getLog(repo, branches, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes),
-			this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage)
-		]).then(async (results) => {
+		const log = this.getLog(repo, branches, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes);
+		const refs = this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage);
+		// Git status is often the slowest command in a large repository, so it runs alongside the log instead of after it
+		const uncommittedChanges = config.showUncommittedChanges ? this.getUncommittedChanges(repo) : null;
+		if (uncommittedChanges !== null) {
+			// Its result, or error, is only used when HEAD is one of the loaded commits
+			uncommittedChanges.catch(() => { });
+		}
+
+		return Promise.all([log, refs]).then(async (results) => {
 			let commits: GitCommitRecord[] = results[0], refData: GitRefData | string = results[1], i;
 			let moreCommitsAvailable = commits.length === maxCommits + 1;
 			if (moreCommitsAvailable) commits.pop();
@@ -184,10 +192,10 @@ export class DataSource extends Disposable {
 				}
 			}
 
-			if (refData.head !== null && config.showUncommittedChanges) {
+			if (refData.head !== null && uncommittedChanges !== null) {
 				for (i = 0; i < commits.length; i++) {
 					if (refData.head === commits[i].hash) {
-						const numUncommittedChanges = await this.getUncommittedChanges(repo);
+						const numUncommittedChanges = await uncommittedChanges;
 						if (numUncommittedChanges > 0) {
 							commits.unshift({ hash: UNCOMMITTED, parents: [refData.head], author: '*', email: '', date: Math.round((new Date()).getTime() / 1000), message: 'Uncommitted Changes (' + numUncommittedChanges + ')' });
 						}
@@ -727,7 +735,8 @@ export class DataSource extends Disposable {
 	 */
 	public async deleteTag(repo: string, tagName: string, deleteOnRemote: string | null) {
 		if (deleteOnRemote !== null) {
-			let status = await this.runGitCommand(['push', deleteOnRemote, '--delete', tagName], repo);
+			// The full ref name, so a branch with the same name doesn't make the push ambiguous
+			let status = await this.runGitCommand(['push', deleteOnRemote, '--delete', 'refs/tags/' + tagName], repo);
 			if (status !== null) return status;
 		}
 		return this.runGitCommand(['tag', '-d', tagName], repo);
@@ -827,7 +836,7 @@ export class DataSource extends Disposable {
 
 		const results: ErrorInfo[] = [];
 		for (let i = 0; i < remotes.length; i++) {
-			const result = await this.runGitCommand(['push', remotes[i], tagName], repo);
+			const result = await this.runGitCommand(['push', remotes[i], 'refs/tags/' + tagName], repo);
 			results.push(result);
 			if (result !== null) break;
 		}
@@ -1004,11 +1013,21 @@ export class DataSource extends Disposable {
 	 * @param interactive Should the rebase be performed interactively.
 	 * @returns The ErrorInfo from the executed command.
 	 */
-	public rebase(repo: string, obj: string, actionOn: RebaseActionOn, ignoreDate: boolean, interactive: boolean) {
+	public async rebase(repo: string, obj: string, actionOn: RebaseActionOn, ignoreDate: boolean, interactive: boolean): Promise<ErrorInfo> {
 		if (interactive) {
+			// The terminal runs the command through a shell, so it is given the commit hash, never a branch name that could contain shell syntax
+			let hash: string;
+			try {
+				hash = await this.spawnGit(['rev-parse', '--verify', obj + '^{commit}'], repo, (stdout) => stdout.trim());
+			} catch (errorMessage) {
+				return <ErrorInfo>errorMessage;
+			}
+			if (!/^[0-9a-f]{40,64}$/.test(hash)) {
+				return 'Unable to resolve "' + obj + '" to a commit.';
+			}
 			return this.openGitTerminal(
 				repo,
-				'rebase --interactive ' + (getConfig().signCommits ? '-S ' : '') + (actionOn === RebaseActionOn.Branch ? obj.replace(/'/g, '"\'"') : obj),
+				'rebase --interactive ' + (getConfig().signCommits ? '-S ' : '') + hash,
 				'Rebase on "' + (actionOn === RebaseActionOn.Branch ? obj : abbrevCommit(obj)) + '"'
 			);
 		} else {
@@ -1421,7 +1440,8 @@ export class DataSource extends Disposable {
 	private getBranches(repo: string, showRemoteBranches: boolean, hideRemotes: ReadonlyArray<string>) {
 		let args = ['branch'];
 		if (showRemoteBranches) args.push('-a');
-		args.push('--no-color');
+		// --no-column keeps one branch per line when the user sets column.ui
+		args.push('--no-color', '--no-column');
 
 		const hideRemotePatterns = hideRemotes.map((remote) => 'remotes/' + remote + '/');
 		const showRemoteHeads = getConfig().showRemoteHeads;
@@ -1619,7 +1639,7 @@ export class DataSource extends Disposable {
 		args.push('--');
 
 		return this.spawnGit(args, repo, (stdout) => {
-			let lines = stdout.split(EOL_REGEX);
+			let lines = stdout.split(RECORD_EOL_REGEX);
 			let commits: GitCommitRecord[] = [];
 			for (let i = 0; i < lines.length - 1; i++) {
 				let line = lines[i].split(GIT_LOG_SEPARATOR);
@@ -1680,7 +1700,7 @@ export class DataSource extends Disposable {
 	 * @returns A promise resolving to a list of remote names.
 	 */
 	private getRemotesContainingCommit(repo: string, commitHash: string, knownRemotes: string[]) {
-		return this.spawnGit(['branch', '-r', '--no-color', '--contains=' + commitHash], repo, (stdout) => {
+		return this.spawnGit(['branch', '-r', '--no-color', '--no-column', '--contains=' + commitHash], repo, (stdout) => {
 			// Get the names of all known remote branches that contain commitHash
 			const branchNames = stdout.split(EOL_REGEX)
 				.filter((line) => line.length > 2)
@@ -1702,7 +1722,7 @@ export class DataSource extends Disposable {
 	 */
 	private getStashes(repo: string) {
 		return this.spawnGit(['reflog', '--format=' + this.gitFormatStash, 'refs/stash', '--'], repo, (stdout) => {
-			let lines = stdout.split(EOL_REGEX);
+			let lines = stdout.split(RECORD_EOL_REGEX);
 			let stashes: GitStash[] = [];
 			for (let i = 0; i < lines.length - 1; i++) {
 				let line = lines[i].split(GIT_LOG_SEPARATOR);
