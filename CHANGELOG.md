@@ -6,9 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-26
+
+### Added
+
+- **A Worktree column**, right after Description. Worktree labels moved there from beside the branch labels, so they can't be mistaken for branches. It labels the worktree a branch is checked out in, a detached worktree, and the worktree of each *Uncommitted Changes* row. Resize it, or show and hide it from the column header's context menu. It appears when the repository has more than one worktree. `git-tree.defaultColumnVisibility` gains `Worktree`, which defaults to `true`.
+- **Ctrl+click (Cmd+click on macOS) a worktree label** to open that worktree in a new window.
+- A developer setup: F5 opens a demo repository with branches, tags, a remote, a stash and three worktrees. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ### Changed
 
+- **The Worktree dropdown filters the graph.** It lists *All*, *Root* (the main worktree) and each linked worktree.
+  - Picking a worktree shows only its history and its own uncommitted changes, and Git actions run in it.
+  - Branches picked in the *Branches* dropdown are shown as well.
+  - *All* shows every branch and every worktree's uncommitted changes.
+  - *Root* is the default, and each repository remembers your choice.
+  - Clicking another worktree's *Uncommitted Changes* row, or *Show This Worktree*, picks that worktree in the filter.
 - New logo and icons: three branches at the top meet in one hub commit, and three lines run below it, one through another commit.
+- The README is rewritten for the Marketplace.
+
+### Fixed
+
+- The worktree being viewed is kept when the view reloads.
+- Clicking another worktree's *Uncommitted Changes* row opens its changes after the view switches to that worktree.
+- A branch named `constructor` no longer confuses the worktree labels.
 
 ## [0.3.1] - 2026-10-26
 
@@ -79,7 +100,8 @@ The first version of Git Tree.
 
 - Telemetry. Git Tree sends no usage data.
 
-[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.2.0...v0.3.1
 [0.2.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sidhanthapoddar99/git-tree/releases/tag/v0.1.0

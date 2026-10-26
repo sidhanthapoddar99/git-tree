@@ -1,152 +1,172 @@
 # Git Tree
 
-Git Tree is a Visual Studio Code extension that shows a Git graph of your repository, with its worktrees, and lets you run Git actions from the graph.
+**A Git graph for Visual Studio Code that understands worktrees.** See every branch, tag, stash and worktree in one graph, see each worktree's uncommitted changes, and run Git actions from a right-click.
 
-Its highlights:
+<!-- Marketplace badges, once Git Tree is published:
+[![Version](https://vsmarketplacebadges.dev/version-short/<publisher>.git-tree.png)](https://marketplace.visualstudio.com/items?itemName=<publisher>.git-tree)
+[![Installs](https://vsmarketplacebadges.dev/installs-short/<publisher>.git-tree.png)](https://marketplace.visualstudio.com/items?itemName=<publisher>.git-tree)
+-->
+[![VS Code](https://img.shields.io/badge/VS%20Code-1.82%2B-007ACC.svg)](https://code.visualstudio.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-* **Worktrees in the graph.** A branch that is checked out in another worktree shows that worktree's name on its label. A worktree on a detached HEAD gets its own label on its commit.
-* **Worktree actions.** Create a worktree from a commit or a branch, open it in a new or the current window, remove it, or copy its path.
-* **View any worktree.** The *Worktree* dropdown switches the view between the main worktree and its linked worktrees, and each worktree's uncommitted changes get their own row.
-* **One tab per repository.** Keep several repositories open in their own tabs, side by side.
-* **Fast in large repositories.** Git Tree writes Git's commit-graph file when a repository has none, which makes the graph load several times faster.
-* **Colours that follow your theme.** Rows, labels, inputs and the graph palette are tuned for light and dark themes.
-* **No telemetry.** Git Tree sends no usage data.
+<!-- ![Git Tree showing a repository with three worktrees in a dark theme](docs/images/hero-dark.webp) -->
+
+## Why Git Tree?
+
+Worktrees let you keep several branches checked out at once, each in its own folder. Most Git graphs don't know they exist: a branch checked out in another worktree looks like any other branch, and changes waiting in that worktree are invisible. Git Tree puts worktrees in the graph.
+
+### Features
+
+- 🌳 **Worktrees in the graph.** A Worktree column labels every worktree on the commit it's on, and each worktree's uncommitted changes get their own row.
+- 🔎 **A worktree filter.** Show one worktree's history and changes, the main worktree's, or everything at once.
+- 🛠️ **Worktree actions.** Create a worktree from a commit or a branch, open it in a new window, remove it, or copy its path. Ctrl+click a worktree to open it.
+- 🗂️ **One tab per repository.** Keep several repositories open side by side.
+- ⚡ **Fast in large repositories.** Git Tree writes Git's commit-graph file when a repository has none, which makes the graph load up to four times faster.
+- 🎨 **Follows your theme.** Rows, labels, dialogs and the graph's colours are tuned for light and dark themes.
+- 🔒 **No telemetry.** Git Tree sends no usage data.
+
+And everything you expect from a Git graph: branches, merges, tags, stashes and remote branches; checkout, merge, rebase, cherry-pick, reset, push and pull from a right-click; commit details with diffs; and comparing any two commits.
+
+<!-- ![The same repository in a light theme](docs/images/graph-light.webp) -->
+
+## Getting started
+
+1. Install Git Tree from the Extensions view (search for "Git Tree"), or install a `.vsix` with *Extensions: Install from VSIX...*.
+2. Open a folder that is a Git repository.
+3. Open the graph in any of these ways:
+   - click **Git Tree** in the status bar
+   - run **Git Tree: View Git Tree** from the Command Palette
+   - click the Git Tree button on a repository in the Source Control view
 
 ## Worktrees
 
-Right-click to use worktrees:
+### See every worktree
 
-* **A commit:** *Create Worktree...* Enter a new branch name to create that branch at the commit and check it out in the worktree. Leave the branch blank to check out the commit itself (a detached HEAD).
-* **A branch that isn't checked out:** *Create Worktree...* checks the branch out in a new worktree.
-* **A branch that is checked out in another worktree:** *Open Worktree in New Window*. Git won't check out or delete such a branch, so those actions are hidden.
-* **A worktree label:** show the worktree in this view, open it in a new window or this one, remove it, or copy its path. Double-click a worktree label to open it in a new window.
+The **Worktree** column shows which worktree has each commit checked out. A branch that's checked out in a worktree keeps its branch label in the description, and the worktree's label sits in the Worktree column on the same row. The column appears when a repository has more than one worktree, and `git-tree.defaultColumnVisibility` can hide it.
 
-The *Worktree* dropdown in the top bar picks the worktree the view shows. The graph's uncommitted changes, the checked-out branch and every Git action then belong to that worktree. The dropdown appears when the repository has more than one worktree.
+Each worktree with uncommitted changes gets its own **Uncommitted Changes** row, drawn from the commit it's on and labelled with the worktree's name. Git Tree watches every worktree, including those outside the repository's folder, so the rows stay up to date.
 
-Each worktree with uncommitted changes gets its own *Uncommitted Changes* row, labelled with the worktree's name. Click another worktree's row to switch to that worktree and open its changes.
+<!-- ![Uncommitted changes in three worktrees](docs/images/worktree-changes.webp) -->
 
-The same file has a different absolute path in each worktree. In Commit Details, right-click a file and choose *Copy Absolute File Path in Another Worktree...* to copy its path in the worktree you pick.
+### Filter by worktree
 
-New worktrees go in the `.worktrees` folder of the main worktree by default, for example `.worktrees/feature-login`. You can type another folder in the dialog, or change the default with `git-tree.worktree.defaultLocation`. Both take:
+The **Worktree** dropdown in the top bar filters the graph, the way the Branches dropdown does:
 
-* a path relative to the main worktree, such as `.worktrees` or `../{repo}-worktrees`
-* `~` for your home folder, such as `~/worktrees/{repo}`
-* an absolute path, such as `/srv/worktrees`
+| Choice | Shows |
+| --- | --- |
+| **All** | Every branch, and every worktree's uncommitted changes |
+| **Root** (the default) | The main worktree's history and its uncommitted changes |
+| *a worktree's name* | That worktree's history and its uncommitted changes |
 
-`{repo}` is replaced by the repository's folder name. When the folder is inside the repository, Git Tree adds it to `.git/info/exclude`, so the worktrees don't show up as untracked files.
+Git actions, such as checkout, commit details and opening files, run in the worktree you pick. Branches you pick in the Branches dropdown are shown as well. The dropdown appears when a repository has more than one worktree.
 
-## Tabs
+<!-- ![The Worktree dropdown](docs/images/worktree-filter.webp) -->
 
-Each Git Tree tab shows one repository, and its title names it. Opening a repository, for example with the Git Tree button on a repository in the Source Control view, switches to the tab that already shows it. If no tab shows it, it opens in a new tab. To open another tab yourself, run *Git Tree: View Git Tree in New Tab...* or click the **+** button in a Git Tree tab's title bar. The *Repo* dropdown still switches the repository inside a tab.
+### Create, open and remove worktrees
 
-## Features
+Right-click to work with worktrees:
 
-* Git Tree View:
-    * Display:
-        * Local & Remote Branches
-        * Local Refs: Heads, Tags & Remotes
-        * Uncommitted Changes
-    * Perform Git Actions (available by right clicking on a commit / branch / tag):
-        * Create, Checkout, Delete, Fetch, Merge, Pull, Push, Rebase, Rename & Reset Branches
-        * Add, Delete & Push Tags
-        * Checkout, Cherry Pick, Drop, Merge & Revert Commits
-        * Clean, Reset & Stash Uncommitted Changes
-        * Apply, Create Branch From, Drop & Pop Stashes
-        * View annotated tag details (name, email, date and message)
-        * Copy commit hashes, and branch, stash & tag names to the clipboard
-    * View commit details and file changes by clicking on a commit. On the Commit Details View you can:
-        * View the Visual Studio Code Diff of any file change by clicking on it.
-        * Open the current version of any file that was affected in the commit.
-        * Copy the path of any file that was affected in the commit to the clipboard.
-        * Click on any HTTP/HTTPS url in the commit body to open it in your default web browser.
-    * Compare any two commits by clicking on a commit, and then CTRL/CMD clicking on another commit. On the Commit Comparison View you can:
-        * View the Visual Studio Code Diff of any file change between the selected commits by clicking on it.
-        * Open the current version of any file that was affected between the selected commits.
-        * Copy the path of any file that was affected between the selected commits to the clipboard.
-    * Code Review - Keep track of which files you have reviewed in the Commit Details & Comparison Views.
-        * Code Review's can be performed on any commit, or between any two commits (not on Uncommitted Changes).
-        * When a Code Review is started, all files needing to be reviewed are bolded. When you view the diff / open a file, it will then be un-bolded.
-        * Code Reviews persist across Visual Studio Code sessions. They are automatically closed after 90 days of inactivity.
-    * View uncommitted changes, and compare the uncommitted changes with any commit.
-    * Hover over any commit vertex on the graph to see a tooltip indicating:
-        * Whether the commit is included in the HEAD.
-        * Which branches, tags and stashes include the commit. 
-    * Filter the branches shown in Git Tree using the 'Branches' dropdown menu. The options for filtering the branches are:
-        * Show All branches
-        * Select one or more branches to be viewed
-        * Select from a user predefined array of custom glob patterns (by setting `git-tree.customBranchGlobPatterns`)
-    * Fetch from Remote(s) _(available on the top control bar)_
-    * Find Widget allows you to quickly find one or more commits containing a specific phrase (in the commit message / date / author / hash, branch or tag names).
-    * Repository Settings Widget:
-        * Allows you to view, add, edit, delete, fetch & prune remotes of the repository.
-        * Configure "Issue Linking" - Converts issue numbers in commit messages into hyperlinks, that open the issue in your issue tracking system.
-        * Configure "Pull Request Creation" - Automates the opening and pre-filling of a Pull Request form, directly from a branches context menu.
-            * Support for the publicly hosted Bitbucket, GitHub and GitLab Pull Request providers is built-in.
-            * Custom Pull Request providers can be configured using the Extension Setting `git-tree.customPullRequestProviders` (e.g. for use with privately hosted Pull Request providers).
-        * Export your Git Tree Repository Configuration to a file that can be committed in the repository. It allows others working in the same repository to automatically use the same Git Tree configuration.
-    * Keyboard Shortcuts (available in the Git Tree View):
-        * `CTRL/CMD + F`: Open the Find Widget.
-        * `CTRL/CMD + H`: Scrolls the Git Tree View to be centered on the commit referenced by HEAD.
-        * `CTRL/CMD + R`: Refresh the Git Tree View.
-        * `CTRL/CMD + S`: Scrolls the Git Tree View to the first (or next) stash in the loaded commits.
-        * `CTRL/CMD + SHIFT + S`: Scrolls the Git Tree View to the last (or previous) stash in the loaded commits.
-        * When the Commit Details View is open on a commit:
-            * `Up` / `Down`: The Commit Details View will be opened on the commit directly above or below it on the Git Tree View.
-            * `CTRL/CMD + Up` / `CTRL/CMD + Down`: The Commit Details View will be opened on its child or parent commit on the same branch.
-                * If the Shift Key is also pressed (i.e. `CTRL/CMD + SHIFT + Up` / `CTRL/CMD + SHIFT + Down`), when branches or merges are encountered the alternative branch is followed.
-        * `Enter`: If a dialog is open, pressing enter submits the dialog, taking the primary (left) action.
-        * `Escape`: Closes the active dialog, context menu or the Commit Details View.
-    * Resize the width of each column, and show/hide the Date, Author & Commit columns.
-    * Common Emoji Shortcodes are automatically replaced with the corresponding emoji in commit messages (including all [gitmoji](https://gitmoji.carloscuesta.me/)). Custom Emoji Shortcode mappings can be defined in `git-tree.customEmojiShortcodeMappings`.
-* A broad range of configurable settings (e.g. graph style, branch colours, and more...). See the 'Extension Settings' section below for more information.
-* "Git Tree" launch button in the Status Bar
-* "Git Tree: View Git Tree" launch command in the Command Palette
+- **A commit:** *Create Worktree...*. Enter a new branch name to create that branch at the commit and check it out in the worktree, or leave it blank for a detached HEAD.
+- **A branch that isn't checked out:** *Create Worktree...* checks the branch out in a new worktree.
+- **A branch checked out in another worktree:** *Open Worktree in New Window*. Git won't check out or delete such a branch, so those actions are hidden.
+- **A worktree label:** show the worktree, open it in a new window or this one, remove it, or copy its path.
 
+**Ctrl+click** (**Cmd+click** on macOS) or double-click a worktree label to open that worktree in a new VS Code window.
 
-## Extension Settings
+<!-- ![Creating a worktree](docs/images/create-worktree.webp) -->
 
-All settings start with `git-tree.`. Search for "Git Tree" in the Settings editor to see each one with its description. A repository's shared configuration file is `.vscode/vscode-git-tree.json`.
+### Where new worktrees go
 
-Settings that are new in Git Tree:
+New worktrees go in the `.worktrees` folder of the main worktree by default, for example `.worktrees/feature-login`. Type another folder in the dialog, or change the default with `git-tree.worktree.defaultLocation`. Both accept:
 
-* `git-tree.worktree.defaultLocation`: The folder new worktrees are created in. It is relative to the main worktree, starts with `~` for your home folder, or is absolute; `{repo}` is the repository's folder name. It has its own *Worktrees* section in the Settings editor. Default: `.worktrees`.
-* `git-tree.repository.writeCommitGraph`: When a repository has no [commit-graph](https://git-scm.com/docs/git-commit-graph) file, write one in the background. It is the file `git gc` writes, and it needs Git 2.24 or later. Default: on.
+| Form | Example | Means |
+| --- | --- | --- |
+| A relative path | `.worktrees`, `../{repo}-worktrees` | Relative to the main worktree |
+| A home path | `~/worktrees/{repo}` | Inside your home folder |
+| An absolute path | `/srv/worktrees` | Exactly that folder |
 
-If `git-tree.graph.colours` is not set, the graph uses a darker palette on light themes. Custom colours are used on every theme.
+`{repo}` becomes the repository's folder name, which keeps each repository's worktrees apart. When the folder is inside the repository, Git Tree adds it to `.git/info/exclude`, so the worktrees don't show up as untracked files.
 
-## Extension Commands
+### File paths in worktrees
 
-This extension contributes the following commands:
+A file has a different absolute path in each worktree. In Commit Details, Open File and Copy Absolute File Path use the worktree you're viewing. To copy the path in another worktree, right-click the file and choose *Copy Absolute File Path in Another Worktree...*.
 
-* `git-tree.view`: Git Tree: View Git Tree
-* `git-tree.viewInNewTab`: Git Tree: View Git Tree in New Tab... _(opens a repository in another tab)_
-* `git-tree.addGitRepository`: Git Tree: Add Git Repository... _(used to add sub-repos to Git Tree)_
-* `git-tree.clearAvatarCache`: Git Tree: Clear Avatar Cache
-* `git-tree.endAllWorkspaceCodeReviews`: Git Tree: End All Code Reviews in Workspace
-* `git-tree.endSpecificWorkspaceCodeReview`: Git Tree: End a specific Code Review in Workspace... _(used to end a specific Code Review without having to first open it in the Git Tree View)_
-* `git-tree.fetch`: Git Tree: Fetch from Remote(s) _(used to open the Git Tree View and immediately run "Fetch from Remote(s)")_
-* `git-tree.removeGitRepository`: Git Tree: Remove Git Repository... _(used to remove repositories from Git Tree)_
-* `git-tree.resumeWorkspaceCodeReview`: Git Tree: Resume a specific Code Review in Workspace... _(used to open the Git Tree View to a Code Review that is already in progress)_
-* `git-tree.version`: Git Tree: Get Version Information
+## Everyday use
 
-## Building from Source
+### Commit details and comparisons
 
-You need Node.js and Git.
+Click a commit to see its details and changed files. Click a file to see its diff, or right-click it to open the file, view it at that commit, or copy its path. Ctrl+click (Cmd+click) a second commit to compare the two.
 
-```sh
-npm install
-npm run compile      # lint, then build ./out and ./media
-npm test             # run the Jest tests
-npx @vscode/vsce package   # build git-tree-<version>.vsix
-```
+<!-- ![A commit's details](docs/images/commit-details.webp) -->
 
-Install the `.vsix` with *Extensions: Install from VSIX...* in Visual Studio Code.
+### Tabs
 
-## Release Notes
+Each Git Tree tab shows one repository, and its title names the repository and the worktree. Opening a repository switches to the tab that already shows it, or opens a new one. Run *Git Tree: View Git Tree in New Tab...*, or click **+** in a Git Tree tab's title bar, to open another tab.
 
-The release notes are in [CHANGELOG.md](CHANGELOG.md).
+### More
 
-## Credits and License
+- **Branches dropdown:** show all branches, pick some, or use your own glob patterns (`git-tree.customBranchGlobPatterns`).
+- **Find** (Ctrl/Cmd+F): find commits by message, date, author, hash, branch or tag.
+- **Code review:** keep track of the files you've reviewed in a commit or a comparison. Reviews last across sessions.
+- **Repository settings:** manage remotes, link issue numbers in commit messages to your tracker, and set up pull request creation for GitHub, GitLab, Bitbucket or your own provider.
+- **Columns:** resize them, and show or hide Date, Author, Commit and Worktree.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| Ctrl/Cmd+F | Find |
+| Ctrl/Cmd+H | Scroll to the HEAD commit |
+| Ctrl/Cmd+R | Refresh |
+| Ctrl/Cmd+S, Ctrl/Cmd+Shift+S | Scroll to the next or previous stash |
+| Up, Down | With Commit Details open: the commit above or below |
+| Ctrl/Cmd+Up, Ctrl/Cmd+Down | With Commit Details open: the child or parent commit on the same branch (add Shift to follow the other branch) |
+| Enter | Submit a dialog |
+| Escape | Close a dialog, a menu or Commit Details |
+
+## Settings
+
+All settings start with `git-tree.`. Search for "Git Tree" in the Settings editor to see each one. Settings that are new in Git Tree:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `git-tree.worktree.defaultLocation` | `.worktrees` | The folder new worktrees go in. See [Where new worktrees go](#where-new-worktrees-go). |
+| `git-tree.repository.writeCommitGraph` | on | Writes Git's [commit-graph](https://git-scm.com/docs/git-commit-graph) file in the background when a repository has none. Needs Git 2.24 or later. |
+
+If `git-tree.graph.colours` isn't set, the graph uses a darker palette on light themes. A repository's shared Git Tree configuration lives in `.vscode/vscode-git-tree.json`.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| Git Tree: View Git Tree | Opens the graph |
+| Git Tree: View Git Tree in New Tab... | Opens a repository in another tab |
+| Git Tree: Fetch from Remote(s) | Opens the graph and fetches |
+| Git Tree: Add Git Repository... | Adds a repository that wasn't found automatically |
+| Git Tree: Remove Git Repository... | Removes a repository from Git Tree |
+| Git Tree: Resume a specific Code Review in Workspace... | Reopens a code review in progress |
+| Git Tree: End a specific Code Review in Workspace... | Ends one code review |
+| Git Tree: End All Code Reviews in Workspace | Ends every code review |
+| Git Tree: Clear Avatar Cache | Clears the cached author avatars |
+| Git Tree: Get Version Information | Shows the versions of Git Tree, Git and VS Code |
+
+## Requirements
+
+- Visual Studio Code 1.82 or later
+- Git. Worktrees need Git 2.7 or later, and the commit-graph file needs Git 2.24 or later.
+
+## Known limitations
+
+- Git Tree draws every loaded commit. Very long histories take longer to draw; *Load More Commits* loads them in steps.
+- Each worktree adds one `git status` to every refresh, so a repository with many worktrees refreshes more slowly.
+
+## Support
+
+- Report a bug or ask for a feature in [GitHub Issues](https://github.com/sidhanthapoddar99/git-tree/issues).
+- The [changelog](CHANGELOG.md) lists what changed in each version.
+- To work on Git Tree itself, see the [developer guide](CONTRIBUTING.md).
+
+## License
 
 Git Tree is under the MIT License in [LICENSE](LICENSE). Some code and icons come from other projects, under the licenses in the [licenses](licenses) folder.
 
