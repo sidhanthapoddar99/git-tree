@@ -1,12 +1,13 @@
-Copyright (c) 2019-present, mhutchie
+MIT License
+
+Copyright (c) 2026 Sidhantha Poddar
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to use, 
-copy, modify, merge, and to permit persons to whom the Software is
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
-
-Permission is NOT GRANTED to publish, distribute, sublicense, and/or sell 
-derivative works of the Software.
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
@@ -19,8 +20,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Licenses for software that are referenced, used and/or modified in the Git Graph
-extension are provided in the ./licenses directory, in accordance with their 
-respective licenses. This includes:
-- LICENSE_MICROSOFT - Copyright (c) 2015 - present Microsoft Corporation
-- LICENSE_OCTICONS - Copyright (c) 2019 GitHub Inc.
+Git Tree is based on Git Graph. The code that comes from Git Graph is used
+with the permission of its author, and its copyright notice and license are
+in ./licenses/LICENSE_GIT_GRAPH. THIRD_PARTY_NOTICES.md lists all the code
+Git Tree uses from other projects.
