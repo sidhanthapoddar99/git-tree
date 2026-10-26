@@ -528,6 +528,10 @@
 					"git-tree.defaultColumnVisibility": {
 						"type": "object",
 						"properties": {
+							"Worktree": {
+								"type": "boolean",
+								"title": "Visibility of the Worktree column"
+							},
 							"Date": {
 								"type": "boolean",
 								"title": "Visibility of the Date column"
@@ -542,11 +546,12 @@
 							}
 						},
 						"default": {
+							"Worktree": true,
 							"Date": true,
 							"Author": true,
 							"Commit": true
 						},
-						"description": "An object specifying the default visibility of the Date, Author & Commit columns. Example: {\"Date\": true, \"Author\": true, \"Commit\": true}"
+						"description": "An object specifying the default visibility of the Worktree, Date, Author & Commit columns. The Worktree column only appears when the repository has more than one worktree. Worktree may be left out, and then defaults to true. Example: {\"Worktree\": true, \"Date\": true, \"Author\": true, \"Commit\": true}"
 					},
 					"git-tree.dialog.addTag.pushToRemote": {
 						"type": "boolean",

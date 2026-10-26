@@ -2405,12 +2405,13 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
 					stashes: [],
-					worktrees: []
+					worktrees: [],
+					onlyWorktreeHistory: false
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2447,12 +2448,13 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
 					stashes: [],
-					worktrees: []
+					worktrees: [],
+					onlyWorktreeHistory: false
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, true, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, true, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2489,12 +2491,13 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
 					stashes: [],
-					worktrees: []
+					worktrees: [],
+					onlyWorktreeHistory: false
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, true, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, true, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2531,12 +2534,13 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
 					stashes: [],
-					worktrees: []
+					worktrees: [],
+					onlyWorktreeHistory: false
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, false, true, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, false, true, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2550,6 +2554,52 @@ describe('GitTreeView', () => {
 						}
 					]);
 					expect(GitTreeView.currentPanel!['loadCommitsRefreshId']).toBe(2);
+				});
+			});
+
+			it('Should get commits (only the history of a worktree, with specific branches)', async () => {
+				// Setup
+				const spyOnGetCommits = jest.spyOn(dataSource, 'getCommits');
+				spyOnGetCommits.mockResolvedValueOnce(getCommitsResolvedValue);
+				const worktrees = [
+					{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'master', isMain: true, isCurrent: false, locked: false, prunable: false },
+					{ path: '/path/to/repo/.worktrees/review', name: 'review', head: '2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c', branch: null, isMain: false, isCurrent: true, locked: false, prunable: false }
+				];
+
+				// Run
+				onDidReceiveMessage({
+					command: 'loadCommits',
+					repo: '/path/to/repo/.worktrees/review',
+					refreshId: 2,
+					branches: ['develop'],
+					maxCommits: 300,
+					showTags: true,
+					showRemoteBranches: true,
+					includeCommitsMentionedByReflogs: false,
+					onlyFollowFirstParent: false,
+					commitOrdering: CommitOrdering.Date,
+					remotes: ['origin'],
+					hideRemotes: [],
+					stashes: [],
+					worktrees: worktrees,
+					onlyWorktreeHistory: true
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo/.worktrees/review', ['develop'], 300, true, true, false, false, CommitOrdering.Date, ['origin'], [], [], worktrees, true);
+					expect(messages).toStrictEqual([
+						{
+							command: 'loadCommits',
+							refreshId: 2,
+							commits: getCommitsResolvedValue.commits,
+							head: getCommitsResolvedValue.head,
+							tags: getCommitsResolvedValue.tags,
+							moreCommitsAvailable: getCommitsResolvedValue.moreCommitsAvailable,
+							onlyFollowFirstParent: false,
+							error: getCommitsResolvedValue.error
+						}
+					]);
 				});
 			});
 		});

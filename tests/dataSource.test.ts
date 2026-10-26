@@ -2398,6 +2398,72 @@ describe('DataSource', () => {
 			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
 		});
 
+		it('Should return only the history of the worktree (onlyWorktreeHistory === TRUE, show all branches, detached HEAD)', async () => {
+			// Setup
+			mockGitSuccessOnce(
+				'2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3cXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4dXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest NameXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest@example.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1587559257XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbCommit Message 2\n' +
+				'3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4dXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest NameXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest@example.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1587559256XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbCommit Message 1\n'
+			);
+			mockGitSuccessOnce(
+				'2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c HEAD\n' +
+				'1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b refs/heads/master\n' +
+				'3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d refs/heads/develop\n' +
+				'1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b refs/remotes/origin/master\n' +
+				'3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d refs/remotes/origin/develop\n' +
+				'1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b refs/tags/tag1\n' +
+				'3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d refs/tags/tag2\n'
+			);
+			mockGitSuccessOnce(' M file.txt\n');
+			vscode.mockExtensionSettingReturnValue('repository.showCommitsOnlyReferencedByTags', true);
+			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
+			vscode.mockExtensionSettingReturnValue('repository.showUntrackedFiles', true);
+			date.setCurrentTime(1587559259);
+			const stash = { selector: 'refs/stash@{0}', hash: '5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f', baseHash: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', untrackedFilesHash: null, author: 'Test Name', email: 'test@example.com', date: 1587559258, message: 'WIP on master' };
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo/.worktrees/review', null, 300, true, true, true, false, CommitOrdering.Date, ['origin'], [], [stash], [
+				{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'master', isMain: true, isCurrent: false, locked: false, prunable: false },
+				{ path: '/path/to/repo/.worktrees/review', name: 'review', head: '2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c', branch: null, isMain: false, isCurrent: true, locked: false, prunable: false },
+				{ path: '/path/to/repo/.worktrees/other', name: 'other', head: '3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d', branch: null, isMain: false, isCurrent: false, locked: false, prunable: false }
+			], true);
+
+			// Assert
+			expect(result.commits.map((commit) => ({ hash: commit.hash, heads: commit.heads, tags: commit.tags, remotes: commit.remotes, stash: commit.stash }))).toStrictEqual([
+				{ hash: '*', heads: [], tags: [], remotes: [], stash: null },
+				{ hash: '2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c', heads: [], tags: [], remotes: [], stash: null },
+				{ hash: '3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d', heads: ['develop'], tags: [{ name: 'tag2', annotated: false }], remotes: [{ name: 'origin/develop', remote: 'origin' }], stash: null }
+			]);
+			expect(result.commits[0].parents).toStrictEqual(['2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c']);
+			expect(result.head).toBe('2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c');
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', '--format=%HXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%PXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%anXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%aeXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%atXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%s', '--date-order', 'HEAD', '--'], expect.objectContaining({ cwd: '/path/to/repo/.worktrees/review' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['status', '--untracked-files=all', '--porcelain'], expect.objectContaining({ cwd: '/path/to/repo/.worktrees/review' }));
+			expect(spyOnSpawn).toHaveBeenCalledTimes(3);
+		});
+
+		it('Should return the history of the worktree and the chosen branches (onlyWorktreeHistory === TRUE, specific branches)', async () => {
+			// Setup
+			mockGitSuccessOnce(
+				'1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2bXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest NameXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest@example.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1587559258XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbCommit Message 1\n'
+			);
+			mockGitSuccessOnce(
+				'1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b HEAD\n' +
+				'1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b refs/heads/feature\n'
+			);
+			mockGitSuccessOnce('');
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo/.worktrees/feature', ['master', 'develop'], 300, true, true, false, false, CommitOrdering.Topological, [], [], [], [
+				{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'master', isMain: true, isCurrent: false, locked: false, prunable: false }
+			], true);
+
+			// Assert
+			expect(result.commits.map((commit) => commit.hash)).toStrictEqual(['1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b']);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', '--format=%HXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%PXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%anXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%aeXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%atXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%s', '--topo-order', 'master', 'develop', 'HEAD', '--'], expect.objectContaining({ cwd: '/path/to/repo/.worktrees/feature' }));
+			expect(spyOnSpawn).toHaveBeenCalledTimes(3);
+		});
+
 		it('Should return no commits (when in an empty repository)', async () => {
 			// Setup
 			mockGitSuccessOnce('\n');

@@ -1,3 +1,9 @@
+/** The worktrees of a repository, indexed by what they have checked out. */
+interface WorktreeLookup {
+	readonly byBranch: Map<string, GG.GitWorktree>;
+	readonly byDetachedHead: Map<string, GG.GitWorktree[]>;
+}
+
 class GitTreeView {
 	private gitRepos: GG.GitRepoSet;
 	private gitBranches: ReadonlyArray<string> = [];
@@ -15,7 +21,7 @@ class GitTreeView {
 	private currentBranches: string[] | null = null;
 
 	private currentRepo!: string;
-	private currentWorktree!: string; // Where Git commands run: the repository, or one of its linked worktrees
+	private worktreeChoices: { [repo: string]: string } = {}; // The Worktree dropdown's choice in each repository that has one other than Root
 	private currentRepoLoading: boolean = true;
 	private currentRepoRefreshState: {
 		inProgress: boolean;
@@ -96,7 +102,7 @@ class GitTreeView {
 		});
 
 		this.worktreeDropdown = new Dropdown('worktreeDropdown', true, false, 'Worktrees', (values) => {
-			this.loadWorktree(values[0]);
+			this.chooseWorktree(values[0]);
 		});
 
 		this.showRemoteBranchesElem = <HTMLInputElement>document.getElementById('showRemoteBranchesCheckbox')!;
@@ -126,9 +132,11 @@ class GitTreeView {
 		this.observeUrls();
 		this.observeTableEvents();
 
+		if (prevState && typeof prevState.worktreeChoices !== 'undefined') {
+			this.worktreeChoices = Object.assign({}, prevState.worktreeChoices);
+		}
 		if (prevState && !prevState.currentRepoLoading && typeof this.gitRepos[prevState.currentRepo] !== 'undefined') {
 			this.currentRepo = prevState.currentRepo;
-			this.currentWorktree = prevState.currentWorktree || prevState.currentRepo;
 			this.currentBranches = prevState.currentBranches;
 			this.maxCommits = prevState.maxCommits;
 			this.expandedCommit = prevState.expandedCommit;
@@ -215,7 +223,6 @@ class GitTreeView {
 
 	private loadRepo(repo: string) {
 		this.currentRepo = repo;
-		this.currentWorktree = repo;
 		this.currentRepoLoading = true;
 		this.showRemoteBranchesElem.checked = getShowRemoteBranches(this.gitRepos[this.currentRepo].showRemoteBranchesV2);
 		this.maxCommits = this.config.initialLoadCommits;
@@ -233,27 +240,65 @@ class GitTreeView {
 	}
 
 	/**
-	 * Show a worktree of the current repository: Git commands run in it, so its HEAD, branch and uncommitted changes are the ones shown.
-	 * @param worktree The path of the worktree.
+	 * The Worktree dropdown's choice in the current repository: ALL_WORKTREES, or the path of a worktree. It is Root, the repository itself, until another is chosen.
+	 */
+	private get worktreeChoice() {
+		const choice = this.worktreeChoices[this.currentRepo];
+		return typeof choice === 'string' ? choice : this.currentRepo;
+	}
+
+	/**
+	 * Where Git commands run: the chosen worktree, or the repository itself when All is chosen.
+	 */
+	private get currentWorktree() {
+		const choice = this.worktreeChoice;
+		return choice !== ALL_WORKTREES ? choice : this.currentRepo;
+	}
+
+	/**
+	 * Does the graph show only the history of the chosen worktree? A repository with one worktree always shows everything, as with All.
+	 */
+	private isOnlyWorktreeHistory() {
+		return this.worktreeChoice !== ALL_WORKTREES && this.hasMultipleWorktrees();
+	}
+
+	/**
+	 * Choose what the Worktree dropdown shows. A worktree's history is shown, with Git commands running in it. All shows everything, with Git commands running in the repository.
+	 * @param choice ALL_WORKTREES, or the path of a worktree.
 	 * @param showUncommittedChanges Open the worktree's uncommitted changes once it has loaded.
 	 */
-	private loadWorktree(worktree: string, showUncommittedChanges: boolean = false) {
-		if (this.currentWorktree === worktree) return;
-		this.currentWorktree = worktree;
+	private chooseWorktree(choice: string, showUncommittedChanges: boolean = false) {
+		if (this.worktreeChoice === choice) return;
+		if (choice === this.currentRepo) {
+			delete this.worktreeChoices[this.currentRepo];
+		} else {
+			this.worktreeChoices[this.currentRepo] = choice;
+		}
 		this.closeCommitDetails(false);
-		this.loadViewTo = showUncommittedChanges ? { repo: this.currentWorktree, commitDetails: { commitHash: UNCOMMITTED, compareWithHash: null } } : null;
+		this.loadViewTo = showUncommittedChanges ? { repo: this.currentRepo, commitDetails: { commitHash: UNCOMMITTED, compareWithHash: null } } : null;
+		this.maxCommits = this.config.initialLoadCommits;
 		this.saveState();
 		this.refresh(true);
 	}
 
+	/**
+	 * Is the Worktree dropdown's choice still available? All and Root always are. A linked worktree isn't once it has been removed.
+	 */
+	private isWorktreeChoiceAvailable() {
+		const choice = this.worktreeChoice;
+		return choice === ALL_WORKTREES || choice === this.currentRepo || this.gitWorktrees.some((worktree) => !worktree.prunable && worktree.path === choice);
+	}
+
 	private renderWorktreeDropdown() {
-		const worktrees = this.gitWorktrees.filter((worktree) => !worktree.prunable);
-		alterClass(this.controlsElem, 'singleWorktree', worktrees.length < 2);
-		this.worktreeDropdown.setOptions(worktrees.map((worktree) => ({
-			name: worktree.name + (worktree.isMain ? ' (main)' : ''),
-			value: worktree.path,
-			hint: worktree.branch !== null ? worktree.branch : 'detached'
-		})), [this.currentWorktree]);
+		// All first, then Root (the main worktree), then the linked worktrees
+		const worktrees = this.gitWorktrees.filter((worktree) => !worktree.prunable).sort((a, b) => (a.isMain ? 0 : 1) - (b.isMain ? 0 : 1));
+		alterClass(this.controlsElem, 'singleWorktree', !this.hasMultipleWorktrees());
+		this.worktreeDropdown.setOptions([{ name: 'All', value: ALL_WORKTREES, hint: 'every worktree' }].concat(worktrees.map((worktree) => {
+			const branch = worktree.branch !== null ? worktree.branch : 'detached';
+			return worktree.isMain
+				? { name: 'Root', value: worktree.path, hint: worktree.name + ' \u00B7 ' + branch }
+				: { name: worktree.name, value: worktree.path, hint: branch };
+		})), [this.worktreeChoice]);
 	}
 
 	private loadRepoInfo(branchOptions: ReadonlyArray<string>, branchHead: string | null, remotes: ReadonlyArray<string>, stashes: ReadonlyArray<GG.GitStash>, worktrees: ReadonlyArray<GG.GitWorktree>, isRepo: boolean) {
@@ -324,14 +369,14 @@ class GitTreeView {
 	private finaliseLoadRepoInfo(repoInfoChanges: boolean, isRepo: boolean) {
 		const refreshState = this.currentRepoRefreshState;
 		if (refreshState.inProgress) {
-			if (isRepo) {
+			if (isRepo && this.isWorktreeChoiceAvailable()) {
 				refreshState.repoInfoChanges = refreshState.repoInfoChanges || repoInfoChanges;
 				refreshState.requestingRepoInfo = false;
 				this.requestLoadCommits();
 			} else if (this.currentWorktree !== this.currentRepo) {
-				// The linked worktree being shown no longer exists, so show the repository itself
+				// The chosen worktree no longer exists, so show Root
 				refreshState.inProgress = false;
-				this.currentWorktree = this.currentRepo;
+				delete this.worktreeChoices[this.currentRepo];
 				this.saveState();
 				this.refresh(true);
 			} else {
@@ -666,7 +711,8 @@ class GitTreeView {
 			remotes: this.gitRemotes,
 			hideRemotes: repoState.hideRemotes,
 			stashes: this.gitStashes,
-			worktrees: this.gitWorktrees
+			worktrees: this.gitWorktrees,
+			onlyWorktreeHistory: this.isOnlyWorktreeHistory()
 		});
 	}
 
@@ -759,6 +805,7 @@ class GitTreeView {
 
 		VSCODE_API.setState({
 			currentRepo: this.currentRepo,
+			worktreeChoices: this.worktreeChoices,
 			currentRepoLoading: this.currentRepoLoading,
 			gitRepos: this.gitRepos,
 			gitBranches: this.gitBranches,
@@ -786,8 +833,32 @@ class GitTreeView {
 		sendMessage({ command: 'setRepoState', repo: this.currentRepo, state: this.gitRepos[this.currentRepo] });
 	}
 
+	/**
+	 * Get the widths of the table's columns, indexed by COLUMN_*, from the repository's state, or from the default column visibility when the state has none.
+	 * The state holds [Graph, Date, Author, Commit, Worktree]. Description isn't saved, because it takes the remaining width. Worktree is last,
+	 * because state saved before the column existed has only the first four.
+	 * @returns The widths.
+	 */
+	private getColumnWidths(): GG.ColumnWidth[] {
+		const saved = this.gitRepos[this.currentRepo].columnWidths, defaults = this.config.defaultColumnVisibility;
+		const getDefaultWidth = (visible: boolean) => visible ? COLUMN_AUTO : COLUMN_HIDDEN;
+		if (saved === null) {
+			return [COLUMN_AUTO, COLUMN_AUTO, getDefaultWidth(defaults.worktree), getDefaultWidth(defaults.date), getDefaultWidth(defaults.author), getDefaultWidth(defaults.commit)];
+		}
+		let worktreeWidth = saved.length > 4 ? saved[4] : getDefaultWidth(defaults.worktree);
+		if (worktreeWidth === COLUMN_AUTO && saved[0] !== COLUMN_AUTO) {
+			// A fixed layout needs the width of every column it shows
+			worktreeWidth = WORKTREE_COLUMN_DEFAULT_WIDTH - COLUMN_LEFT_RIGHT_PADDING;
+		}
+		return [saved[0], COLUMN_AUTO, worktreeWidth, saved[1], saved[2], saved[3]];
+	}
+
+	/**
+	 * Save the widths of the table's columns in the repository's state, in the order getColumnWidths reads them.
+	 * @param columnWidths The widths, indexed by COLUMN_*.
+	 */
 	private saveColumnWidths(columnWidths: GG.ColumnWidth[]) {
-		this.gitRepos[this.currentRepo].columnWidths = [columnWidths[0], columnWidths[2], columnWidths[3], columnWidths[4]];
+		this.gitRepos[this.currentRepo].columnWidths = [columnWidths[COLUMN_GRAPH], columnWidths[COLUMN_DATE], columnWidths[COLUMN_AUTHOR], columnWidths[COLUMN_COMMIT], columnWidths[COLUMN_WORKTREE]];
 		this.saveRepoState();
 	}
 
@@ -868,22 +939,13 @@ class GitTreeView {
 			markdown: this.config.markdown
 		});
 
-		// Label every worktree, including the main one, when the repository has more than one
-		const branchWorktrees: { [branch: string]: GG.GitWorktree } = {}, detachedWorktrees: { [hash: string]: GG.GitWorktree[] } = {};
-		const labelWorktrees = this.gitWorktrees.filter((worktree) => !worktree.prunable).length > 1;
-		this.gitWorktrees.forEach((worktree) => {
-			if (!labelWorktrees || worktree.prunable || worktree.head === null) return;
-			if (worktree.branch !== null) {
-				branchWorktrees[worktree.branch] = worktree;
-			} else {
-				(detachedWorktrees[worktree.head] = detachedWorktrees[worktree.head] || []).push(worktree);
-			}
-		});
+		const worktreeLookup = this.getWorktreeLookup();
 
-		let html = '<tr id="tableColHeaders"><th id="tableHeaderGraphCol" class="tableColHeader" data-col="0">Graph</th><th class="tableColHeader" data-col="1">Description</th>' +
-			(colVisibility.date ? '<th class="tableColHeader dateCol" data-col="2">Date</th>' : '') +
-			(colVisibility.author ? '<th class="tableColHeader authorCol" data-col="3">Author</th>' : '') +
-			(colVisibility.commit ? '<th class="tableColHeader" data-col="4">Commit</th>' : '') +
+		let html = '<tr id="tableColHeaders"><th id="tableHeaderGraphCol" class="tableColHeader" data-col="' + COLUMN_GRAPH + '">Graph</th><th class="tableColHeader" data-col="' + COLUMN_DESCRIPTION + '">Description</th>' +
+			(colVisibility.worktree ? '<th class="tableColHeader worktreeCol" data-col="' + COLUMN_WORKTREE + '">Worktree</th>' : '') +
+			(colVisibility.date ? '<th class="tableColHeader dateCol" data-col="' + COLUMN_DATE + '">Date</th>' : '') +
+			(colVisibility.author ? '<th class="tableColHeader authorCol" data-col="' + COLUMN_AUTHOR + '">Author</th>' : '') +
+			(colVisibility.commit ? '<th class="tableColHeader" data-col="' + COLUMN_COMMIT + '">Commit</th>' : '') +
 			'</tr>';
 
 		for (let i = 0; i < this.commits.length; i++) {
@@ -899,9 +961,6 @@ class GitTreeView {
 				refName = escapeHtml(branchLabels.heads[j].name);
 				refActive = branchLabels.heads[j].name === this.gitBranchHead;
 				refHtml = '<span class="gitRef head' + (refActive ? ' active' : '') + '" data-name="' + refName + '">' + SVG_ICONS.branch + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span>';
-				if (typeof branchWorktrees[branchLabels.heads[j].name] !== 'undefined') {
-					refHtml += getWorktreeLabelHtml(branchWorktrees[branchLabels.heads[j].name]);
-				}
 				for (k = 0; k < branchLabels.heads[j].remotes.length; k++) {
 					remoteName = escapeHtml(branchLabels.heads[j].remotes[k]);
 					refHtml += '<span class="gitRefHeadRemote" data-remote="' + remoteName + '" data-fullref="' + escapeHtml(branchLabels.heads[j].remotes[k] + '/' + branchLabels.heads[j].name) + '">' + remoteName + '</span>';
@@ -909,11 +968,6 @@ class GitTreeView {
 				refHtml += '</span>';
 				refBranches = refActive ? refHtml + refBranches : refBranches + refHtml;
 				if (refActive) branchCheckedOutAtCommit = this.gitBranchHead;
-			}
-			if (typeof detachedWorktrees[commit.hash] !== 'undefined') {
-				for (j = 0; j < detachedWorktrees[commit.hash].length; j++) {
-					refBranches += getWorktreeRefHtml(detachedWorktrees[commit.hash][j], 'The worktree ' + detachedWorktrees[commit.hash][j].path + ' has this commit checked out (detached HEAD)');
-				}
 			}
 			for (j = 0; j < branchLabels.remotes.length; j++) {
 				refName = escapeHtml(branchLabels.remotes[j].name);
@@ -939,6 +993,7 @@ class GitTreeView {
 
 			html += '<tr class="commit' + (commit.hash === currentHash ? ' current' : '') + (mutedCommits[i] ? ' mute' : '') + '"' + (commit.hash !== UNCOMMITTED ? '' : ' id="uncommittedChanges"') + ' data-id="' + i + '" data-color="' + vertexColours[i] + '">' +
 				(this.config.referenceLabels.branchLabelsAlignedToGraph ? '<td>' + (refBranches !== '' ? '<span style="margin-left:' + (widthsAtVertices[i] - 4) + 'px"' + refBranches.substring(5) : '') + '</td><td><span class="description">' + commitDot : '<td></td><td><span class="description">' + commitDot + refBranches) + (this.config.referenceLabels.tagLabelsOnRight ? message + refTags : refTags + message) + '</span></td>' +
+				(colVisibility.worktree ? this.getWorktreeCellHtml(commit, worktreeLookup) : '') +
 				(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
 				(colVisibility.author ? '<td class="authorCol text" title="' + escapeHtml(commit.author + ' <' + commit.email + '>') + '">' + (this.config.fetchAvatars ? '<span class="avatar" data-email="' + escapeHtml(commit.email) + '">' + (typeof this.avatars[commit.email] === 'string' ? '<img class="avatarImg" src="' + this.avatars[commit.email] + '">' : '') + '</span>' : '') + escapeHtml(commit.author) + '</td>' : '') +
 				(colVisibility.commit ? (isUncommittedChanges(commit.hash) ? '<td class="text" title="' + UNCOMMITTED + '">' + UNCOMMITTED + '</td>' : '<td class="text" title="' + escapeHtml(commit.hash) + '">' + abbrevCommit(commit.hash) + '</td>') : '') +
@@ -996,12 +1051,13 @@ class GitTreeView {
 	}
 
 	private renderUncommittedChanges() {
-		const colVisibility = this.getColumnVisibility(), elems = getCommitElems();
+		const colVisibility = this.getColumnVisibility(), elems = getCommitElems(), worktreeLookup = this.getWorktreeLookup();
 		for (let i = 0; i < this.commits.length && isUncommittedChanges(this.commits[i].hash); i++) {
 			const elem = findCommitElemWithId(elems, i);
 			if (elem === null) continue;
 			const date = formatShortDate(this.commits[i].date);
 			elem.innerHTML = '<td></td><td><span class="description">' + this.getUncommittedChangesHtml(this.commits[i]) + '</span></td>' +
+				(colVisibility.worktree ? this.getWorktreeCellHtml(this.commits[i], worktreeLookup) : '') +
 				(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
 				(colVisibility.author ? '<td class="authorCol text" title="* <>">*</td>' : '') +
 				(colVisibility.commit ? '<td class="text" title="*">*</td>' : '');
@@ -1009,16 +1065,68 @@ class GitTreeView {
 	}
 
 	/**
-	 * Get the description of a row of uncommitted changes: the label of its worktree, when the repository has more than one, and its message.
+	 * Get the description of a row of uncommitted changes. Its worktree's label is in the Worktree column.
 	 * @param commit The row of uncommitted changes.
 	 * @returns The HTML.
 	 */
 	private getUncommittedChangesHtml(commit: GG.GitCommit) {
-		const worktree = this.getWorktreeOfUncommittedChanges(commit);
-		const label = worktree !== null && this.gitWorktrees.filter((worktree) => !worktree.prunable).length > 1
-			? getWorktreeRefHtml(worktree, 'Uncommitted changes in the worktree ' + worktree.path + (commit.hash !== UNCOMMITTED ? '. Click to show this worktree.' : ''))
-			: '';
-		return label + '<span class="text"><b>' + escapeHtml(commit.message) + '</b></span>';
+		return '<span class="text"><b>' + escapeHtml(commit.message) + '</b></span>';
+	}
+
+	/**
+	 * Does the repository have more than one worktree? Only then are worktrees labelled, and the Worktree column shown.
+	 */
+	private hasMultipleWorktrees() {
+		return this.gitWorktrees.filter((worktree) => !worktree.prunable).length > 1;
+	}
+
+	/**
+	 * Index the worktrees by what they have checked out, to label them on the rows of the table.
+	 * @returns The lookup.
+	 */
+	private getWorktreeLookup(): WorktreeLookup {
+		const lookup: WorktreeLookup = { byBranch: new Map(), byDetachedHead: new Map() };
+		this.gitWorktrees.forEach((worktree) => {
+			if (worktree.prunable || worktree.head === null) return;
+			if (worktree.branch !== null) {
+				lookup.byBranch.set(worktree.branch, worktree);
+			} else {
+				const worktrees = lookup.byDetachedHead.get(worktree.head);
+				if (typeof worktrees !== 'undefined') {
+					worktrees.push(worktree);
+				} else {
+					lookup.byDetachedHead.set(worktree.head, [worktree]);
+				}
+			}
+		});
+		return lookup;
+	}
+
+	/**
+	 * Get the Worktree column's cell of a row: the label of each worktree that has the row's commit (or one of its branches) checked out, or the worktree a row of uncommitted changes is in.
+	 * @param commit The commit of the row.
+	 * @param lookup The worktrees, indexed by what they have checked out.
+	 * @returns The HTML.
+	 */
+	private getWorktreeCellHtml(commit: GG.GitCommit, lookup: WorktreeLookup) {
+		let html = '';
+		if (isUncommittedChanges(commit.hash)) {
+			const worktree = this.getWorktreeOfUncommittedChanges(commit);
+			if (worktree !== null) {
+				html = getWorktreeRefHtml(worktree, 'Uncommitted changes in the worktree ' + worktree.path + '.' + (commit.hash !== UNCOMMITTED ? ' Click the row to show this worktree.' : ''));
+			}
+		} else {
+			commit.heads.forEach((branch) => {
+				const worktree = lookup.byBranch.get(branch);
+				if (typeof worktree !== 'undefined') {
+					html += getWorktreeRefHtml(worktree, 'The worktree ' + worktree.path + ' has the branch "' + branch + '" checked out' + (worktree.isCurrent ? ', and this view shows it.' : '.'));
+				}
+			});
+			(lookup.byDetachedHead.get(commit.hash) || []).forEach((worktree) => {
+				html += getWorktreeRefHtml(worktree, 'The worktree ' + worktree.path + ' has this commit checked out (detached HEAD)' + (worktree.isCurrent ? ', and this view shows it.' : '.'));
+			});
+		}
+		return '<td class="worktreeCol">' + html + '</td>';
 	}
 
 	/**
@@ -1651,7 +1759,7 @@ class GitTreeView {
 	 */
 	private showWorktreeOfUncommittedChanges(commit: GG.GitCommit) {
 		if (commit.hash === UNCOMMITTED || !isUncommittedChanges(commit.hash) || typeof commit.worktree === 'undefined') return false;
-		this.loadWorktree(commit.worktree, true);
+		this.chooseWorktree(commit.worktree, true);
 		return true;
 	}
 
@@ -1659,8 +1767,8 @@ class GitTreeView {
 		return [[
 			{
 				title: 'Show This Worktree',
-				visible: !worktree.isCurrent && !worktree.prunable,
-				onClick: () => this.loadWorktree(worktree.path)
+				visible: this.worktreeChoice !== worktree.path && !worktree.prunable,
+				onClick: () => this.chooseWorktree(worktree.path)
 			}
 		], [
 			{
@@ -1897,7 +2005,17 @@ class GitTreeView {
 
 	private makeTableResizable() {
 		let colHeadersElem = document.getElementById('tableColHeaders')!, cols = <HTMLCollectionOf<HTMLElement>>document.getElementsByClassName('tableColHeader');
-		let columnWidths: GG.ColumnWidth[], mouseX = -1, col = -1, colIndex = -1;
+		let mouseX = -1, col = -1, colIndex = -1;
+
+		const savedColumnWidths = this.gitRepos[this.currentRepo].columnWidths, columnWidths = this.getColumnWidths();
+		// The Worktree column isn't shown while the repository has one worktree, but its width is kept for when it has more
+		const multipleWorktrees = this.hasMultipleWorktrees(), worktreeWidth = columnWidths[COLUMN_WORKTREE];
+		if (!multipleWorktrees) columnWidths[COLUMN_WORKTREE] = COLUMN_HIDDEN;
+		const saveColumnWidths = () => {
+			const widths = columnWidths.slice();
+			if (!multipleWorktrees) widths[COLUMN_WORKTREE] = worktreeWidth;
+			this.saveColumnWidths(widths);
+		};
 
 		const makeTableFixedLayout = () => {
 			cols[0].style.width = columnWidths[0] + 'px';
@@ -1915,13 +2033,8 @@ class GitTreeView {
 			cols[i].innerHTML += (i > 0 ? '<span class="resizeCol left" data-col="' + (col - 1) + '"></span>' : '') + (i < cols.length - 1 ? '<span class="resizeCol right" data-col="' + col + '"></span>' : '');
 		}
 
-		let cWidths = this.gitRepos[this.currentRepo].columnWidths;
-		if (cWidths === null) { // Initialise auto column layout if it is the first time viewing the repo.
-			let defaults = this.config.defaultColumnVisibility;
-			columnWidths = [COLUMN_AUTO, COLUMN_AUTO, defaults.date ? COLUMN_AUTO : COLUMN_HIDDEN, defaults.author ? COLUMN_AUTO : COLUMN_HIDDEN, defaults.commit ? COLUMN_AUTO : COLUMN_HIDDEN];
-			this.saveColumnWidths(columnWidths);
-		} else {
-			columnWidths = [cWidths[0], COLUMN_AUTO, cWidths[1], cWidths[2], cWidths[3]];
+		if (savedColumnWidths === null) { // Save the auto column layout if it is the first time viewing the repo.
+			saveColumnWidths();
 		}
 
 		if (columnWidths[0] !== COLUMN_AUTO) {
@@ -1960,13 +2073,13 @@ class GitTreeView {
 					cols[0].style.width = columnWidths[0] + 'px';
 					this.graph.limitMaxWidth(columnWidths[0] + COLUMN_LEFT_RIGHT_PADDING);
 				} else {
-					let colWidth = col !== 1 ? columnWidths[col] : cols[1].clientWidth - COLUMN_LEFT_RIGHT_PADDING;
+					let colWidth = col !== COLUMN_DESCRIPTION ? columnWidths[col] : cols[1].clientWidth - COLUMN_LEFT_RIGHT_PADDING;
 					let nextCol = col + 1;
 					while (columnWidths[nextCol] === COLUMN_HIDDEN) nextCol++;
 
 					if (colWidth + mouseDeltaX < COLUMN_MIN_WIDTH) mouseDeltaX = -colWidth + COLUMN_MIN_WIDTH;
 					if (columnWidths[nextCol] - mouseDeltaX < COLUMN_MIN_WIDTH) mouseDeltaX = columnWidths[nextCol] - COLUMN_MIN_WIDTH;
-					if (col !== 1) {
+					if (col !== COLUMN_DESCRIPTION) {
 						columnWidths[col] += mouseDeltaX;
 						cols[colIndex].style.width = columnWidths[col] + 'px';
 					}
@@ -1982,7 +2095,7 @@ class GitTreeView {
 				colIndex = -1;
 				mouseX = -1;
 				eventOverlay.remove();
-				this.saveColumnWidths(columnWidths);
+				saveColumnWidths();
 			}
 		};
 
@@ -1995,7 +2108,7 @@ class GitTreeView {
 			let isAuto = columnWidths[0] === COLUMN_AUTO;
 			for (let i = 0; i < cols.length; i++) {
 				let curCol = parseInt(cols[i].dataset.col!);
-				if (isAuto && curCol !== 1) columnWidths[curCol] = cols[i].clientWidth - COLUMN_LEFT_RIGHT_PADDING;
+				if (isAuto && curCol !== COLUMN_DESCRIPTION) columnWidths[curCol] = cols[i].clientWidth - COLUMN_LEFT_RIGHT_PADDING;
 				if (curCol === col) colIndex = i;
 			}
 			if (isAuto) makeTableFixedLayout();
@@ -2007,7 +2120,7 @@ class GitTreeView {
 
 			const toggleColumnState = (col: number, defaultWidth: number) => {
 				columnWidths[col] = columnWidths[col] !== COLUMN_HIDDEN ? COLUMN_HIDDEN : columnWidths[0] === COLUMN_AUTO ? COLUMN_AUTO : defaultWidth - COLUMN_LEFT_RIGHT_PADDING;
-				this.saveColumnWidths(columnWidths);
+				saveColumnWidths();
 				this.render();
 			};
 
@@ -2020,22 +2133,28 @@ class GitTreeView {
 			contextMenu.show([
 				[
 					{
+						title: 'Worktree',
+						visible: multipleWorktrees,
+						checked: columnWidths[COLUMN_WORKTREE] !== COLUMN_HIDDEN,
+						onClick: () => toggleColumnState(COLUMN_WORKTREE, WORKTREE_COLUMN_DEFAULT_WIDTH)
+					},
+					{
 						title: 'Date',
 						visible: true,
-						checked: columnWidths[2] !== COLUMN_HIDDEN,
-						onClick: () => toggleColumnState(2, 128)
+						checked: columnWidths[COLUMN_DATE] !== COLUMN_HIDDEN,
+						onClick: () => toggleColumnState(COLUMN_DATE, 128)
 					},
 					{
 						title: 'Author',
 						visible: true,
-						checked: columnWidths[3] !== COLUMN_HIDDEN,
-						onClick: () => toggleColumnState(3, 128)
+						checked: columnWidths[COLUMN_AUTHOR] !== COLUMN_HIDDEN,
+						onClick: () => toggleColumnState(COLUMN_AUTHOR, 128)
 					},
 					{
 						title: 'Commit',
 						visible: true,
-						checked: columnWidths[4] !== COLUMN_HIDDEN,
-						onClick: () => toggleColumnState(4, 80)
+						checked: columnWidths[COLUMN_COMMIT] !== COLUMN_HIDDEN,
+						onClick: () => toggleColumnState(COLUMN_COMMIT, 80)
 					}
 				],
 				[
@@ -2063,18 +2182,18 @@ class GitTreeView {
 	}
 
 	public getColumnVisibility() {
-		let colWidths = this.gitRepos[this.currentRepo].columnWidths;
-		if (colWidths !== null) {
-			return { date: colWidths[1] !== COLUMN_HIDDEN, author: colWidths[2] !== COLUMN_HIDDEN, commit: colWidths[3] !== COLUMN_HIDDEN };
-		} else {
-			let defaults = this.config.defaultColumnVisibility;
-			return { date: defaults.date, author: defaults.author, commit: defaults.commit };
-		}
+		const colWidths = this.getColumnWidths();
+		return {
+			worktree: colWidths[COLUMN_WORKTREE] !== COLUMN_HIDDEN && this.hasMultipleWorktrees(),
+			date: colWidths[COLUMN_DATE] !== COLUMN_HIDDEN,
+			author: colWidths[COLUMN_AUTHOR] !== COLUMN_HIDDEN,
+			commit: colWidths[COLUMN_COMMIT] !== COLUMN_HIDDEN
+		};
 	}
 
 	private getNumColumns() {
 		let colVisibility = this.getColumnVisibility();
-		return 2 + (colVisibility.date ? 1 : 0) + (colVisibility.author ? 1 : 0) + (colVisibility.commit ? 1 : 0);
+		return 2 + (colVisibility.worktree ? 1 : 0) + (colVisibility.date ? 1 : 0) + (colVisibility.author ? 1 : 0) + (colVisibility.commit ? 1 : 0);
 	}
 
 	/**
@@ -2410,6 +2529,10 @@ class GitTreeView {
 				if (contextMenu.isOpen()) {
 					contextMenu.close();
 				}
+				if (eventElem.classList.contains(CLASS_REF_WORKTREE) && (e.ctrlKey || e.metaKey) && e.detail < 2) {
+					// Ctrl/Cmd+Click opens the worktree in a new window, once: the second click of a double click is skipped
+					sendMessage({ command: 'openWorktree', path: unescapeHtml(eventElem.dataset.path!), newWindow: true });
+				}
 
 			} else if ((eventElem = eventTarget.closest('.commit')) !== null) {
 				// .commit was clicked
@@ -2449,9 +2572,11 @@ class GitTreeView {
 				const commit = this.getCommitOfElem(commitElem);
 				if (commit === null) return;
 
-				const worktreeElem = <HTMLElement | null>eventTarget.closest('.gitRefWorktree');
-				if (worktreeElem !== null || eventElem.classList.contains(CLASS_REF_WORKTREE)) {
-					sendMessage({ command: 'openWorktree', path: unescapeHtml((worktreeElem !== null ? worktreeElem : eventElem).dataset.path || eventElem.dataset.name!), newWindow: true });
+				if (eventElem.classList.contains(CLASS_REF_WORKTREE)) {
+					// With Ctrl/Cmd, the first click already opened the worktree
+					if (!e.ctrlKey && !e.metaKey) {
+						sendMessage({ command: 'openWorktree', path: unescapeHtml(eventElem.dataset.path!), newWindow: true });
+					}
 				} else if (eventElem.classList.contains(CLASS_REF_HEAD) || eventElem.classList.contains(CLASS_REF_REMOTE)) {
 					let sourceElem = <HTMLElement>eventElem.children[1];
 					let refName = unescapeHtml(eventElem.dataset.name!), isHead = eventElem.classList.contains(CLASS_REF_HEAD), isRemoteCombinedWithHead = eventTarget.classList.contains('gitRefHeadRemote');
@@ -2497,12 +2622,10 @@ class GitTreeView {
 				};
 
 				let actions: ContextMenuActions;
-				const worktreeElem = <HTMLElement | null>eventTarget.closest('.gitRefWorktree');
-				const worktreePath = worktreeElem !== null ? unescapeHtml(worktreeElem.dataset.path!) : eventElem.classList.contains(CLASS_REF_WORKTREE) ? target.ref : null;
-				const worktree = worktreePath !== null ? this.gitWorktrees.find((worktree) => worktree.path === worktreePath) : undefined;
-				if (worktreePath !== null) {
+				if (eventElem.classList.contains(CLASS_REF_WORKTREE)) {
+					const worktreePath = unescapeHtml(eventElem.dataset.path!);
+					const worktree = this.gitWorktrees.find((worktree) => worktree.path === worktreePath);
 					if (typeof worktree === 'undefined') return;
-					if (worktreeElem !== null) target.elem = worktreeElem;
 					actions = this.getWorktreeContextMenuActions(worktree, target);
 				} else if (eventElem.classList.contains(CLASS_REF_STASH)) {
 					actions = this.getStashContextMenuActions(target);
@@ -3776,24 +3899,14 @@ window.addEventListener('load', () => {
 /* File Tree Methods (for the Commit Details & Comparison Views) */
 
 /**
- * Get the HTML for the worktree part of a branch label, shown when the branch is checked out in another worktree.
- * @param worktree The worktree the branch is checked out in.
- * @returns The HTML.
- */
-function getWorktreeLabelHtml(worktree: GG.GitWorktree) {
-	const path = escapeHtml(worktree.path);
-	return '<span class="gitRefWorktree' + (worktree.isCurrent ? ' current' : '') + '" data-path="' + path + '" title="Checked out in the worktree ' + path + (worktree.isCurrent ? ', which this view shows' : '') + '">' + SVG_ICONS.worktree + escapeHtml(worktree.name) + '</span>';
-}
-
-/**
- * Get the HTML of a standalone worktree label, as used for a detached worktree or a row of uncommitted changes.
+ * Get the HTML of a worktree label, as shown in the Worktree column.
  * @param worktree The worktree.
  * @param title The tooltip of the label.
  * @returns The HTML.
  */
 function getWorktreeRefHtml(worktree: GG.GitWorktree, title: string) {
 	const path = escapeHtml(worktree.path);
-	return '<span class="gitRef worktree' + (worktree.isCurrent ? ' current' : '') + '" data-name="' + path + '" title="' + escapeHtml(title) + '">' + SVG_ICONS.worktree + '<span class="gitRefName" data-fullref="' + path + '">' + escapeHtml(worktree.name) + '</span></span>';
+	return '<span class="gitRef worktree' + (worktree.isCurrent ? ' current' : '') + '" data-name="' + path + '" data-path="' + path + '" title="' + escapeHtml(title + ' Ctrl/Cmd+Click to open it in a new window.') + '">' + SVG_ICONS.worktree + '<span class="gitRefName" data-fullref="' + path + '">' + escapeHtml(worktree.name) + '</span></span>';
 }
 
 function generateFileViewHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, fileContextMenuOpen: number, type: GG.FileViewType, isUncommitted: boolean) {

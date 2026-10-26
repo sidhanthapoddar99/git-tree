@@ -161,10 +161,11 @@ class Config {
 	 */
 	get defaultColumnVisibility(): DefaultColumnVisibility {
 		let obj: any = this.config.get('defaultColumnVisibility', {});
-		if (typeof obj === 'object' && obj !== null && typeof obj['Date'] === 'boolean' && typeof obj['Author'] === 'boolean' && typeof obj['Commit'] === 'boolean') {
-			return { author: obj['Author'], commit: obj['Commit'], date: obj['Date'] };
+		// Worktree may be left out, because the setting had no Worktree column before 0.3.2
+		if (typeof obj === 'object' && obj !== null && typeof obj['Date'] === 'boolean' && typeof obj['Author'] === 'boolean' && typeof obj['Commit'] === 'boolean' && (typeof obj['Worktree'] === 'boolean' || typeof obj['Worktree'] === 'undefined')) {
+			return { author: obj['Author'], commit: obj['Commit'], date: obj['Date'], worktree: typeof obj['Worktree'] === 'boolean' ? obj['Worktree'] : true };
 		} else {
-			return { author: true, commit: true, date: true };
+			return { author: true, commit: true, date: true, worktree: true };
 		}
 	}
 

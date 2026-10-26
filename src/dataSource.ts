@@ -165,11 +165,14 @@ export class DataSource extends Disposable {
 	 * @param hideRemotes An array of hidden remotes.
 	 * @param stashes An array of all stashes in the repository.
 	 * @param worktrees An array of all worktrees of the repository. Each other worktree with uncommitted changes gets its own row.
+	 * @param onlyWorktreeHistory Show only the history of the worktree that `repo` is: its HEAD joins `branches` as a start point (all branches are left out when `branches` is NULL), and other worktrees' uncommitted changes are left out.
 	 * @returns The commits in the repository.
 	 */
-	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, worktrees: ReadonlyArray<GitWorktree>): Promise<GitCommitData> {
+	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, worktrees: ReadonlyArray<GitWorktree>, onlyWorktreeHistory: boolean = false): Promise<GitCommitData> {
 		const config = getConfig();
-		const log = this.getLog(repo, branches, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes);
+		// The log runs in the worktree, so HEAD is the worktree's own HEAD, whether it is on a branch or detached
+		const startPoints = onlyWorktreeHistory ? (branches !== null ? branches : []).concat('HEAD') : branches;
+		const log = this.getLog(repo, startPoints, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes);
 		const refs = this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage);
 		// Git status is often the slowest command in a large repository, so it runs alongside the log instead of after it
 		const uncommittedChanges = config.showUncommittedChanges ? this.getUncommittedChanges(repo) : null;
@@ -178,7 +181,7 @@ export class DataSource extends Disposable {
 			uncommittedChanges.catch(() => { });
 		}
 		// The other worktrees' uncommitted changes, also read alongside the log. The index of each worktree in `worktrees` identifies its row.
-		const otherWorktrees = config.showUncommittedChanges
+		const otherWorktrees = config.showUncommittedChanges && !onlyWorktreeHistory
 			? worktrees.map((worktree, index) => ({ worktree: worktree, index: index })).filter((item) => !item.worktree.isCurrent && !item.worktree.prunable && item.worktree.head !== null)
 			: [];
 		const otherUncommittedChanges = Promise.all(otherWorktrees.map((item) => this.getUncommittedChanges(item.worktree.path).catch(() => null)));

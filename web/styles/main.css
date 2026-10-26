@@ -284,21 +284,21 @@ code{
 	width:100%;
 	max-width:0;
 }
-#commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol{
+#commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol{
 	max-width:124px;
 }
 @media screen and (min-width: 775px) and (max-width: 850px) {
-	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol{
+	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol{
 		max-width:100px;
 	}
 }
 @media screen and (min-width: 700px) and (max-width: 775px) {
-	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol{
+	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol{
 		max-width:90px;
 	}
 }
 @media screen and (max-width: 700px) {
-	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol{
+	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol{
 		max-width:80px;
 	}
 }
@@ -762,20 +762,6 @@ body.vscode-high-contrast #commitTable tr.commit.findCurrentCommit{
 	border-left:1px solid rgba(128,128,128,0.45);
 	font-style:italic;
 }
-.gitRefWorktree{
-	display:inline-block;
-	height:18px;
-	line-height:18px;
-	padding:0 5px 0 4px;
-	border-left:1px solid rgba(128,128,128,0.45);
-	color:var(--vscode-textLink-foreground);
-}
-.gitRefWorktree svg{
-	width:12px;
-	height:14px;
-	margin:2px 3px 0 0;
-	vertical-align:top;
-}
 .gitRef.worktree > svg{
 	color:var(--vscode-editor-background);
 }
@@ -784,7 +770,7 @@ body.vscode-high-contrast #commitTable tr.commit.findCurrentCommit{
 	background-color:rgba(128,128,128,0.05);
 }
 
-.gitRef .contextMenuActive, .gitRef .dialogActive, .gitRef .gitRefName:hover, .gitRef .gitRefHeadRemote:hover, .gitRef .gitRefWorktree:hover{
+.gitRef .contextMenuActive, .gitRef .dialogActive, .gitRef .gitRefName:hover, .gitRef .gitRefHeadRemote:hover{
 	background-color:rgba(128,128,128,0.1);
 }
 

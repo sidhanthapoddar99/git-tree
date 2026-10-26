@@ -75,12 +75,22 @@ function isUncommittedChanges(hash: string) {
 	return hash.startsWith(UNCOMMITTED);
 }
 const SHOW_ALL_BRANCHES = '';
+const ALL_WORKTREES = ''; // The Worktree dropdown's All option. Its other options are the paths of worktrees.
 
 const COLUMN_HIDDEN = -100;
 const COLUMN_AUTO = -101;
 
 const COLUMN_MIN_WIDTH = 40;
 const COLUMN_LEFT_RIGHT_PADDING = 24;
+
+// The columns of the table, in the order they are shown (the data-col of their headers)
+const COLUMN_GRAPH = 0;
+const COLUMN_DESCRIPTION = 1;
+const COLUMN_WORKTREE = 2;
+const COLUMN_DATE = 3;
+const COLUMN_AUTHOR = 4;
+const COLUMN_COMMIT = 5;
+const WORKTREE_COLUMN_DEFAULT_WIDTH = 128; // The width the Worktree column gets in a fixed layout, including its padding
 
 const CLASS_ACTIVE = 'active';
 const CLASS_BRANCH_LABELS_ALIGNED_TO_GRAPH = 'branchLabelsAlignedToGraph';

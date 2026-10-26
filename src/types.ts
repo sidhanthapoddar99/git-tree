@@ -462,6 +462,7 @@ export const enum DateType {
 }
 
 export interface DefaultColumnVisibility {
+	readonly worktree: boolean;
 	readonly date: boolean;
 	readonly author: boolean;
 	readonly commit: boolean;
@@ -937,6 +938,7 @@ export interface RequestLoadCommits extends RepoRequest {
 	readonly hideRemotes: ReadonlyArray<string>;
 	readonly stashes: ReadonlyArray<GitStash>;
 	readonly worktrees: ReadonlyArray<GitWorktree>;
+	readonly onlyWorktreeHistory: boolean; // TRUE => only the history of the worktree that repo is: its HEAD joins branches as a start point, and no other worktree's uncommitted changes are read
 }
 export interface ResponseLoadCommits extends ResponseWithErrorInfo {
 	readonly command: 'loadCommits';
