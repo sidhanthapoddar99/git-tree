@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-27
+
 ### Added
 
 - **A Rust engine.** Git Tree reads branches, remotes, stashes, worktrees, refs and the commit log in-process with gitoxide, instead of starting `git` for each. Opening the view takes about 7 ms instead of 19 ms on a 6,750-commit repository, and starts no `git` processes. When the engine can't be sure it would match Git, such as in a shallow clone, Git reads it instead. `git status` and every Git action still run `git`.
@@ -133,7 +135,8 @@ The first version of Git Tree.
 
 - Telemetry. Git Tree sends no usage data.
 
-[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.2...v0.3.3
