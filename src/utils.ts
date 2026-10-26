@@ -205,6 +205,15 @@ export function getNonce() {
 }
 
 /**
+ * Escape the characters that HTML reads as markup, so a string shows as text in the Webview's HTML.
+ * @param str The string to escape.
+ * @returns The escaped string.
+ */
+export function escapeHtml(str: string) {
+	return str.replace(/[&<>"']/g, (match) => '&#' + match.charCodeAt(0) + ';');
+}
+
+/**
  * Get a short name for a repository.
  * @param path The path of the repository.
  * @returns The short name.
@@ -655,13 +664,16 @@ export interface GitExecutable {
 /**
  * Find a Git executable that Git Tree can use.
  * @param extensionState The Git Tree ExtensionState instance.
- * @returns A Git executable.
+ * @returns A Git executable. It can be older than Git Tree's minimum Git version, which `getGitExecutableError` reports.
  */
 export async function findGit(extensionState: ExtensionState) {
+	let lastKnownExecutable: GitExecutable | null = null;
 	const lastKnownPath = extensionState.getLastKnownGitPath();
 	if (lastKnownPath !== null) {
 		try {
-			return await getGitExecutable(lastKnownPath);
+			lastKnownExecutable = await getGitExecutable(lastKnownPath);
+			// A last known Git that's too old doesn't stop the search, so a newer Git installed in another place is found
+			if (getGitExecutableError(lastKnownExecutable) === null) return lastKnownExecutable;
 		} catch (_) { }
 	}
 
@@ -672,13 +684,19 @@ export async function findGit(extensionState: ExtensionState) {
 		} catch (_) { }
 	}
 
-	switch (process.platform) {
-		case 'darwin':
-			return findGitOnDarwin();
-		case 'win32':
-			return findGitOnWin32();
-		default:
-			return getGitExecutable('git');
+	try {
+		switch (process.platform) {
+			case 'darwin':
+				return await findGitOnDarwin();
+			case 'win32':
+				return await findGitOnWin32();
+			default:
+				return await getGitExecutable('git');
+		}
+	} catch (error) {
+		// Report the last known Git as too old, rather than report that there's no Git
+		if (lastKnownExecutable !== null) return lastKnownExecutable;
+		throw error;
 	}
 }
 
@@ -788,14 +806,7 @@ export async function getGitExecutableFromPaths(paths: string[]): Promise<GitExe
 /* Version Handling / Requirements */
 
 export const enum GitVersionRequirement {
-	CommitGraph = '2.24.0',
-	Engine = '2.31.0', // The Git behaviour the engine reproduces: from 2.31.0, `git worktree list --porcelain` reports locked and prunable worktrees
-	FetchAndPruneTags = '2.17.0',
-	GpgInfo = '2.4.0',
-	PushStash = '2.13.2',
-	TagDetails = '1.7.8',
-	WorktreeList = '2.7.0',
-	WorktreeRemove = '2.17.0'
+	Minimum = '2.31.0' // The oldest Git that Git Tree runs. The engine reproduces Git from 2.31.0, where `git worktree list --porcelain` reports locked and prunable worktrees, so with an older Git the engine's reads and the Git CLI's reads would differ
 }
 
 export const enum VsCodeVersionRequirement {
@@ -806,15 +817,15 @@ export const enum VsCodeVersionRequirement {
  * Checks whether a version is at least a required version.
  * @param version The version to check.
  * @param requiredVersion The minimum required version.
- * @returns TRUE => `version` is at least `requiredVersion`, FALSE => `version` is older than `requiredVersion`.
+ * @returns TRUE => `version` is at least `requiredVersion`, FALSE => `version` is older than `requiredVersion`, or can't be parsed.
  */
 export function doesVersionMeetRequirement(version: string, requiredVersion: GitVersionRequirement | VsCodeVersionRequirement) {
 	const v1 = parseVersion(version);
 	const v2 = parseVersion(requiredVersion);
 
 	if (v1 === null || v2 === null) {
-		// Unable to parse a version number
-		return true;
+		// Unable to parse a version number, so it can't be shown to meet the requirement
+		return false;
 	}
 
 	if (v1.major > v2.major) return true; // Git major version is newer
@@ -850,12 +861,22 @@ function parseVersion(version: string) {
 }
 
 /**
- * Construct a message that explains to the user that the Git executable is not compatible with a feature.
+ * Construct a message that explains to the user that the Git executable is older than Git Tree's minimum Git version.
  * @param executable The Git executable.
- * @param version The minimum required version.
- * @param feature An optional name for the feature.
  * @returns The message for the user.
  */
-export function constructIncompatibleGitVersionMessage(executable: GitExecutable, version: GitVersionRequirement, feature?: string) {
-	return 'A newer version of Git (>= ' + version + ') is required for ' + (feature ? feature : 'this feature') + '. Git ' + executable.version + ' is currently installed. Please install a newer version of Git to use this feature.';
+export function constructIncompatibleGitVersionMessage(executable: GitExecutable) {
+	return 'Git Tree needs Git ' + GitVersionRequirement.Minimum + ' or later, but the Git executable it found ("' + executable.path + '") is version ' + executable.version + '. Upgrade Git, or set the Visual Studio Code Setting "git.path" to a newer Git executable, then reload the window.';
+}
+
+/**
+ * Check whether Git Tree can use a Git executable.
+ * @param executable The Git executable, or NULL if none was found.
+ * @returns NULL => Git Tree can use it, otherwise the message that explains to the user why it can't.
+ */
+export function getGitExecutableError(executable: GitExecutable | null) {
+	if (executable === null) {
+		return UNABLE_TO_FIND_GIT_MSG;
+	}
+	return doesVersionMeetRequirement(executable.version, GitVersionRequirement.Minimum) ? null : constructIncompatibleGitVersionMessage(executable);
 }

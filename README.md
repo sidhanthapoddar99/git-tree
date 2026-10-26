@@ -167,7 +167,7 @@ All settings start with `git-tree.`. Search for "Git Tree" in the Settings edito
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `git-tree.worktree.defaultLocation` | `.worktrees` | The folder new worktrees go in. See [Where new worktrees go](#where-new-worktrees-go). |
-| `git-tree.repository.writeCommitGraph` | on | Writes Git's [commit-graph](https://git-scm.com/docs/git-commit-graph) file in the background when a repository has none. Needs Git 2.24 or later. |
+| `git-tree.repository.writeCommitGraph` | on | Writes Git's [commit-graph](https://git-scm.com/docs/git-commit-graph) file in the background when a repository has none. |
 
 If `git-tree.graph.colours` isn't set, the graph uses a darker palette on light themes. A repository's shared Git Tree configuration lives in `.vscode/vscode-git-tree.json`.
 
@@ -189,7 +189,7 @@ If `git-tree.graph.colours` isn't set, the graph uses a darker palette on light 
 ## Requirements
 
 - Visual Studio Code 1.82 or later
-- Git. Worktrees need Git 2.7 or later, and the commit-graph file needs Git 2.24 or later.
+- Git 2.31 or later. With an older Git, Git Tree shows a message that asks you to upgrade Git, or to point `git.path` at a newer Git.
 
 ## Known limitations
 

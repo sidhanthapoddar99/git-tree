@@ -44,11 +44,13 @@ afterAll(() => {
 describe('DataSource', () => {
 	let dataSource: DataSource;
 	beforeEach(() => {
-		dataSource = new DataSource({ path: '/path/to/git', version: '2.25.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
+		dataSource = new DataSource({ path: '/path/to/git', version: '2.31.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
 	});
 	afterEach(() => {
 		dataSource.dispose();
 	});
+
+	const OLD_GIT_MSG = 'Git Tree needs Git 2.31.0 or later, but the Git executable it found ("/path/to/git") is version 2.30.9. Upgrade Git, or set the Visual Studio Code Setting "git.path" to a newer Git executable, then reload the window.';
 
 	const mockGitSuccessOnce = (stdout?: string, stderr?: string) => {
 		mockSpyOnSpawn(spyOnSpawn, (onCallbacks, stderrOnCallbacks, stdoutOnCallbacks) => {
@@ -73,72 +75,140 @@ describe('DataSource', () => {
 		});
 	};
 
-	describe('isGitExecutableUnknown', () => {
-		it('Should return FALSE when the Git executable is known', () => {
+	describe('getGitExecutableError', () => {
+		it('Should return NULL when the Git executable is at least Git Tree\'s minimum Git version', () => {
 			// Run
-			const result = dataSource.isGitExecutableUnknown();
+			const result = dataSource.getGitExecutableError();
 
 			// Assert
-			expect(result).toBe(false);
+			expect(result).toBe(null);
 		});
 
-		it('Should return TRUE when the Git executable is unknown', () => {
+		it('Should return UNABLE_TO_FIND_GIT_MSG when the Git executable is unknown', () => {
 			// Setup
 			dataSource.dispose();
 			dataSource = new DataSource(null, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
 
 			// Run
-			const result = dataSource.isGitExecutableUnknown();
+			const result = dataSource.getGitExecutableError();
 
 			// Assert
-			expect(result).toBe(true);
+			expect(result).toBe(utils.UNABLE_TO_FIND_GIT_MSG);
 		});
 
-		it('Should return TRUE after a Git executable becomes known', () => {
+		it('Should return the incompatible version message when the Git executable is older than Git Tree\'s minimum Git version', () => {
+			// Setup
+			dataSource.dispose();
+			dataSource = new DataSource({ path: '/path/to/git', version: '2.30.9' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
+
+			// Run
+			const result = dataSource.getGitExecutableError();
+
+			// Assert
+			expect(result).toBe(OLD_GIT_MSG);
+			expect(dataSource['gitExecutable']).toBe(null);
+		});
+
+		it('Should return NULL after a Git executable becomes known', () => {
 			// Setup
 			dataSource.dispose();
 			dataSource = new DataSource(null, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
 
 			// Run
-			const result1 = dataSource.isGitExecutableUnknown();
+			const result1 = dataSource.getGitExecutableError();
 
 			// Assert
-			expect(result1).toBe(true);
+			expect(result1).toBe(utils.UNABLE_TO_FIND_GIT_MSG);
 
 			// Run
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.25.0' });
-			const result2 = dataSource.isGitExecutableUnknown();
+			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.31.0' });
+			const result2 = dataSource.getGitExecutableError();
 
 			// Assert
-			expect(result2).toBe(false);
-			expect(dataSource['gitExecutable']).toStrictEqual({ path: '/path/to/git', version: '2.25.0' });
+			expect(result2).toBe(null);
+			expect(dataSource['gitExecutable']).toStrictEqual({ path: '/path/to/git', version: '2.31.0' });
+		});
+
+		it('Should return the incompatible version message after the Git executable changes to one older than Git Tree\'s minimum Git version', () => {
+			// Run
+			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.30.9' });
+			const result = dataSource.getGitExecutableError();
+
+			// Assert
+			expect(result).toBe(OLD_GIT_MSG);
+			expect(dataSource['gitExecutable']).toBe(null);
 		});
 	});
 
-	describe('setGitExecutable', () => {
-		it('Should set gitExecutableSupportsGpgInfo to FALSE when there is no Git executable', () => {
-			// Run
+	describe('Git older than Git Tree\'s minimum Git version', () => {
+		const engine = {
+			version: '0.4.0',
+			branches: jest.fn(),
+			remotes: jest.fn(),
+			stashes: jest.fn(),
+			worktrees: jest.fn(),
+			refs: jest.fn(),
+			log: jest.fn()
+		};
+		beforeEach(() => {
 			dataSource.dispose();
-			dataSource = new DataSource(null, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
-
-			// Assert
-			expect(dataSource['gitExecutableSupportsGpgInfo']).toBe(false);
+			dataSource = new DataSource({ path: '/path/to/git', version: '2.30.9' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger, engine);
 		});
 
-		it('Should set gitExecutableSupportsGpgInfo to FALSE when the Git executable is older than 2.4.0', () => {
+		it('Should return the incompatible version message when getting the repository\'s information, without running Git or the engine', async () => {
 			// Run
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.3.0' });
+			const result = await dataSource.getRepoInfo('/path/to/repo', true, true, []);
 
 			// Assert
-			expect(dataSource['gitExecutableSupportsGpgInfo']).toBe(false);
+			expect(result).toStrictEqual({ branches: [], head: null, remotes: [], stashes: [], worktrees: [], error: OLD_GIT_MSG });
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+			expect(engine.branches).not.toHaveBeenCalled();
+			expect(engine.remotes).not.toHaveBeenCalled();
+			expect(engine.stashes).not.toHaveBeenCalled();
+			expect(engine.worktrees).not.toHaveBeenCalled();
 		});
 
-		it('Should set gitExecutableSupportsGpgInfo to TRUE when the Git executable is at least 2.4.0', () => {
+		it('Should return the incompatible version message when getting the commits, without running Git or the engine', async () => {
 			// Run
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.4.0' });
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, true, false, false, CommitOrdering.Date, ['origin'], [], [], []);
 
 			// Assert
-			expect(dataSource['gitExecutableSupportsGpgInfo']).toBe(true);
+			expect(result.error).toBe(OLD_GIT_MSG);
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+			expect(engine.refs).not.toHaveBeenCalled();
+			expect(engine.log).not.toHaveBeenCalled();
+		});
+
+		it('Should return the incompatible version message when running an action, without running Git', async () => {
+			// Run
+			const result = await dataSource.fetch('/path/to/repo', null, true, true);
+
+			// Assert
+			expect(result).toBe(OLD_GIT_MSG);
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should return the incompatible version message when opening a terminal', async () => {
+			// Run
+			const result = await dataSource.openGitTerminal('/path/to/repo', null, 'Name');
+
+			// Assert
+			expect(result).toBe(OLD_GIT_MSG);
+			expect(vscode.window.createTerminal).not.toHaveBeenCalled();
+		});
+
+		it('Should read with the engine once the Git executable changes to Git Tree\'s minimum Git version', async () => {
+			// Setup
+			engine.remotes.mockResolvedValueOnce({ ok: ['origin'] });
+			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.31.0' });
+
+			// Run
+			const result = await dataSource['getRemotes']('/path/to/repo');
+
+			// Assert
+			expect(result).toStrictEqual(['origin']);
+			expect(engine.remotes).toHaveBeenCalledWith('/path/to/repo');
+			expect(spyOnSpawn).not.toHaveBeenCalled();
 		});
 	});
 
@@ -426,20 +496,6 @@ describe('DataSource', () => {
 			expect(result.worktrees).toStrictEqual([
 				{ path: '/path/to/repo', name: 'repo', head: null, branch: 'develop', isMain: false, isCurrent: true, locked: false, prunable: false }
 			]);
-		});
-
-		it('Should return no worktrees when Git is older than 2.7.0', async () => {
-			// Setup
-			mockGitSuccessOnce('* develop\n');
-			mockGitSuccessOnce('origin\n');
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.6.0' });
-
-			// Run
-			const result = await dataSource.getRepoInfo('/path/to/repo', true, false, []);
-
-			// Assert
-			expect(result.worktrees).toStrictEqual([]);
-			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
 		});
 
 		it('Should return an error message thrown by git (when getting worktrees)', async () => {
@@ -3018,7 +3074,6 @@ describe('DataSource', () => {
 			vscode.mockExtensionSettingReturnValue('date.type', 'Author Date');
 			vscode.mockExtensionSettingReturnValue('repository.useMailmap', false);
 			vscode.mockExtensionSettingReturnValue('repository.commits.showSignatureStatus', true);
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.4.0' });
 
 			// Run
 			onDidChangeConfiguration.emit({
@@ -3082,7 +3137,6 @@ describe('DataSource', () => {
 			vscode.mockExtensionSettingReturnValue('date.type', 'Author Date');
 			vscode.mockExtensionSettingReturnValue('repository.useMailmap', false);
 			vscode.mockExtensionSettingReturnValue('showSignatureStatus', true);
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.4.0' });
 
 			// Run
 			onDidChangeConfiguration.emit({
@@ -3134,63 +3188,6 @@ describe('DataSource', () => {
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'show', '--quiet', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', '--format=%HXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%PXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%anXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%aeXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%atXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%cnXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%ceXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%ctXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%G?XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%GSXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%GKXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%B'], expect.objectContaining({ cwd: '/path/to/repo' }));
-			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['diff', '--name-status', '--find-renames', '--diff-filter=AMDR', '-z', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b^', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
-			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['diff', '--numstat', '--find-renames', '--diff-filter=AMDR', '-z', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b^', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
-		});
-
-		it('Should return the commit details (without signature status) when Git is older than 2.4.0', async () => {
-			// Setup
-			mockGitSuccessOnce('1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2bXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPba1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest AuthorXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest-author@example.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1587559258XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest CommitterXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest-committer@example.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1587559259XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbCommit Message.\r\nSecond Line.');
-			mockGitSuccessOnce(['D', 'dir/deleted.txt', 'M', 'dir/modified.txt', 'R100', 'dir/renamed-old.txt', 'dir/renamed-new.txt', ''].join('\0'));
-			mockGitSuccessOnce(['0	0	dir/deleted.txt', '1	1	dir/modified.txt', '2	3	', 'dir/renamed-old.txt', 'dir/renamed-new.txt', ''].join('\0'));
-			vscode.mockExtensionSettingReturnValue('date.type', 'Author Date');
-			vscode.mockExtensionSettingReturnValue('repository.useMailmap', false);
-			vscode.mockExtensionSettingReturnValue('repository.commits.showSignatureStatus', true);
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.3.0' });
-
-			// Run
-			const result = await dataSource.getCommitDetails('/path/to/repo', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', true);
-
-			// Assert
-			expect(result).toStrictEqual({
-				commitDetails: {
-					hash: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b',
-					parents: ['a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2'],
-					author: 'Test Author',
-					authorEmail: 'test-author@example.com',
-					authorDate: 1587559258,
-					committer: 'Test Committer',
-					committerEmail: 'test-committer@example.com',
-					committerDate: 1587559259,
-					signature: null,
-					body: 'Commit Message.\nSecond Line.',
-					fileChanges: [
-						{
-							additions: 0,
-							deletions: 0,
-							newFilePath: 'dir/deleted.txt',
-							oldFilePath: 'dir/deleted.txt',
-							type: 'D'
-						},
-						{
-							additions: 1,
-							deletions: 1,
-							newFilePath: 'dir/modified.txt',
-							oldFilePath: 'dir/modified.txt',
-							type: 'M'
-						},
-						{
-							additions: 2,
-							deletions: 3,
-							newFilePath: 'dir/renamed-new.txt',
-							oldFilePath: 'dir/renamed-old.txt',
-							type: 'R'
-						}
-					]
-				},
-				error: null
-			});
-			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'show', '--quiet', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', '--format=%HXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%PXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%anXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%aeXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%atXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%cnXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%ceXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%ctXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%B'], expect.objectContaining({ cwd: '/path/to/repo' }));
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['diff', '--name-status', '--find-renames', '--diff-filter=AMDR', '-z', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b^', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['diff', '--numstat', '--find-renames', '--diff-filter=AMDR', '-z', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b^', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
 		});
@@ -4130,7 +4127,6 @@ describe('DataSource', () => {
 	describe('getTagDetails', () => {
 		it('Should return the tag\'s details', async () => {
 			// Setup
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '1.7.8' });
 			mockGitSuccessOnce('79e88e142b378f41dfd1f82d94209a7a411384edXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest TaggerXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb<test@example.com>XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1587559258XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbsubject1\r\nsubject2\n\nbody1\nbody2\n\n');
 
 			// Run
@@ -4196,21 +4192,6 @@ describe('DataSource', () => {
 			});
 			expect(spyOnSpawn).toHaveBeenCalledTimes(1);
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['for-each-ref', 'refs/tags/tag-name', '--format=%(objectname)XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%(taggername)XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%(taggeremail)XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%(taggerdate:unix)XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%(contents:signature)XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%(contents)'], expect.objectContaining({ cwd: '/path/to/repo' }));
-		});
-
-		it('Should return the "Incompatible Git Version" error message when viewing tag details and Git is older than 1.7.8', async () => {
-			// Setup
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '1.7.7' });
-
-			// Run
-			const result = await dataSource.getTagDetails('/path/to/repo', 'tag-name');
-
-			// Assert
-			expect(result).toStrictEqual({
-				details: null,
-				error: 'A newer version of Git (>= 1.7.8) is required for retrieving Tag Details. Git 1.7.7 is currently installed. Please install a newer version of Git to use this feature.'
-			});
-			expect(spyOnSpawn).toHaveBeenCalledTimes(0);
 		});
 
 		it('Should return the "Unable to Find Git" error message when no Git executable is known', async () => {
@@ -5056,7 +5037,6 @@ describe('DataSource', () => {
 
 		it('Should fetch and prune all remotes (and prune tags)', async () => {
 			// Setup
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.17.0' });
 			mockGitSuccessOnce();
 
 			// Run
@@ -5108,17 +5088,6 @@ describe('DataSource', () => {
 
 			// Assert
 			expect(result).toBe('Unable to find a Git executable. Either: Set the Visual Studio Code Setting "git.path" to the path and filename of an existing Git executable, or install Git and restart Visual Studio Code.');
-		});
-
-		it('Should return the "Incompatible Git Version" error message when pruning tags and Git is older than 2.17.0', async () => {
-			// Setup
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.16.1' });
-
-			// Run
-			const result = await dataSource.fetch('/path/to/repo', null, true, true);
-
-			// Assert
-			expect(result).toBe('A newer version of Git (>= 2.17.0) is required for pruning tags when fetching. Git 2.16.1 is currently installed. Please install a newer version of Git to use this feature.');
 		});
 	});
 
@@ -6824,7 +6793,6 @@ describe('DataSource', () => {
 	describe('pushStash', () => {
 		it('Should push the uncommitted changes to a stash', async () => {
 			// Setup
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.13.2' });
 			mockGitSuccessOnce();
 
 			// Run
@@ -6880,17 +6848,6 @@ describe('DataSource', () => {
 
 			// Assert
 			expect(result).toBe('Unable to find a Git executable. Either: Set the Visual Studio Code Setting "git.path" to the path and filename of an existing Git executable, or install Git and restart Visual Studio Code.');
-		});
-
-		it('Should return the "Incompatible Git Version" error message when Git is older than 2.13.2', async () => {
-			// Setup
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.13.1' });
-
-			// Run
-			const result = await dataSource.pushStash('/path/to/repo', '', false);
-
-			// Assert
-			expect(result).toBe('A newer version of Git (>= 2.13.2) is required for this feature. Git 2.13.1 is currently installed. Please install a newer version of Git to use this feature.');
 		});
 	});
 
@@ -7048,17 +7005,6 @@ describe('DataSource', () => {
 			// Assert
 			expect(result).toBe('error message');
 		});
-
-		it('Should return the "Incompatible Git Version" error message when Git is older than 2.17.0', async () => {
-			// Setup
-			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.16.0' });
-
-			// Run
-			const result = await dataSource.removeWorktree('/path/to/repo', '/path/to/repo/.worktrees/feature', false);
-
-			// Assert
-			expect(result).toBe('A newer version of Git (>= 2.17.0) is required for removing worktrees. Git 2.16.0 is currently installed. Please install a newer version of Git to use this feature.');
-		});
 	});
 
 	describe('writeCommitGraphIfMissing', () => {
@@ -7145,19 +7091,6 @@ describe('DataSource', () => {
 
 			// Assert
 			expect(result).toBe('error message');
-		});
-
-		it('Should do nothing with a Git version that doesn\'t read the commit-graph by default', async () => {
-			// Setup
-			dataSource.dispose();
-			dataSource = new DataSource({ path: '/path/to/git', version: '2.23.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
-
-			// Run
-			const result = await dataSource.writeCommitGraphIfMissing('/path/to/repo');
-
-			// Assert
-			expect(result).toBe(null);
-			expect(spyOnSpawn).not.toHaveBeenCalled();
 		});
 	});
 

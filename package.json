@@ -1037,7 +1037,7 @@
 					"git-tree.repository.commits.showSignatureStatus": {
 						"type": "boolean",
 						"default": false,
-						"description": "Show the commit's signature status to the right of the Committer in the Commit Details View (only for signed commits). Hovering over the signature icon displays a tooltip with the signature details. Requires Git (>= 2.4.0) & GPG (or equivalent) to be installed on the same machine that is running Visual Studio Code."
+						"description": "Show the commit's signature status to the right of the Committer in the Commit Details View (only for signed commits). Hovering over the signature icon displays a tooltip with the signature details. Requires GPG (or equivalent) to be installed on the same machine that is running Visual Studio Code."
 					},
 					"git-tree.repository.fetchAndPrune": {
 						"type": "boolean",
@@ -1047,7 +1047,7 @@
 					"git-tree.repository.fetchAndPruneTags": {
 						"type": "boolean",
 						"default": false,
-						"description": "Before fetching from remote(s) using the Fetch button on the Git Tree View Control Bar, remove any local tags that no longer exist on the remote(s). Requires Git >= 2.17.0, and the \"Repository: Fetch And Prune\" setting to be enabled. Caution: If you work in repositories that have multiple remotes, it is not recommended to use this setting (instead you can prune tags for a specific remote via \"Fetch Remote\" Dialog from the Repository Settings Widget on the Git Tree View)."
+						"description": "Before fetching from remote(s) using the Fetch button on the Git Tree View Control Bar, remove any local tags that no longer exist on the remote(s). Requires the \"Repository: Fetch And Prune\" setting to be enabled. Caution: If you work in repositories that have multiple remotes, it is not recommended to use this setting (instead you can prune tags for a specific remote via \"Fetch Remote\" Dialog from the Repository Settings Widget on the Git Tree View)."
 					},
 					"git-tree.repository.includeCommitsMentionedByReflogs": {
 						"type": "boolean",
@@ -1131,7 +1131,7 @@
 					"git-tree.repository.writeCommitGraph": {
 						"type": "boolean",
 						"default": true,
-						"markdownDescription": "When a repository is opened and has no [commit-graph](https://git-scm.com/docs/git-commit-graph) file, write one in the background (requires Git >= 2.24.0). Git walks the history much faster with it, so large repositories load several times faster. It is the same file that `git gc` writes."
+						"markdownDescription": "When a repository is opened and has no [commit-graph](https://git-scm.com/docs/git-commit-graph) file, write one in the background. Git walks the history much faster with it, so large repositories load several times faster. It is the same file that `git gc` writes."
 					},
 					"git-tree.repositoryDropdownOrder": {
 						"type": "string",
@@ -1465,7 +1465,7 @@
 					"git-tree.showSignatureStatus": {
 						"type": "boolean",
 						"default": false,
-						"description": "Show the commit's signature status to the right of the Committer in the Commit Details View (only for signed commits). Hovering over the signature icon displays a tooltip with the signature details. Requires Git (>= 2.4.0) & GPG (or equivalent) to be installed on the same machine that is running Visual Studio Code.",
+						"description": "Show the commit's signature status to the right of the Committer in the Commit Details View (only for signed commits). Hovering over the signature icon displays a tooltip with the signature details. Requires GPG (or equivalent) to be installed on the same machine that is running Visual Studio Code.",
 						"deprecationMessage": "Depreciated: This setting has been renamed to git-tree.repository.commits.showSignatureStatus",
 						"markdownDeprecationMessage": "Depreciated: This setting has been renamed to `#git-tree.repository.commits.showSignatureStatus#`"
 					},

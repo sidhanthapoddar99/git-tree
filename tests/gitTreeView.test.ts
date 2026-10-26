@@ -36,7 +36,7 @@ describe('GitTreeView', () => {
 	let spyOnLog: jest.SpyInstance;
 	let spyOnLogError: jest.SpyInstance;
 	let spyOnGetRepos: jest.SpyInstance;
-	let spyOnIsGitExecutableUnknown: jest.SpyInstance;
+	let spyOnGetGitExecutableError: jest.SpyInstance;
 	let spyOnWriteCommitGraphIfMissing: jest.SpyInstance;
 
 	beforeAll(() => {
@@ -46,7 +46,7 @@ describe('GitTreeView', () => {
 		onAvatar = new EventEmitter<AvatarEvent>();
 
 		logger = new Logger();
-		dataSource = new DataSource({ path: '/path/to/git', version: '2.25.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
+		dataSource = new DataSource({ path: '/path/to/git', version: '2.31.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
 		extensionState = new ExtensionState(vscode.mocks.extensionContext, onDidChangeGitExecutable.subscribe);
 		avatarManager = new AvatarManager(dataSource, extensionState, logger);
 		repoManager = new RepoManager(dataSource, extensionState, onDidChangeConfiguration.subscribe, logger);
@@ -54,10 +54,10 @@ describe('GitTreeView', () => {
 		spyOnLog = jest.spyOn(logger, 'log');
 		spyOnLogError = jest.spyOn(logger, 'logError');
 		spyOnGetRepos = jest.spyOn(repoManager, 'getRepos');
-		spyOnIsGitExecutableUnknown = jest.spyOn(dataSource, 'isGitExecutableUnknown');
+		spyOnGetGitExecutableError = jest.spyOn(dataSource, 'getGitExecutableError');
 
 		spyOnGetRepos.mockReturnValue({ '/path/to/repo': mockRepoState() });
-		spyOnIsGitExecutableUnknown.mockReturnValue(false);
+		spyOnGetGitExecutableError.mockReturnValue(null);
 		spyOnWriteCommitGraphIfMissing = jest.spyOn(dataSource, 'writeCommitGraphIfMissing');
 		spyOnWriteCommitGraphIfMissing.mockResolvedValue(null);
 		Object.defineProperty(repoManager, 'onDidChangeRepos', {
@@ -4053,7 +4053,7 @@ describe('GitTreeView', () => {
 
 		it('Should get HTML when no Git executable is known', () => {
 			// Setup
-			spyOnIsGitExecutableUnknown.mockReturnValueOnce(true);
+			spyOnGetGitExecutableError.mockReturnValueOnce(utils.UNABLE_TO_FIND_GIT_MSG);
 
 			// Run
 			GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
@@ -4061,7 +4061,21 @@ describe('GitTreeView', () => {
 			// Assert
 			const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
 			expect(mockedWebviewPanel.panel.webview.html).toContain('<h2>Unable to load Git Tree</h2>');
-			expect(mockedWebviewPanel.panel.webview.html).toContain(utils.UNABLE_TO_FIND_GIT_MSG);
+			expect(mockedWebviewPanel.panel.webview.html).toContain('<p class="unableToLoadMessage">' + utils.escapeHtml(utils.UNABLE_TO_FIND_GIT_MSG) + '</p>');
+		});
+
+		it('Should get HTML when the Git executable is older than Git Tree\'s minimum Git version', () => {
+			// Setup
+			spyOnGetGitExecutableError.mockReturnValueOnce(utils.constructIncompatibleGitVersionMessage({ path: '/path/to/<old>-git', version: '2.30.9' }));
+
+			// Run
+			GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+
+			// Assert
+			const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+			expect(mockedWebviewPanel.panel.webview.html).toContain('<h2>Unable to load Git Tree</h2>');
+			expect(mockedWebviewPanel.panel.webview.html).toContain('<p class="unableToLoadMessage">Git Tree needs Git 2.31.0 or later, but the Git executable it found (&#34;/path/to/&#60;old&#62;-git&#34;) is version 2.30.9. Upgrade Git, or set the Visual Studio Code Setting &#34;git.path&#34; to a newer Git executable, then reload the window.</p>');
+			expect(mockedWebviewPanel.panel.webview.html).not.toContain('<div id="view"');
 		});
 
 		it('Should get HTML when no repositories are found in the workspace', () => {

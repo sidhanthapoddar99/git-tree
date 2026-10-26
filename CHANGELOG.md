@@ -14,6 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - **The graph draws only the rows on screen.** With 5,000 commits loaded, drawing takes about 24 ms instead of 400 ms, the page holds about 1,600 elements instead of 48,000, and the view uses about 120 MB less memory.
 - Find searches the loaded commits' data, so it finds commits whose rows aren't drawn yet.
+- **Git Tree needs Git 2.31 or later**, released in March 2021. With an older Git, it shows a message that says which Git it found and how to fix it, instead of the graph.
 
 ## [0.3.4] - 2026-10-26
 

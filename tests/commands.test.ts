@@ -48,6 +48,7 @@ beforeAll(() => {
 	spyOnGetCodeReviews = jest.spyOn(extensionState, 'getCodeReviews');
 	spyOnEndCodeReview = jest.spyOn(extensionState, 'endCodeReview');
 	spyOnGetCommitSubject = jest.spyOn(dataSource, 'getCommitSubject');
+	jest.spyOn(dataSource, 'getGitExecutableError').mockReturnValue(null);
 	spyOnLog = jest.spyOn(logger, 'log');
 	spyOnLogError = jest.spyOn(logger, 'logError');
 });
@@ -65,7 +66,7 @@ afterAll(() => {
 describe('CommandManager', () => {
 	let commandManager: CommandManager;
 	beforeEach(() => {
-		commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.25.0' }, onDidChangeGitExecutable.subscribe, logger);
+		commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.31.0' }, onDidChangeGitExecutable.subscribe, logger);
 	});
 	afterEach(() => {
 		commandManager.dispose();
@@ -76,7 +77,7 @@ describe('CommandManager', () => {
 		expect(commandManager['disposables']).toHaveLength(12);
 		expect(commandManager['gitExecutable']).toStrictEqual({
 			path: '/path/to/git',
-			version: '2.25.0'
+			version: '2.31.0'
 		});
 
 		// Run
@@ -90,13 +91,13 @@ describe('CommandManager', () => {
 		// Run
 		onDidChangeGitExecutable.emit({
 			path: '/path/to/other-git',
-			version: '2.26.0'
+			version: '2.32.0'
 		});
 
 		// Assert
 		expect(commandManager['gitExecutable']).toStrictEqual({
 			path: '/path/to/other-git',
-			version: '2.26.0'
+			version: '2.32.0'
 		});
 	});
 
@@ -109,7 +110,7 @@ describe('CommandManager', () => {
 			vscode.commands.executeCommand.mockResolvedValueOnce(null);
 
 			// Run
-			commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.25.0' }, onDidChangeGitExecutable.subscribe, logger);
+			commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.31.0' }, onDidChangeGitExecutable.subscribe, logger);
 
 			// Assert
 			await waitForExpect(() => {
@@ -126,7 +127,7 @@ describe('CommandManager', () => {
 			vscode.commands.executeCommand.mockResolvedValueOnce(null);
 
 			// Run
-			commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.25.0' }, onDidChangeGitExecutable.subscribe, logger);
+			commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.31.0' }, onDidChangeGitExecutable.subscribe, logger);
 
 			// Assert
 			await waitForExpect(() => {
@@ -143,7 +144,7 @@ describe('CommandManager', () => {
 			vscode.commands.executeCommand.mockRejectedValueOnce(null);
 
 			// Run
-			commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.25.0' }, onDidChangeGitExecutable.subscribe, logger);
+			commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.31.0' }, onDidChangeGitExecutable.subscribe, logger);
 
 			// Assert
 			await waitForExpect(() => {
@@ -164,7 +165,7 @@ describe('CommandManager', () => {
 			});
 
 			// Run
-			commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.25.0' }, onDidChangeGitExecutable.subscribe, logger);
+			commandManager = new CommandManager(vscode.mocks.extensionContext, avatarManager, dataSource, extensionState, repoManager, { path: '/path/to/git', version: '2.31.0' }, onDidChangeGitExecutable.subscribe, logger);
 
 			// Assert
 			await waitForExpect(() => {
@@ -347,7 +348,7 @@ describe('CommandManager', () => {
 
 		it('Should display an error message if no git executable is known', async () => {
 			// Setup
-			commandManager['gitExecutable'] = null;
+			jest.spyOn(dataSource, 'getGitExecutableError').mockReturnValueOnce(utils.UNABLE_TO_FIND_GIT_MSG);
 			vscode.window.showErrorMessage.mockResolvedValueOnce(null);
 
 			// Run
@@ -358,6 +359,23 @@ describe('CommandManager', () => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.addGitRepository');
 				expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(utils.UNABLE_TO_FIND_GIT_MSG);
 			});
+			expect(vscode.window.showOpenDialog).not.toHaveBeenCalled();
+		});
+
+		it('Should display an error message if the git executable is older than Git Tree\'s minimum Git version', async () => {
+			// Setup
+			jest.spyOn(dataSource, 'getGitExecutableError').mockReturnValueOnce(utils.constructIncompatibleGitVersionMessage({ path: '/path/to/old-git', version: '2.30.9' }));
+			vscode.window.showErrorMessage.mockResolvedValueOnce(null);
+
+			// Run
+			vscode.commands.executeCommand('git-tree.addGitRepository');
+
+			// Assert
+			await waitForExpect(() => {
+				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.addGitRepository');
+				expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('Git Tree needs Git 2.31.0 or later, but the Git executable it found ("/path/to/old-git") is version 2.30.9. Upgrade Git, or set the Visual Studio Code Setting "git.path" to a newer Git executable, then reload the window.');
+			});
+			expect(vscode.window.showOpenDialog).not.toHaveBeenCalled();
 		});
 	});
 
@@ -517,7 +535,7 @@ describe('CommandManager', () => {
 
 		it('Should display an error message if no git executable is known', async () => {
 			// Setup
-			commandManager['gitExecutable'] = null;
+			jest.spyOn(dataSource, 'getGitExecutableError').mockReturnValueOnce(utils.UNABLE_TO_FIND_GIT_MSG);
 			vscode.window.showErrorMessage.mockResolvedValueOnce(null);
 
 			// Run
@@ -528,6 +546,23 @@ describe('CommandManager', () => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.removeGitRepository');
 				expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(utils.UNABLE_TO_FIND_GIT_MSG);
 			});
+			expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+		});
+
+		it('Should display an error message if the git executable is older than Git Tree\'s minimum Git version', async () => {
+			// Setup
+			jest.spyOn(dataSource, 'getGitExecutableError').mockReturnValueOnce(utils.constructIncompatibleGitVersionMessage({ path: '/path/to/old-git', version: '2.30.9' }));
+			vscode.window.showErrorMessage.mockResolvedValueOnce(null);
+
+			// Run
+			vscode.commands.executeCommand('git-tree.removeGitRepository');
+
+			// Assert
+			await waitForExpect(() => {
+				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.removeGitRepository');
+				expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('Git Tree needs Git 2.31.0 or later, but the Git executable it found ("/path/to/old-git") is version 2.30.9. Upgrade Git, or set the Visual Studio Code Setting "git.path" to a newer Git executable, then reload the window.');
+			});
+			expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
 		});
 	});
 
@@ -1293,8 +1328,8 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.version');
-				expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.25.0', { modal: true }, 'Copy');
-				expect(spyOnCopyToClipboard).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.25.0');
+				expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.31.0', { modal: true }, 'Copy');
+				expect(spyOnCopyToClipboard).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.31.0');
 			});
 		});
 
@@ -1349,8 +1384,8 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.version');
-				expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.25.0', { modal: true }, 'Copy');
-				expect(spyOnCopyToClipboard).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.25.0');
+				expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.31.0', { modal: true }, 'Copy');
+				expect(spyOnCopyToClipboard).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.31.0');
 				expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('error message');
 			});
 		});
@@ -1369,7 +1404,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.version');
-				expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.25.0', { modal: true }, 'Copy');
+				expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Git Tree: 1.27.0\nVisual Studio Code: 1.51.0\nOS: X Y Z\nGit: 2.31.0', { modal: true }, 'Copy');
 				expect(spyOnCopyToClipboard).not.toHaveBeenCalled();
 			});
 		});

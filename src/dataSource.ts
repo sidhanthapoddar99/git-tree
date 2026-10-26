@@ -9,7 +9,7 @@ import { getConfig } from './config';
 import { BranchListEntry, Engine, EngineAnswer, EngineFormat, LogEntry, ShowRefEntry, StashListEntry, WorktreeListEntry } from './engine';
 import { Logger } from './logger';
 import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
-import { GitExecutable, GitVersionRequirement, UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, abbrevCommit, constructIncompatibleGitVersionMessage, doesVersionMeetRequirement, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
+import { GitExecutable, UNCOMMITTED, abbrevCommit, getGitExecutableError, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
 import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
 
@@ -44,13 +44,12 @@ const GPG_STATUS_CODE_PARSING_DETAILS: Readonly<{ [statusCode: string]: GpgStatu
 export class DataSource extends Disposable {
 	private readonly logger: Logger;
 	private readonly askpassEnv: AskpassEnvironment;
-	private gitExecutable!: GitExecutable | null;
-	private gitExecutableSupportsGpgInfo!: boolean;
+	private gitExecutable!: GitExecutable | null; // The Git executable Git Tree runs. NULL => there's none, or it's older than Git Tree's minimum Git version
+	private gitExecutableError!: string | null; // Why Git Tree can't run Git, when `gitExecutable` is NULL
 	private gitFormatCommitDetails!: string;
 	private gitFormatLog!: string;
 	private gitFormatStash!: string;
 	private engineFormat!: EngineFormat;
-	private gitExecutableSupportsEngine!: boolean;
 	private readonly engine: Engine | null;
 	private readonly commitGraphChecked = new Set<string>(); // The repositories whose commit-graph has been checked in this session
 
@@ -88,11 +87,11 @@ export class DataSource extends Disposable {
 	}
 
 	/**
-	 * Check if the Git executable is unknown.
-	 * @returns TRUE => Git executable is unknown, FALSE => Git executable is known.
+	 * Get the reason Git Tree can't run Git: there's no Git executable, or it's older than Git Tree's minimum Git version.
+	 * @returns The message for the user, or NULL if Git Tree can run Git.
 	 */
-	public isGitExecutableUnknown() {
-		return this.gitExecutable === null;
+	public getGitExecutableError() {
+		return this.gitExecutableError;
 	}
 
 	/**
@@ -100,9 +99,8 @@ export class DataSource extends Disposable {
 	 * @param gitExecutable The Git executable.
 	 */
 	private setGitExecutable(gitExecutable: GitExecutable | null) {
-		this.gitExecutable = gitExecutable;
-		this.gitExecutableSupportsGpgInfo = gitExecutable !== null && doesVersionMeetRequirement(gitExecutable.version, GitVersionRequirement.GpgInfo);
-		this.gitExecutableSupportsEngine = gitExecutable !== null && doesVersionMeetRequirement(gitExecutable.version, GitVersionRequirement.Engine);
+		this.gitExecutableError = getGitExecutableError(gitExecutable);
+		this.gitExecutable = this.gitExecutableError === null ? gitExecutable : null;
 		this.generateGitCommandFormats();
 	}
 
@@ -117,7 +115,7 @@ export class DataSource extends Disposable {
 		this.gitFormatCommitDetails = [
 			'%H', '%P', // Hash & Parent Information
 			useMailmap ? '%aN' : '%an', useMailmap ? '%aE' : '%ae', '%at', useMailmap ? '%cN' : '%cn', useMailmap ? '%cE' : '%ce', '%ct', // Author / Commit Information
-			...(config.showSignatureStatus && this.gitExecutableSupportsGpgInfo ? ['%G?', '%GS', '%GK'] : ['', '', '']), // GPG Key Information
+			...(config.showSignatureStatus ? ['%G?', '%GS', '%GK'] : ['', '', '']), // GPG Key Information
 			'%B' // Body
 		].join(GIT_LOG_SEPARATOR);
 
@@ -549,10 +547,6 @@ export class DataSource extends Disposable {
 	 * @returns The tag details.
 	 */
 	public getTagDetails(repo: string, tagName: string): Promise<GitTagDetailsData> {
-		if (this.gitExecutable !== null && !doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.TagDetails)) {
-			return Promise.resolve({ details: null, error: constructIncompatibleGitVersionMessage(this.gitExecutable, GitVersionRequirement.TagDetails, 'retrieving Tag Details') });
-		}
-
 		const ref = 'refs/tags/' + tagName;
 		return this.spawnGit(['for-each-ref', ref, '--format=' + ['%(objectname)', '%(taggername)', '%(taggeremail)', '%(taggerdate:unix)', '%(contents:signature)', '%(contents)'].join(GIT_LOG_SEPARATOR)], repo, (stdout) => {
 			const data = stdout.split(GIT_LOG_SEPARATOR);
@@ -805,8 +799,6 @@ export class DataSource extends Disposable {
 		if (pruneTags) {
 			if (!prune) {
 				return Promise.resolve('In order to Prune Tags, pruning must also be enabled when fetching from ' + (remote !== null ? 'a remote' : 'remote(s)') + '.');
-			} else if (this.gitExecutable !== null && !doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.FetchAndPruneTags)) {
-				return Promise.resolve(constructIncompatibleGitVersionMessage(this.gitExecutable, GitVersionRequirement.FetchAndPruneTags, 'pruning tags when fetching'));
 			}
 			args.push('--prune-tags');
 		}
@@ -1300,12 +1292,6 @@ export class DataSource extends Disposable {
 	 * @returns The ErrorInfo from the executed command.
 	 */
 	public pushStash(repo: string, message: string, includeUntracked: boolean): Promise<ErrorInfo> {
-		if (this.gitExecutable === null) {
-			return Promise.resolve(UNABLE_TO_FIND_GIT_MSG);
-		} else if (!doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.PushStash)) {
-			return Promise.resolve(constructIncompatibleGitVersionMessage(this.gitExecutable, GitVersionRequirement.PushStash));
-		}
-
 		let args = ['stash', 'push'];
 		if (includeUntracked) args.push('--include-untracked');
 		if (message !== '') args.push('--message', message);
@@ -1352,12 +1338,6 @@ export class DataSource extends Disposable {
 	 * @returns The ErrorInfo from the executed command.
 	 */
 	public removeWorktree(repo: string, worktreePath: string, force: boolean) {
-		if (this.gitExecutable === null) {
-			return Promise.resolve(UNABLE_TO_FIND_GIT_MSG);
-		} else if (!doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.WorktreeRemove)) {
-			return Promise.resolve(constructIncompatibleGitVersionMessage(this.gitExecutable, GitVersionRequirement.WorktreeRemove, 'removing worktrees'));
-		}
-
 		const args = ['worktree', 'remove'];
 		if (force) args.push('--force');
 		args.push(worktreePath);
@@ -1413,10 +1393,6 @@ export class DataSource extends Disposable {
 	public async writeCommitGraphIfMissing(repo: string): Promise<ErrorInfo> {
 		if (this.commitGraphChecked.has(repo)) return null;
 		this.commitGraphChecked.add(repo);
-		if (this.gitExecutable === null || !doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.CommitGraph)) {
-			// Git doesn't read the commit-graph by default before 2.24.0
-			return null;
-		}
 
 		let graphPaths: string[];
 		try {
@@ -1443,7 +1419,7 @@ export class DataSource extends Disposable {
 	public openExternalDirDiff(repo: string, fromHash: string, toHash: string, isGui: boolean) {
 		return new Promise<ErrorInfo>((resolve) => {
 			if (this.gitExecutable === null) {
-				resolve(UNABLE_TO_FIND_GIT_MSG);
+				resolve(this.gitExecutableError);
 			} else {
 				const args = ['difftool', '--dir-diff'];
 				if (isGui) {
@@ -1490,7 +1466,7 @@ export class DataSource extends Disposable {
 	public openGitTerminal(repo: string, command: string | null, name: string) {
 		return new Promise<ErrorInfo>((resolve) => {
 			if (this.gitExecutable === null) {
-				resolve(UNABLE_TO_FIND_GIT_MSG);
+				resolve(this.gitExecutableError);
 			} else {
 				openGitTerminal(repo, this.gitExecutable.path, command, name);
 				setTimeout(() => resolve(null), 1000);
@@ -1914,10 +1890,6 @@ export class DataSource extends Disposable {
 	 * @returns An array of the worktrees, with the main worktree first.
 	 */
 	private getWorktrees(repo: string): Promise<GitWorktree[]> {
-		if (this.gitExecutable !== null && !doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.WorktreeList)) {
-			// Git can't list worktrees before 2.7.0
-			return Promise.resolve([]);
-		}
 		return Promise.all([
 			this.readWithEngine('worktrees', (engine) => engine.worktrees(repo), () => this.spawnGit(['worktree', 'list', '--porcelain'], repo, parseWorktreeList)),
 			realpath(repo)
@@ -2018,7 +1990,10 @@ export class DataSource extends Disposable {
 	 */
 	private readWithEngine<T>(name: string, engineRead: (engine: Engine) => Promise<EngineAnswer<T>>, gitRead: () => Promise<T>): Promise<T> {
 		const engine = this.engine;
-		if (engine === null || !this.gitExecutableSupportsEngine) {
+		if (this.gitExecutable === null) {
+			// The engine reads only for a Git that Git Tree can run, so it never answers where Git can't
+			return Promise.reject(this.gitExecutableError);
+		} else if (engine === null) {
 			return gitRead();
 		}
 
@@ -2068,7 +2043,7 @@ export class DataSource extends Disposable {
 	private _spawnGit<T>(args: string[], repo: string, resolveValue: { (stdout: Buffer, stderr: string): T }, ignoreExitCode: boolean = false) {
 		return new Promise<T>((resolve, reject) => {
 			if (this.gitExecutable === null) {
-				return reject(UNABLE_TO_FIND_GIT_MSG);
+				return reject(this.gitExecutableError);
 			}
 
 			resolveSpawnOutput(cp.spawn(this.gitExecutable.path, args, {

@@ -8,7 +8,7 @@ import { Logger } from './logger';
 import { RepoFileWatcher } from './repoFileWatcher';
 import { RepoManager } from './repoManager';
 import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewConfig, GitTreeViewInitialState, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
-import { UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, getNonce, getRepoName, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
+import { UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, escapeHtml, getNonce, getRepoName, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
 
 /**
@@ -783,7 +783,7 @@ export class GitTreeView extends Disposable {
 	 * @returns The key.
 	 */
 	private getConfigKey() {
-		return JSON.stringify([this.getViewConfig(), this.dataSource.isGitExecutableUnknown()]);
+		return JSON.stringify([this.getViewConfig(), this.dataSource.getGitExecutableError()]);
 	}
 
 	/**
@@ -849,10 +849,11 @@ export class GitTreeView extends Disposable {
 			colorParams += '[data-color="' + i + '"]{--git-tree-color:var(--git-tree-color' + i + ');} ';
 		}
 
-		if (this.dataSource.isGitExecutableUnknown()) {
+		const gitExecutableError = this.dataSource.getGitExecutableError();
+		if (gitExecutableError !== null) {
 			body = `<body class="unableToLoad">
 			<h2>Unable to load Git Tree</h2>
-			<p class="unableToLoadMessage">${UNABLE_TO_FIND_GIT_MSG}</p>
+			<p class="unableToLoadMessage">${escapeHtml(gitExecutableError)}</p>
 			</body>`;
 		} else if (numRepos > 0) {
 			body = `<body>

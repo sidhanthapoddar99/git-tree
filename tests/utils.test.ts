@@ -24,7 +24,7 @@ import { DataSource } from '../src/dataSource';
 import { ExtensionState } from '../src/extensionState';
 import { Logger } from '../src/logger';
 import { GitFileStatus, PullRequestProvider, RepoDropdownOrder } from '../src/types';
-import { GitExecutable, GitVersionRequirement, UNCOMMITTED, abbrevCommit, abbrevText, archive, constructIncompatibleGitVersionMessage, copyFilePathToClipboard, copyToClipboard, createPullRequest, doesFileExist, doesVersionMeetRequirement, evalPromises, findGit, getExtensionVersion, getGitExecutable, getGitExecutableFromPaths, getNonce, getPathFromStr, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openExtensionSettings, openExternalUrl, openFile, openGitTerminal, openWorktree, pathWithTrailingSlash, realpath, resolveSpawnOutput, resolveToSymbolicPath, showErrorMessage, showInformationMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from '../src/utils';
+import { GitExecutable, GitVersionRequirement, UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, abbrevCommit, abbrevText, archive, constructIncompatibleGitVersionMessage, copyFilePathToClipboard, copyToClipboard, createPullRequest, doesFileExist, doesVersionMeetRequirement, escapeHtml, evalPromises, findGit, getExtensionVersion, getGitExecutable, getGitExecutableError, getGitExecutableFromPaths, getNonce, getPathFromStr, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openExtensionSettings, openExternalUrl, openFile, openGitTerminal, openWorktree, pathWithTrailingSlash, realpath, resolveSpawnOutput, resolveToSymbolicPath, showErrorMessage, showInformationMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from '../src/utils';
 import { EventEmitter } from '../src/utils/event';
 
 import { mockRepoState } from './helpers/utils';
@@ -52,10 +52,10 @@ afterAll(() => {
 	onDidChangeGitExecutable.dispose();
 });
 
-const mockSpawnGitVersionSuccessOnce = () => {
+const mockSpawnGitVersionSuccessOnce = (version: string = '1.2.3') => {
 	mockSpyOnSpawn(spyOnSpawn, (onCallbacks, stderrOnCallbacks, stdoutOnCallbacks) => {
 		stdoutOnCallbacks['data'](Buffer.from('git '));
-		stdoutOnCallbacks['data'](Buffer.from('version 1.2.3'));
+		stdoutOnCallbacks['data'](Buffer.from('version ' + version));
 		stdoutOnCallbacks['close']();
 		stderrOnCallbacks['close']();
 		onCallbacks['exit'](0);
@@ -1935,7 +1935,7 @@ describe('findGit', () => {
 	it('Should use the last known Git executable path if it still exists', async () => {
 		// Setup
 		jest.spyOn(extensionState, 'getLastKnownGitPath').mockReturnValueOnce('/path/to/git');
-		mockSpawnGitVersionSuccessOnce();
+		mockSpawnGitVersionSuccessOnce('2.31.0');
 
 		// Run
 		const result = await findGit(extensionState);
@@ -1943,9 +1943,47 @@ describe('findGit', () => {
 		// Assert
 		expect(result).toStrictEqual({
 			path: '/path/to/git',
-			version: '1.2.3'
+			version: '2.31.0'
 		});
 		expect(spyOnSpawn).toHaveBeenCalledWith('/path/to/git', ['--version']);
+		expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+	});
+
+	it('Should use the users git.path if the last known Git executable is older than Git Tree\'s minimum Git version', async () => {
+		// Setup
+		jest.spyOn(extensionState, 'getLastKnownGitPath').mockReturnValueOnce('/path/to/old-git');
+		vscode.mockExtensionSettingReturnValue('path', '/path/to/git');
+		mockSpawnGitVersionSuccessOnce('2.30.9');
+		mockSpawnGitVersionSuccessOnce('2.31.0');
+
+		// Run
+		const result = await findGit(extensionState);
+
+		// Assert
+		expect(result).toStrictEqual({
+			path: '/path/to/git',
+			version: '2.31.0'
+		});
+		expect(spyOnSpawn).toHaveBeenCalledWith('/path/to/old-git', ['--version']);
+		expect(spyOnSpawn).toHaveBeenCalledWith('/path/to/git', ['--version']);
+	});
+
+	it('Should return the last known Git executable if it\'s older than Git Tree\'s minimum Git version, and no other Git executable is found', async () => {
+		// Setup
+		jest.spyOn(extensionState, 'getLastKnownGitPath').mockReturnValueOnce('/path/to/old-git');
+		vscode.mockExtensionSettingReturnValue('path', null);
+		mockSpawnGitVersionSuccessOnce('2.30.9');
+		mockSpawnGitVersionThrowingErrorOnce();
+
+		// Run
+		const result = await findGit(extensionState);
+
+		// Assert
+		expect(result).toStrictEqual({
+			path: '/path/to/old-git',
+			version: '2.30.9'
+		});
+		expect(spyOnSpawn).toHaveBeenCalledWith('git', ['--version']);
 	});
 
 	it('Should use the users git.path if the last known Git executable path no longer exists', async () => {
@@ -2418,7 +2456,7 @@ describe('getGitExecutableFromPaths', () => {
 describe('doesVersionMeetRequirement', () => {
 	it('Should correctly determine major newer', () => {
 		// Run
-		const result = doesVersionMeetRequirement('2.7.8.windows.0', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('3.30.0.windows.1', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(true);
@@ -2426,7 +2464,7 @@ describe('doesVersionMeetRequirement', () => {
 
 	it('Should correctly determine major older', () => {
 		// Run
-		const result = doesVersionMeetRequirement('0.7.8.windows.0', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('1.31.0.windows.1', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(false);
@@ -2434,7 +2472,7 @@ describe('doesVersionMeetRequirement', () => {
 
 	it('Should correctly determine minor newer', () => {
 		// Run
-		const result = doesVersionMeetRequirement('1.8.8 (Apple Git-122.3)', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('2.39.5 (Apple Git-154)', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(true);
@@ -2442,7 +2480,7 @@ describe('doesVersionMeetRequirement', () => {
 
 	it('Should correctly determine minor older', () => {
 		// Run
-		const result = doesVersionMeetRequirement('1.6.8 (Apple Git-122.3)', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('2.30.1 (Apple Git-130)', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(false);
@@ -2450,7 +2488,7 @@ describe('doesVersionMeetRequirement', () => {
 
 	it('Should correctly determine patch newer', () => {
 		// Run
-		const result = doesVersionMeetRequirement('1.7.9', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('2.31.1', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(true);
@@ -2458,7 +2496,7 @@ describe('doesVersionMeetRequirement', () => {
 
 	it('Should correctly determine patch older', () => {
 		// Run
-		const result = doesVersionMeetRequirement('1.7.7', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('2.30.9', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(false);
@@ -2466,15 +2504,15 @@ describe('doesVersionMeetRequirement', () => {
 
 	it('Should correctly determine same version', () => {
 		// Run
-		const result = doesVersionMeetRequirement('1.7.8', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('2.31.0', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(true);
 	});
 
-	it('Should correctly determine major newer if missing patch version', () => {
+	it('Should correctly determine minor newer if missing patch version', () => {
 		// Run
-		const result = doesVersionMeetRequirement('2.7', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('2.32', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(true);
@@ -2482,7 +2520,7 @@ describe('doesVersionMeetRequirement', () => {
 
 	it('Should correctly determine major newer if missing minor & patch versions', () => {
 		// Run
-		const result = doesVersionMeetRequirement('2', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('3', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result).toBe(true);
@@ -2490,34 +2528,78 @@ describe('doesVersionMeetRequirement', () => {
 
 	it('Should only use the valid portion of the version number to compute the result', () => {
 		// Run
-		const result1 = doesVersionMeetRequirement('1.7..8-windows.0', GitVersionRequirement.TagDetails);
+		const result1 = doesVersionMeetRequirement('2.30..1-windows.0', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result1).toBe(false);
 
 		// Run
-		const result2 = doesVersionMeetRequirement('1.8..7-windows.0', GitVersionRequirement.TagDetails);
+		const result2 = doesVersionMeetRequirement('2.32..1-windows.0', GitVersionRequirement.Minimum);
 
 		// Assert
 		expect(result2).toBe(true);
 	});
 
-	it('Should return TRUE if executable version is invalid', () => {
+	it('Should return FALSE if executable version is invalid', () => {
 		// Run
-		const result = doesVersionMeetRequirement('a1.7.7', GitVersionRequirement.TagDetails);
+		const result = doesVersionMeetRequirement('a2.31.0', GitVersionRequirement.Minimum);
 
 		// Assert
-		expect(result).toBe(true);
+		expect(result).toBe(false);
 	});
 });
 
 describe('constructIncompatibleGitVersionMessage', () => {
 	it('Should return the constructed message', () => {
 		// Run
-		const result = constructIncompatibleGitVersionMessage({ version: '1.7.7', path: '' }, GitVersionRequirement.TagDetails);
+		const result = constructIncompatibleGitVersionMessage({ version: '2.30.9', path: '/path/to/git' });
 
 		// Assert
-		expect(result).toBe('A newer version of Git (>= 1.7.8) is required for this feature. Git 1.7.7 is currently installed. Please install a newer version of Git to use this feature.');
+		expect(result).toBe('Git Tree needs Git 2.31.0 or later, but the Git executable it found ("/path/to/git") is version 2.30.9. Upgrade Git, or set the Visual Studio Code Setting "git.path" to a newer Git executable, then reload the window.');
+	});
+});
+
+describe('getGitExecutableError', () => {
+	it('Should return NULL when the Git executable is at least Git Tree\'s minimum Git version', () => {
+		// Run
+		const result = getGitExecutableError({ version: '2.31.0', path: '/path/to/git' });
+
+		// Assert
+		expect(result).toBe(null);
+	});
+
+	it('Should return the incompatible version message when the Git executable is older than Git Tree\'s minimum Git version', () => {
+		// Run
+		const result = getGitExecutableError({ version: '2.30.9', path: '/path/to/git' });
+
+		// Assert
+		expect(result).toBe('Git Tree needs Git 2.31.0 or later, but the Git executable it found ("/path/to/git") is version 2.30.9. Upgrade Git, or set the Visual Studio Code Setting "git.path" to a newer Git executable, then reload the window.');
+	});
+
+	it('Should return the incompatible version message when the version of the Git executable can\'t be parsed', () => {
+		// Run
+		const result = getGitExecutableError({ version: 'unknown', path: '/path/to/git' });
+
+		// Assert
+		expect(result).toBe('Git Tree needs Git 2.31.0 or later, but the Git executable it found ("/path/to/git") is version unknown. Upgrade Git, or set the Visual Studio Code Setting "git.path" to a newer Git executable, then reload the window.');
+	});
+
+	it('Should return UNABLE_TO_FIND_GIT_MSG when there is no Git executable', () => {
+		// Run
+		const result = getGitExecutableError(null);
+
+		// Assert
+		expect(result).toBe(UNABLE_TO_FIND_GIT_MSG);
+	});
+});
+
+describe('escapeHtml', () => {
+	it('Should escape the characters that HTML reads as markup', () => {
+		// Run
+		const result = escapeHtml('<a href="x">R&D\'s</a>');
+
+		// Assert
+		expect(result).toBe('&#60;a href=&#34;x&#34;&#62;R&#38;D&#39;s&#60;/a&#62;');
 	});
 });
 

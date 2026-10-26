@@ -9,7 +9,7 @@ import { ExtensionState } from './extensionState';
 import { Logger } from './logger';
 import { RepoManager } from './repoManager';
 import { StatusBarItem } from './statusBarItem';
-import { GitExecutable, UNABLE_TO_FIND_GIT_MSG, findGit, getGitExecutableFromPaths, showErrorMessage, showInformationMessage } from './utils';
+import { GitExecutable, findGit, getGitExecutableError, getGitExecutableFromPaths, showErrorMessage, showInformationMessage } from './utils';
 import { EventEmitter } from './utils/event';
 
 /**
@@ -32,8 +32,11 @@ export async function activate(context: vscode.ExtensionContext) {
 		logger.log('Using ' + gitExecutable.path + ' (version: ' + gitExecutable.version + ')');
 	} catch (_) {
 		gitExecutable = null;
-		showErrorMessage(UNABLE_TO_FIND_GIT_MSG);
-		logger.logError(UNABLE_TO_FIND_GIT_MSG);
+	}
+	const gitExecutableError = getGitExecutableError(gitExecutable);
+	if (gitExecutableError !== null) {
+		showErrorMessage(gitExecutableError);
+		logger.logError(gitExecutableError);
 	}
 
 	const configurationEmitter = new EventEmitter<vscode.ConfigurationChangeEvent>();
@@ -57,6 +60,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
 				getGitExecutableFromPaths(paths).then((gitExecutable) => {
 					gitExecutableEmitter.emit(gitExecutable);
+					const gitExecutableError = getGitExecutableError(gitExecutable);
+					if (gitExecutableError !== null) {
+						showErrorMessage(gitExecutableError);
+						logger.logError(gitExecutableError);
+						return;
+					}
 					const msg = 'Git Tree is now using ' + gitExecutable.path + ' (version: ' + gitExecutable.version + ')';
 					showInformationMessage(msg);
 					logger.log(msg);

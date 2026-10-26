@@ -8,7 +8,7 @@ import { CodeReviewData, CodeReviews, ExtensionState } from './extensionState';
 import { GitTreeView } from './gitTreeView';
 import { Logger } from './logger';
 import { RepoManager } from './repoManager';
-import { GitExecutable, UNABLE_TO_FIND_GIT_MSG, VsCodeVersionRequirement, abbrevCommit, abbrevText, copyToClipboard, doesVersionMeetRequirement, getExtensionVersion, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openFile, resolveToSymbolicPath, showErrorMessage, showInformationMessage } from './utils';
+import { GitExecutable, VsCodeVersionRequirement, abbrevCommit, abbrevText, copyToClipboard, doesVersionMeetRequirement, getExtensionVersion, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openFile, resolveToSymbolicPath, showErrorMessage, showInformationMessage } from './utils';
 import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
 
@@ -156,8 +156,9 @@ export class CommandManager extends Disposable {
 	 * The method run when the `git-tree.addGitRepository` command is invoked.
 	 */
 	private addGitRepository() {
-		if (this.gitExecutable === null) {
-			showErrorMessage(UNABLE_TO_FIND_GIT_MSG);
+		const gitExecutableError = this.dataSource.getGitExecutableError();
+		if (gitExecutableError !== null) {
+			showErrorMessage(gitExecutableError);
 			return;
 		}
 
@@ -183,8 +184,9 @@ export class CommandManager extends Disposable {
 	 * The method run when the `git-tree.removeGitRepository` command is invoked.
 	 */
 	private removeGitRepository() {
-		if (this.gitExecutable === null) {
-			showErrorMessage(UNABLE_TO_FIND_GIT_MSG);
+		const gitExecutableError = this.dataSource.getGitExecutableError();
+		if (gitExecutableError !== null) {
+			showErrorMessage(gitExecutableError);
 			return;
 		}
 
