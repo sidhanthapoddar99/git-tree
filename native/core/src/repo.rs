@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use gix::bstr::{BStr, ByteSlice};
+use gix::ObjectId;
 
 use crate::error::{unsupported, Context, Error, Result};
 
@@ -158,6 +159,64 @@ impl Repo {
     /// `worktrees/<id>` in it for a linked worktree.
     pub(crate) fn git_dir(&self) -> &Path {
         self.git.git_dir()
+    }
+
+    /// The bytes of an object of the given kind, or `Unsupported` when it's missing or of another
+    /// kind: git fails then, or fetches it from a promisor remote, and the CLI read says which.
+    pub(crate) fn object(&self, id: ObjectId, kind: gix::object::Kind) -> Result<Vec<u8>> {
+        let Some(object) = self.git.try_find_object(id).context("Unable to read an object")? else {
+            unsupported!("the object {id} is missing");
+        };
+        if object.kind != kind {
+            unsupported!("the object {id} is a {}, not a {kind}", object.kind);
+        }
+        Ok(object.detach().data)
+    }
+
+    /// The kind and size of an object, or `Unsupported` when it's missing.
+    pub(crate) fn object_header(&self, id: ObjectId) -> Result<(gix::object::Kind, u64)> {
+        match self.git.try_find_header(id).context("Unable to read an object")? {
+            Some(header) => Ok((header.kind(), header.size())),
+            None => unsupported!("the object {id} is missing"),
+        }
+    }
+}
+
+/// A full object ID, as the extension passes it: 40 lowercase hexadecimal digits. Anything else is
+/// `Unsupported`, because git would resolve it with rules the engine doesn't model.
+pub(crate) fn full_id(hash: &str) -> Result<ObjectId> {
+    if hash.len() != 40 || !hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        unsupported!("{hash:?} isn't a full object ID");
+    }
+    ObjectId::from_hex(hash.as_bytes()).context("Unable to read an object ID")
+}
+
+/// The home folder git uses: `HOME`, and on Windows, without it, `HOMEDRIVE` and `HOMEPATH` when that
+/// folder exists, or else `USERPROFILE`, as Git for Windows sets `HOME` when it starts. `None` when git
+/// has no home folder.
+pub(crate) fn git_home() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("HOME") {
+        return Some(PathBuf::from(home));
+    }
+    if cfg!(windows) {
+        if let (Some(drive), Some(path)) = (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH")) {
+            let mut home = drive;
+            home.push(path);
+            if Path::new(&home).is_dir() {
+                return Some(PathBuf::from(home));
+            }
+        }
+        return std::env::var_os("USERPROFILE").map(PathBuf::from);
+    }
+    None
+}
+
+/// A file in git's XDG configuration folder (`xdg_config_home`): `$XDG_CONFIG_HOME/git/<name>`, or
+/// `~/.config/git/<name>`.
+pub(crate) fn xdg_config_file(name: &str) -> Option<PathBuf> {
+    match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir).join("git").join(name)),
+        _ => git_home().map(|home| home.join(".config").join("git").join(name)),
     }
 }
 

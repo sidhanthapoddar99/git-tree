@@ -33,16 +33,20 @@ export async function activate(context: vscode.ExtensionContext) {
 	} catch (_) {
 		gitExecutable = null;
 	}
-	const gitExecutableError = getGitExecutableError(gitExecutable);
-	if (gitExecutableError !== null) {
-		showErrorMessage(gitExecutableError);
-		logger.logError(gitExecutableError);
+	const loaded = loadEngine(logger);
+	const engineError = 'error' in loaded ? loaded.error : null;
+	// Why Git Tree can't run with a Git executable: an engine that didn't load stops it, whichever Git is used
+	const getStartupError = (gitExecutable: GitExecutable | null) => engineError !== null ? engineError : getGitExecutableError(gitExecutable);
+	const startupError = getStartupError(gitExecutable);
+	if (startupError !== null) {
+		showErrorMessage(startupError);
+		logger.logError(startupError);
 	}
 
 	const configurationEmitter = new EventEmitter<vscode.ConfigurationChangeEvent>();
 	const onDidChangeConfiguration = configurationEmitter.subscribe;
 
-	const dataSource = new DataSource(gitExecutable, onDidChangeConfiguration, onDidChangeGitExecutable, logger, loadEngine(logger));
+	const dataSource = new DataSource(gitExecutable, onDidChangeConfiguration, onDidChangeGitExecutable, logger, 'engine' in loaded ? loaded.engine : null, engineError);
 	const avatarManager = new AvatarManager(dataSource, extensionState, logger);
 	const repoManager = new RepoManager(dataSource, extensionState, onDidChangeConfiguration, logger);
 	const statusBarItem = new StatusBarItem(repoManager.getNumRepos(), repoManager.onDidChangeRepos, onDidChangeConfiguration, logger);
@@ -60,7 +64,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 				getGitExecutableFromPaths(paths).then((gitExecutable) => {
 					gitExecutableEmitter.emit(gitExecutable);
-					const gitExecutableError = getGitExecutableError(gitExecutable);
+					const gitExecutableError = getStartupError(gitExecutable);
 					if (gitExecutableError !== null) {
 						showErrorMessage(gitExecutableError);
 						logger.logError(gitExecutableError);

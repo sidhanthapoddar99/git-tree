@@ -19,3 +19,8 @@ serde_json.workspace = true
 
 [build-dependencies]
 napi-build = "=2.6.0"
+
+# Windows builds use the GNU toolchain (see scripts/build-engine.js), where napi links Node-API from libnode.dll
+# unless it loads it from the host process at run time. Visual Studio Code's Node-API lives in Code.exe, so load it.
+[target.'cfg(windows)'.dependencies]
+napi = { version = "=3.15.0", default-features = false, features = ["napi4", "dyn-symbols"] }

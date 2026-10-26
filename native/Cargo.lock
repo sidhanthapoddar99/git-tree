@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "git-tree-engine"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "gix",
  "serde",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "git-tree-engine-node"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "git-tree-engine",
  "napi",

@@ -4,7 +4,17 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.1] - 2026-10-27
+
+### Added
+
+- **Windows, macOS and every Linux.** One package holds the engine for Windows x64 and arm64, macOS 15 or later on Intel and Apple silicon, and Linux x64 and arm64 with glibc 2.28 or later or with musl (Alpine). 0.4.0 shipped only Linux x64.
+
+### Changed
+
+- **The engine reads the Commit Details View.** A commit's details and changed files, a stash's, a comparison of two commits, a file at a commit, a commit's subject, a remote's URL, an annotated tag's details and the configuration come from the engine instead of 2 to 5 `git` processes each. On a 6,750-commit repository, opening a small commit's details takes about 1 ms instead of 14 ms, and reading the configuration 0.4 ms instead of 26 ms. When Git might find a rename of a file that changed, or a diff depends on attributes or settings the engine doesn't model, Git reads it instead.
+- **The engine reads the commit log incrementally, as Git does.** With a commit-graph file, a page of commits costs about the commits on it, in every order: 301 commits in author-date order take about 4 ms instead of 47 ms on a 6,750-commit repository. Without a commit-graph file, the engine reads each commit once, so the whole log takes about 57 ms instead of 85 ms, where Git takes 83 ms.
+- **Git Tree needs its engine.** If the engine is missing or can't load, Git Tree shows a message that says why, instead of reading everything with `git`.
 
 ## [0.4.0] - 2026-10-27
 

@@ -129,6 +129,23 @@ describe('DataSource', () => {
 			expect(dataSource['gitExecutable']).toStrictEqual({ path: '/path/to/git', version: '2.31.0' });
 		});
 
+		it('Should return the engine\'s error, and keep returning it after the Git executable changes, when the engine couldn\'t be loaded', () => {
+			// Setup
+			const engineError = 'This Git Tree installation is missing its engine for linux-x64-gnu. Reinstall Git Tree.';
+			dataSource.dispose();
+			dataSource = new DataSource({ path: '/path/to/git', version: '2.31.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger, null, engineError);
+
+			// Run
+			const result1 = dataSource.getGitExecutableError();
+			onDidChangeGitExecutable.emit({ path: '/path/to/other-git', version: '2.31.0' });
+			const result2 = dataSource.getGitExecutableError();
+
+			// Assert
+			expect(result1).toBe(engineError);
+			expect(result2).toBe(engineError);
+			expect(dataSource['gitExecutable']).toBe(null);
+		});
+
 		it('Should return the incompatible version message after the Git executable changes to one older than Git Tree\'s minimum Git version', () => {
 			// Run
 			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.30.9' });
@@ -148,7 +165,14 @@ describe('DataSource', () => {
 			stashes: jest.fn(),
 			worktrees: jest.fn(),
 			refs: jest.fn(),
-			log: jest.fn()
+			log: jest.fn(),
+			commitDetails: jest.fn(),
+			commitSubject: jest.fn(),
+			diff: jest.fn(),
+			commitFile: jest.fn(),
+			config: jest.fn(),
+			remoteUrl: jest.fn(),
+			tagDetails: jest.fn()
 		};
 		beforeEach(() => {
 			dataSource.dispose();
@@ -209,6 +233,178 @@ describe('DataSource', () => {
 			expect(result).toStrictEqual(['origin']);
 			expect(engine.remotes).toHaveBeenCalledWith('/path/to/repo');
 			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('Details reads with the engine', () => {
+		const HASH = '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', PARENT = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2';
+		const engine = {
+			version: '0.4.1',
+			branches: jest.fn(),
+			remotes: jest.fn(),
+			stashes: jest.fn(),
+			worktrees: jest.fn(),
+			refs: jest.fn(),
+			log: jest.fn(),
+			commitDetails: jest.fn(),
+			commitSubject: jest.fn(),
+			diff: jest.fn(),
+			commitFile: jest.fn(),
+			config: jest.fn(),
+			remoteUrl: jest.fn(),
+			tagDetails: jest.fn()
+		};
+		beforeEach(() => {
+			dataSource.dispose();
+			dataSource = new DataSource({ path: '/path/to/git', version: '2.31.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger, engine);
+		});
+
+		it('Should return the commit details from the engine\'s records, as from Git\'s', async () => {
+			// Setup
+			engine.commitDetails.mockResolvedValueOnce({
+				ok: {
+					hash: HASH, parents: [PARENT], author: 'Test Author', authorEmail: 'test-author@example.com', authorDate: 1587559258,
+					committer: 'Test Committer', committerEmail: 'test-committer@example.com', committerDate: 1587559259,
+					signatureStatus: '', signer: '', key: '', body: 'Commit Message.\r\nSecond Line.\n\n'
+				}
+			});
+			engine.diff.mockResolvedValueOnce({
+				ok: {
+					nameStatus: ['M', 'dir/modified.txt', 'R100', 'dir/renamed-old.txt', 'dir/renamed-new.txt', ''],
+					numStat: ['1\t1\tdir/modified.txt', '0\t0\t', 'dir/renamed-old.txt', 'dir/renamed-new.txt', '']
+				}
+			});
+
+			// Run
+			const result = await dataSource.getCommitDetails('/path/to/repo', HASH, true);
+
+			// Assert
+			expect(result).toStrictEqual({
+				commitDetails: {
+					hash: HASH,
+					parents: [PARENT],
+					author: 'Test Author',
+					authorEmail: 'test-author@example.com',
+					authorDate: 1587559258,
+					committer: 'Test Committer',
+					committerEmail: 'test-committer@example.com',
+					committerDate: 1587559259,
+					signature: null,
+					body: 'Commit Message.\nSecond Line.',
+					fileChanges: [
+						{ additions: 1, deletions: 1, newFilePath: 'dir/modified.txt', oldFilePath: 'dir/modified.txt', type: 'M' },
+						{ additions: 0, deletions: 0, newFilePath: 'dir/renamed-new.txt', oldFilePath: 'dir/renamed-old.txt', type: 'R' }
+					]
+				},
+				error: null
+			});
+			expect(engine.commitDetails).toHaveBeenCalledWith('/path/to/repo', HASH, { mailmap: false, signature: false });
+			expect(engine.diff).toHaveBeenCalledWith('/path/to/repo', HASH + '^', HASH);
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should run both diff commands with Git when the engine can\'t read the diff with certainty', async () => {
+			// Setup
+			engine.diff.mockResolvedValueOnce({ unsupported: 'the diff has a submodule' });
+			mockGitSuccessOnce(['A', 'file.txt', ''].join('\0'));
+			mockGitSuccessOnce(['2\t0\tfile.txt', ''].join('\0'));
+
+			// Run
+			const result = await dataSource.getCommitComparison('/path/to/repo', PARENT, HASH);
+
+			// Assert
+			expect(result).toStrictEqual({ fileChanges: [{ additions: 2, deletions: 0, newFilePath: 'file.txt', oldFilePath: 'file.txt', type: 'A' }], error: null });
+			expect(spyOnLog).toHaveBeenCalledWith('The engine can\'t read diff with certainty (the diff has a submodule), so Git reads it.');
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['diff', '--name-status', '--find-renames', '--diff-filter=AMDR', '-z', PARENT, HASH], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['diff', '--numstat', '--find-renames', '--diff-filter=AMDR', '-z', PARENT, HASH], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should read a diff with the working tree with Git only', async () => {
+			// Setup
+			mockGitSuccessOnce(['M', 'file.txt', ''].join('\0'));
+			mockGitSuccessOnce(['1\t1\tfile.txt', ''].join('\0'));
+			mockGitSuccessOnce('');
+
+			// Run
+			const result = await dataSource.getCommitComparison('/path/to/repo', HASH, utils.UNCOMMITTED);
+
+			// Assert
+			expect(result).toStrictEqual({ fileChanges: [{ additions: 1, deletions: 1, newFilePath: 'file.txt', oldFilePath: 'file.txt', type: 'M' }], error: null });
+			expect(engine.diff).not.toHaveBeenCalled();
+		});
+
+		it('Should decode the engine\'s base64 file contents with the file encoding', async () => {
+			// Setup
+			engine.commitFile.mockResolvedValueOnce({ ok: Buffer.from('caf\xe9\n', 'latin1').toString('base64') });
+			vscode.mockExtensionSettingReturnValue('fileEncoding', 'cp1252');
+
+			// Run
+			const result = await dataSource.getCommitFile('/path/to/repo', HASH, 'subdirectory/file.txt');
+
+			// Assert
+			expect(result).toBe('café\n');
+			expect(engine.commitFile).toHaveBeenCalledWith('/path/to/repo', HASH, 'subdirectory/file.txt');
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should return the engine\'s commit subject, with its whitespace collapsed as Git\'s is', async () => {
+			// Setup
+			engine.commitSubject.mockResolvedValueOnce({ ok: '  Subject \t line ' });
+
+			// Run
+			const result = await dataSource.getCommitSubject('/path/to/repo', HASH);
+
+			// Assert
+			expect(result).toBe('Subject line');
+		});
+
+		it('Should return NULL when the engine finds no URL for the remote, as when Git fails', async () => {
+			// Setup
+			engine.remoteUrl.mockResolvedValueOnce({ ok: null });
+			engine.remoteUrl.mockResolvedValueOnce({ ok: 'https://example.com/repo.git\nsecond line' });
+
+			// Run
+			const result1 = await dataSource.getRemoteUrl('/path/to/repo', 'origin');
+			const result2 = await dataSource.getRemoteUrl('/path/to/repo', 'origin');
+
+			// Assert
+			expect(result1).toBe(null);
+			expect(result2).toBe('https://example.com/repo.git');
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should return the tag details from the engine\'s record, as from Git\'s', async () => {
+			// Setup
+			engine.tagDetails.mockResolvedValueOnce({
+				ok: { hash: HASH, taggerName: 'Test Tagger', taggerEmail: '<test@example.com>', taggerDate: '1587559258', signature: '', contents: 'Subject\n\nBody\n\n' }
+			});
+
+			// Run
+			const result = await dataSource.getTagDetails('/path/to/repo', 'v1.0');
+
+			// Assert
+			expect(result).toStrictEqual({
+				details: { hash: HASH, taggerName: 'Test Tagger', taggerEmail: 'test@example.com', taggerDate: 1587559258, message: 'Subject\n\nBody', signature: null },
+				error: null
+			});
+			expect(engine.tagDetails).toHaveBeenCalledWith('/path/to/repo', 'v1.0');
+		});
+
+		it('Should read each configuration list with the engine', async () => {
+			// Setup
+			engine.config.mockResolvedValueOnce({ ok: ['core.bare\nfalse', 'user.name\nTest User', 'remote.origin.url\nhttps://example.com/repo.git', 'remote.origin.fetch\n+refs/heads/*:refs/remotes/origin/*'] });
+			engine.config.mockResolvedValueOnce({ ok: ['core.bare\nfalse'] });
+			engine.config.mockResolvedValueOnce({ ok: ['user.name\nTest User', 'x.implicit'] });
+
+			// Run
+			const result = await dataSource.getConfig('/path/to/repo', []);
+
+			// Assert
+			expect(result.error).toBe(null);
+			expect(result.config!.user.name).toStrictEqual({ local: null, global: 'Test User' });
+			expect(engine.config).toHaveBeenCalledWith('/path/to/repo', null);
+			expect(engine.config).toHaveBeenCalledWith('/path/to/repo', 'local');
+			expect(engine.config).toHaveBeenCalledWith('/path/to/repo', 'global');
 		});
 	});
 

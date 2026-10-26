@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
 import { getConfig } from './config';
-import { BranchListEntry, Engine, EngineAnswer, EngineFormat, LogEntry, ShowRefEntry, StashListEntry, WorktreeListEntry } from './engine';
+import { BranchListEntry, CommitDetailsEntry, DiffOutput, Engine, EngineAnswer, EngineDetailsFormat, EngineFormat, LogEntry, ShowRefEntry, StashListEntry, TagDetailsEntry, WorktreeListEntry } from './engine';
 import { Logger } from './logger';
 import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, UNCOMMITTED, abbrevCommit, getGitExecutableError, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
@@ -45,11 +45,13 @@ export class DataSource extends Disposable {
 	private readonly logger: Logger;
 	private readonly askpassEnv: AskpassEnvironment;
 	private gitExecutable!: GitExecutable | null; // The Git executable Git Tree runs. NULL => there's none, or it's older than Git Tree's minimum Git version
-	private gitExecutableError!: string | null; // Why Git Tree can't run Git, when `gitExecutable` is NULL
+	private gitExecutableError!: string | null; // Why Git Tree can't run, when `gitExecutable` is NULL: no usable Git, or no engine
+	private readonly engineError: string | null; // Why the engine couldn't be loaded, which stops Git Tree like an unusable Git
 	private gitFormatCommitDetails!: string;
 	private gitFormatLog!: string;
 	private gitFormatStash!: string;
 	private engineFormat!: EngineFormat;
+	private engineDetailsFormat!: EngineDetailsFormat;
 	private readonly engine: Engine | null;
 	private readonly commitGraphChecked = new Set<string>(); // The repositories whose commit-graph has been checked in this session
 
@@ -58,12 +60,14 @@ export class DataSource extends Disposable {
 	 * @param gitExecutable The Git executable available to Git Tree at startup.
 	 * @param onDidChangeGitExecutable The Event emitting the Git executable for Git Tree to use.
 	 * @param logger The Git Tree Logger instance.
-	 * @param engine The Git Tree engine, which reads repositories in-process. NULL => all reads use the Git CLI.
+	 * @param engine The Git Tree engine, which reads repositories in-process. NULL => all reads use the Git CLI (the tests of the CLI reads).
+	 * @param engineError Why the engine couldn't be loaded. Non-NULL => every read and action fails with it.
 	 */
-	constructor(gitExecutable: GitExecutable | null, onDidChangeConfiguration: Event<vscode.ConfigurationChangeEvent>, onDidChangeGitExecutable: Event<GitExecutable>, logger: Logger, engine: Engine | null = null) {
+	constructor(gitExecutable: GitExecutable | null, onDidChangeConfiguration: Event<vscode.ConfigurationChangeEvent>, onDidChangeGitExecutable: Event<GitExecutable>, logger: Logger, engine: Engine | null = null, engineError: string | null = null) {
 		super();
 		this.logger = logger;
 		this.engine = engine;
+		this.engineError = engineError;
 		this.setGitExecutable(gitExecutable);
 
 		const askpassManager = new AskpassManager();
@@ -99,7 +103,7 @@ export class DataSource extends Disposable {
 	 * @param gitExecutable The Git executable.
 	 */
 	private setGitExecutable(gitExecutable: GitExecutable | null) {
-		this.gitExecutableError = getGitExecutableError(gitExecutable);
+		this.gitExecutableError = this.engineError !== null ? this.engineError : getGitExecutableError(gitExecutable);
 		this.gitExecutable = this.gitExecutableError === null ? gitExecutable : null;
 		this.generateGitCommandFormats();
 	}
@@ -133,6 +137,7 @@ export class DataSource extends Disposable {
 
 		// The same fields, for the engine's log and stash reads
 		this.engineFormat = { mailmap: useMailmap, authorDate: config.dateType === DateType.Author };
+		this.engineDetailsFormat = { mailmap: useMailmap, signature: config.showSignatureStatus };
 	}
 
 
@@ -398,10 +403,9 @@ export class DataSource extends Disposable {
 		const fromCommit = commitHash + (hasParents ? '^' : '');
 		return Promise.all([
 			this.getCommitDetailsBase(repo, commitHash),
-			this.getDiffNameStatus(repo, fromCommit, commitHash),
-			this.getDiffNumStat(repo, fromCommit, commitHash)
+			this.getDiff(repo, fromCommit, commitHash)
 		]).then((results) => {
-			results[0].fileChanges = generateFileChanges(results[1], results[2], null);
+			results[0].fileChanges = generateFileChanges(results[1].nameStatus, results[1].numStat, null);
 			return { commitDetails: results[0], error: null };
 		}).catch((errorMessage) => {
 			return { commitDetails: null, error: errorMessage };
@@ -418,14 +422,12 @@ export class DataSource extends Disposable {
 	public getStashDetails(repo: string, commitHash: string, stash: GitCommitStash): Promise<GitCommitDetailsData> {
 		return Promise.all([
 			this.getCommitDetailsBase(repo, commitHash),
-			this.getDiffNameStatus(repo, stash.baseHash, commitHash),
-			this.getDiffNumStat(repo, stash.baseHash, commitHash),
-			stash.untrackedFilesHash !== null ? this.getDiffNameStatus(repo, stash.untrackedFilesHash, stash.untrackedFilesHash) : Promise.resolve([]),
-			stash.untrackedFilesHash !== null ? this.getDiffNumStat(repo, stash.untrackedFilesHash, stash.untrackedFilesHash) : Promise.resolve([])
+			this.getDiff(repo, stash.baseHash, commitHash),
+			stash.untrackedFilesHash !== null ? this.getDiff(repo, stash.untrackedFilesHash, stash.untrackedFilesHash) : Promise.resolve(null)
 		]).then((results) => {
-			results[0].fileChanges = generateFileChanges(results[1], results[2], null);
-			if (stash.untrackedFilesHash !== null) {
-				generateFileChanges(results[3], results[4], null).forEach((fileChange) => {
+			results[0].fileChanges = generateFileChanges(results[1].nameStatus, results[1].numStat, null);
+			if (results[2] !== null) {
+				generateFileChanges(results[2].nameStatus, results[2].numStat, null).forEach((fileChange) => {
 					if (fileChange.type === GitFileStatus.Added) {
 						fileChange.type = GitFileStatus.Untracked;
 						results[0].fileChanges.push(fileChange);
@@ -445,8 +447,7 @@ export class DataSource extends Disposable {
 	 */
 	public getUncommittedDetails(repo: string): Promise<GitCommitDetailsData> {
 		return Promise.all([
-			this.getDiffNameStatus(repo, 'HEAD', ''),
-			this.getDiffNumStat(repo, 'HEAD', ''),
+			this.getDiff(repo, 'HEAD', ''),
 			this.getStatus(repo)
 		]).then((results) => {
 			return {
@@ -454,7 +455,7 @@ export class DataSource extends Disposable {
 					hash: UNCOMMITTED, parents: [],
 					author: '', authorEmail: '', authorDate: 0,
 					committer: '', committerEmail: '', committerDate: 0, signature: null,
-					body: '', fileChanges: generateFileChanges(results[0], results[1], results[2])
+					body: '', fileChanges: generateFileChanges(results[0].nameStatus, results[0].numStat, results[1])
 				},
 				error: null
 			};
@@ -472,12 +473,11 @@ export class DataSource extends Disposable {
 	 */
 	public getCommitComparison(repo: string, fromHash: string, toHash: string): Promise<GitCommitComparisonData> {
 		return Promise.all([
-			this.getDiffNameStatus(repo, fromHash, toHash === UNCOMMITTED ? '' : toHash),
-			this.getDiffNumStat(repo, fromHash, toHash === UNCOMMITTED ? '' : toHash),
+			this.getDiff(repo, fromHash, toHash === UNCOMMITTED ? '' : toHash),
 			toHash === UNCOMMITTED ? this.getStatus(repo) : Promise.resolve(null)
 		]).then((results) => {
 			return {
-				fileChanges: generateFileChanges(results[0], results[1], results[2]),
+				fileChanges: generateFileChanges(results[0].nameStatus, results[0].numStat, results[1]),
 				error: null
 			};
 		}).catch((errorMessage) => {
@@ -493,9 +493,9 @@ export class DataSource extends Disposable {
 	 * @returns The file contents.
 	 */
 	public getCommitFile(repo: string, commitHash: string, filePath: string) {
-		return this._spawnGit(['show', commitHash + ':' + filePath], repo, stdout => {
+		return this.readWithEngine('commit file', (engine) => engine.commitFile(repo, commitHash, filePath).then((answer): EngineAnswer<Buffer> => 'ok' in answer ? { ok: Buffer.from(answer.ok, 'base64') } : answer), () => this._spawnGit(['show', commitHash + ':' + filePath], repo, (stdout) => stdout)).then((contents) => {
 			const encoding = getConfig(repo).fileEncoding;
-			return decode(stdout, encodingExists(encoding) ? encoding : 'utf8');
+			return decode(contents, encodingExists(encoding) ? encoding : 'utf8');
 		});
 	}
 
@@ -509,9 +509,9 @@ export class DataSource extends Disposable {
 	 * @returns The subject string, or NULL if an error occurred.
 	 */
 	public getCommitSubject(repo: string, commitHash: string): Promise<string | null> {
-		return this.spawnGit(['-c', 'log.showSignature=false', 'log', '--format=%s', '-n', '1', commitHash, '--'], repo, (stdout) => {
-			return stdout.trim().replace(/\s+/g, ' ');
-		}).then((subject) => subject, () => null);
+		return this.readWithEngine('commit subject', (engine) => engine.commitSubject(repo, commitHash), () => this.spawnGit(['-c', 'log.showSignature=false', 'log', '--format=%s', '-n', '1', commitHash, '--'], repo, (stdout) => stdout)).then((subject) => {
+			return subject.trim().replace(/\s+/g, ' ');
+		}, () => null);
 	}
 
 	/**
@@ -521,9 +521,10 @@ export class DataSource extends Disposable {
 	 * @returns The URL, or NULL if an error occurred.
 	 */
 	public getRemoteUrl(repo: string, remote: string): Promise<string | null> {
-		return this.spawnGit(['config', '--get', 'remote.' + remote + '.url'], repo, (stdout) => {
-			return stdout.split(EOL_REGEX)[0];
-		}).then((url) => url, () => null);
+		// The engine answers NULL when the URL isn't set, where Git fails
+		return this.readWithEngine('remote URL', (engine) => engine.remoteUrl(repo, remote), (): Promise<string | null> => this.spawnGit(['config', '--get', 'remote.' + remote + '.url'], repo, (stdout) => stdout)).then((url) => {
+			return url !== null ? url.split(EOL_REGEX)[0] : null;
+		}, () => null);
 	}
 
 	/**
@@ -548,17 +549,17 @@ export class DataSource extends Disposable {
 	 */
 	public getTagDetails(repo: string, tagName: string): Promise<GitTagDetailsData> {
 		const ref = 'refs/tags/' + tagName;
-		return this.spawnGit(['for-each-ref', ref, '--format=' + ['%(objectname)', '%(taggername)', '%(taggeremail)', '%(taggerdate:unix)', '%(contents:signature)', '%(contents)'].join(GIT_LOG_SEPARATOR)], repo, (stdout) => {
+		return this.readWithEngine('tag details', (engine) => engine.tagDetails(repo, tagName), () => this.spawnGit(['for-each-ref', ref, '--format=' + ['%(objectname)', '%(taggername)', '%(taggeremail)', '%(taggerdate:unix)', '%(contents:signature)', '%(contents)'].join(GIT_LOG_SEPARATOR)], repo, (stdout): TagDetailsEntry => {
 			const data = stdout.split(GIT_LOG_SEPARATOR);
-			return {
-				hash: data[0],
-				taggerName: data[1],
-				taggerEmail: data[2].substring(data[2].startsWith('<') ? 1 : 0, data[2].length - (data[2].endsWith('>') ? 1 : 0)),
-				taggerDate: parseInt(data[3]),
-				message: removeTrailingBlankLines(data.slice(5).join(GIT_LOG_SEPARATOR).replace(data[4], '').split(EOL_REGEX)).join('\n'),
-				signed: data[4] !== ''
-			};
-		}).then(async (tag) => ({
+			return { hash: data[0], taggerName: data[1], taggerEmail: data[2], taggerDate: data[3], signature: data[4], contents: data.slice(5).join(GIT_LOG_SEPARATOR) };
+		})).then((entry) => ({
+			hash: entry.hash,
+			taggerName: entry.taggerName,
+			taggerEmail: entry.taggerEmail.substring(entry.taggerEmail.startsWith('<') ? 1 : 0, entry.taggerEmail.length - (entry.taggerEmail.endsWith('>') ? 1 : 0)),
+			taggerDate: parseInt(entry.taggerDate),
+			message: removeTrailingBlankLines(entry.contents.replace(entry.signature, '').split(EOL_REGEX)).join('\n'),
+			signed: entry.signature !== ''
+		})).then(async (tag) => ({
 			details: {
 				hash: tag.hash,
 				taggerName: tag.taggerName,
@@ -1526,7 +1527,8 @@ export class DataSource extends Disposable {
 	 * @returns The base commit details.
 	 */
 	private getCommitDetailsBase(repo: string, commitHash: string) {
-		return this.spawnGit(['-c', 'log.showSignature=false', 'show', '--quiet', commitHash, '--format=' + this.gitFormatCommitDetails], repo, (stdout): DeepWriteable<GitCommitDetails> => {
+		const args = ['-c', 'log.showSignature=false', 'show', '--quiet', commitHash, '--format=' + this.gitFormatCommitDetails];
+		return this.readWithEngine('commit details', (engine) => engine.commitDetails(repo, commitHash, this.engineDetailsFormat), () => this.spawnGit(args, repo, (stdout): CommitDetailsEntry => {
 			const commitInfo = stdout.split(GIT_LOG_SEPARATOR);
 			return {
 				hash: commitInfo[0],
@@ -1537,17 +1539,30 @@ export class DataSource extends Disposable {
 				committer: commitInfo[5],
 				committerEmail: commitInfo[6],
 				committerDate: parseInt(commitInfo[7]),
-				signature: ['G', 'U', 'X', 'Y', 'R', 'E', 'B'].includes(commitInfo[8])
-					? {
-						key: commitInfo[10].trim(),
-						signer: commitInfo[9].trim(),
-						status: <GitSignatureStatus>commitInfo[8]
-					}
-					: null,
-				body: removeTrailingBlankLines(commitInfo.slice(11).join(GIT_LOG_SEPARATOR).split(EOL_REGEX)).join('\n'),
-				fileChanges: []
+				signatureStatus: commitInfo[8],
+				signer: commitInfo[9],
+				key: commitInfo[10],
+				body: commitInfo.slice(11).join(GIT_LOG_SEPARATOR)
 			};
-		});
+		})).then((entry): DeepWriteable<GitCommitDetails> => ({
+			hash: entry.hash,
+			parents: entry.parents,
+			author: entry.author,
+			authorEmail: entry.authorEmail,
+			authorDate: entry.authorDate,
+			committer: entry.committer,
+			committerEmail: entry.committerEmail,
+			committerDate: entry.committerDate,
+			signature: ['G', 'U', 'X', 'Y', 'R', 'E', 'B'].includes(entry.signatureStatus)
+				? {
+					key: entry.key.trim(),
+					signer: entry.signer.trim(),
+					status: <GitSignatureStatus>entry.signatureStatus
+				}
+				: null,
+			body: removeTrailingBlankLines(entry.body.split(EOL_REGEX)).join('\n'),
+			fileChanges: []
+		}));
 	}
 
 	/**
@@ -1562,28 +1577,55 @@ export class DataSource extends Disposable {
 			args.push('--' + location);
 		}
 
-		return this.spawnGit(args, repo, (stdout) => {
-			const configs: GitConfigSet = {}, keyValuePairs = stdout.split('\0');
-			const numPairs = keyValuePairs.length - 1;
-			let comps, key;
-			for (let i = 0; i < numPairs; i++) {
-				comps = keyValuePairs[i].split(EOL_REGEX);
-				key = comps.shift()!;
-				configs[key] = comps.join('\n');
-			}
-			return configs;
-		}).catch((errorMessage) => {
+		// The records Git prints between NULs: a key, then a newline and its value
+		const gitRead = () => this.spawnGit(args, repo, (stdout) => {
+			const records = stdout.split('\0');
+			records.pop();
+			return records;
+		}).catch((errorMessage): string[] => {
 			if (typeof errorMessage === 'string') {
 				const message = errorMessage.toLowerCase();
 				if (message.startsWith('fatal: unable to read config file') && message.endsWith('no such file or directory')) {
 					// If the Git command failed due to the configuration file not existing, return an empty list instead of throwing the exception
-					return {};
+					return [];
 				}
 			} else {
 				errorMessage = 'An unexpected error occurred while spawning the Git child process.';
 			}
 			throw errorMessage;
 		});
+
+		// The engine reads all the files, the local file or the global file
+		const engineLocation = location === undefined ? null : location === GitConfigLocation.Local ? 'local' : location === GitConfigLocation.Global ? 'global' : undefined;
+		const read = engineLocation !== undefined ? this.readWithEngine('config', (engine) => engine.config(repo, engineLocation), gitRead) : gitRead();
+		return read.then((records) => {
+			const configs: GitConfigSet = {};
+			let comps, key;
+			for (let i = 0; i < records.length; i++) {
+				comps = records[i].split(EOL_REGEX);
+				key = comps.shift()!;
+				configs[key] = comps.join('\n');
+			}
+			return configs;
+		});
+	}
+
+	/**
+	 * Get the `--name-status` and `--numstat` records of the diff between two revisions.
+	 * @param repo The path of the repository.
+	 * @param fromHash The revision the diff is from.
+	 * @param toHash The revision the diff is to, or `''` for the working tree.
+	 * @returns The `--name-status` and `--numstat` records of the added, modified, deleted and renamed files.
+	 */
+	private getDiff(repo: string, fromHash: string, toHash: string) {
+		const gitRead = () => Promise.all([
+			this.execDiff(repo, fromHash, toHash, '--name-status', 'AMDR'),
+			this.execDiff(repo, fromHash, toHash, '--numstat', 'AMDR')
+		]).then((results): DiffOutput => ({ nameStatus: results[0], numStat: results[1] }));
+
+		// The engine reads diffs between commits, and Git reads diffs with the working tree
+		const read = toHash !== '' ? this.readWithEngine('diff', (engine) => engine.diff(repo, fromHash, toHash), gitRead) : gitRead();
+		return read.then((output) => ({ nameStatus: parseDiffNameStatus(output.nameStatus), numStat: parseDiffNumStat(output.numStat) }));
 	}
 
 	/**
@@ -1591,57 +1633,11 @@ export class DataSource extends Disposable {
 	 * @param repo The path of the repository.
 	 * @param fromHash The revision the diff is from.
 	 * @param toHash The revision the diff is to.
-	 * @param filter The types of file changes to retrieve (defaults to `AMDR`).
+	 * @param filter The types of file changes to retrieve.
 	 * @returns An array of `--name-status` records.
 	 */
-	private getDiffNameStatus(repo: string, fromHash: string, toHash: string, filter: string = 'AMDR') {
-		return this.execDiff(repo, fromHash, toHash, '--name-status', filter).then((output) => {
-			let records: DiffNameStatusRecord[] = [], i = 0;
-			while (i < output.length && output[i] !== '') {
-				let type = <GitFileStatus>output[i][0];
-				if (type === GitFileStatus.Added || type === GitFileStatus.Deleted || type === GitFileStatus.Modified) {
-					// Add, Modify, or Delete
-					let p = getPathFromStr(output[i + 1]);
-					records.push({ type: type, oldFilePath: p, newFilePath: p });
-					i += 2;
-				} else if (type === GitFileStatus.Renamed) {
-					// Rename
-					records.push({ type: type, oldFilePath: getPathFromStr(output[i + 1]), newFilePath: getPathFromStr(output[i + 2]) });
-					i += 3;
-				} else {
-					break;
-				}
-			}
-			return records;
-		});
-	}
-
-	/**
-	 * Get the diff `--numstat` records.
-	 * @param repo The path of the repository.
-	 * @param fromHash The revision the diff is from.
-	 * @param toHash The revision the diff is to.
-	 * @param filter The types of file changes to retrieve (defaults to `AMDR`).
-	 * @returns An array of `--numstat` records.
-	 */
-	private getDiffNumStat(repo: string, fromHash: string, toHash: string, filter: string = 'AMDR') {
-		return this.execDiff(repo, fromHash, toHash, '--numstat', filter).then((output) => {
-			let records: DiffNumStatRecord[] = [], i = 0;
-			while (i < output.length && output[i] !== '') {
-				let fields = output[i].split('\t');
-				if (fields.length !== 3) break;
-				if (fields[2] !== '') {
-					// Add, Modify, or Delete
-					records.push({ filePath: getPathFromStr(fields[2]), additions: parseInt(fields[0]), deletions: parseInt(fields[1]) });
-					i += 1;
-				} else {
-					// Rename
-					records.push({ filePath: getPathFromStr(output[i + 2]), additions: parseInt(fields[0]), deletions: parseInt(fields[1]) });
-					i += 3;
-				}
-			}
-			return records;
-		});
+	private getDiffNameStatus(repo: string, fromHash: string, toHash: string, filter: string) {
+		return this.execDiff(repo, fromHash, toHash, '--name-status', filter).then(parseDiffNameStatus);
 	}
 
 	/**
@@ -2208,6 +2204,54 @@ function getErrorMessage(error: Error | null, stdoutBuffer: Buffer, stderr: stri
 		lines = [];
 	}
 	return lines.join('\n');
+}
+
+/**
+ * Parse the `--name-status` output of a diff.
+ * @param output The output, split at each NUL.
+ * @returns An array of `--name-status` records.
+ */
+function parseDiffNameStatus(output: string[]) {
+	let records: DiffNameStatusRecord[] = [], i = 0;
+	while (i < output.length && output[i] !== '') {
+		let type = <GitFileStatus>output[i][0];
+		if (type === GitFileStatus.Added || type === GitFileStatus.Deleted || type === GitFileStatus.Modified) {
+			// Add, Modify, or Delete
+			let p = getPathFromStr(output[i + 1]);
+			records.push({ type: type, oldFilePath: p, newFilePath: p });
+			i += 2;
+		} else if (type === GitFileStatus.Renamed) {
+			// Rename
+			records.push({ type: type, oldFilePath: getPathFromStr(output[i + 1]), newFilePath: getPathFromStr(output[i + 2]) });
+			i += 3;
+		} else {
+			break;
+		}
+	}
+	return records;
+}
+
+/**
+ * Parse the `--numstat` output of a diff.
+ * @param output The output, split at each NUL.
+ * @returns An array of `--numstat` records.
+ */
+function parseDiffNumStat(output: string[]) {
+	let records: DiffNumStatRecord[] = [], i = 0;
+	while (i < output.length && output[i] !== '') {
+		let fields = output[i].split('\t');
+		if (fields.length !== 3) break;
+		if (fields[2] !== '') {
+			// Add, Modify, or Delete
+			records.push({ filePath: getPathFromStr(fields[2]), additions: parseInt(fields[0]), deletions: parseInt(fields[1]) });
+			i += 1;
+		} else {
+			// Rename
+			records.push({ filePath: getPathFromStr(output[i + 2]), additions: parseInt(fields[0]), deletions: parseInt(fields[1]) });
+			i += 3;
+		}
+	}
+	return records;
 }
 
 /**

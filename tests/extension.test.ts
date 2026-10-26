@@ -12,15 +12,21 @@ jest.mock('../src/statusBarItem');
 
 import { ConfigurationChangeEvent } from 'vscode';
 import { DataSource } from '../src/dataSource';
+import { Engine, loadEngine } from '../src/engine';
 import { activate } from '../src/extension';
 import { Logger } from '../src/logger';
 import { RepoManager } from '../src/repoManager';
 import * as utils from '../src/utils';
 
+const ENGINE_ERROR_MSG = 'This Git Tree installation is missing its engine for linux-x64-gnu. Reinstall Git Tree.';
 const OLD_GIT_MSG = 'Git Tree needs Git 2.31.0 or later, but the Git executable it found ("/path/to/old-git") is version 2.30.9. Upgrade Git, or set the Visual Studio Code Setting "git.path" to a newer Git executable, then reload the window.';
+
+const engine = <Engine>{ version: '0.0.0' };
+const loadEngineMock = <jest.MockedFunction<typeof loadEngine>>loadEngine;
 
 let spyOnFindGit: jest.SpyInstance, spyOnGetGitExecutableFromPaths: jest.SpyInstance;
 beforeEach(() => {
+	loadEngineMock.mockReturnValue({ engine: engine });
 	spyOnFindGit = jest.spyOn(utils, 'findGit');
 	spyOnGetGitExecutableFromPaths = jest.spyOn(utils, 'getGitExecutableFromPaths');
 	vscode.window.showErrorMessage.mockResolvedValue(null);
@@ -61,7 +67,7 @@ describe('activate', () => {
 		const { logger } = await activateGitTree();
 
 		// Assert
-		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/git', version: '2.31.0' }, expect.anything(), expect.anything(), expect.anything(), undefined);
+		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/git', version: '2.31.0' }, expect.anything(), expect.anything(), expect.anything(), engine, null);
 		expect(logger.log).toHaveBeenCalledWith('Using /path/to/git (version: 2.31.0)');
 		expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
 		expect(logger.logError).not.toHaveBeenCalled();
@@ -75,7 +81,7 @@ describe('activate', () => {
 		const { logger } = await activateGitTree();
 
 		// Assert
-		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/old-git', version: '2.30.9' }, expect.anything(), expect.anything(), expect.anything(), undefined);
+		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/old-git', version: '2.30.9' }, expect.anything(), expect.anything(), expect.anything(), engine, null);
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(OLD_GIT_MSG);
 		expect(logger.logError).toHaveBeenCalledWith(OLD_GIT_MSG);
@@ -89,10 +95,25 @@ describe('activate', () => {
 		const { logger } = await activateGitTree();
 
 		// Assert
-		expect(DataSource).toHaveBeenCalledWith(null, expect.anything(), expect.anything(), expect.anything(), undefined);
+		expect(DataSource).toHaveBeenCalledWith(null, expect.anything(), expect.anything(), expect.anything(), engine, null);
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(utils.UNABLE_TO_FIND_GIT_MSG);
 		expect(logger.logError).toHaveBeenCalledWith(utils.UNABLE_TO_FIND_GIT_MSG);
+	});
+
+	it('Should show the engine\'s error, and pass it to the DataSource, when the engine can\'t be loaded', async () => {
+		// Setup
+		loadEngineMock.mockReturnValueOnce({ error: ENGINE_ERROR_MSG });
+		spyOnFindGit.mockResolvedValueOnce({ path: '/path/to/git', version: '2.31.0' });
+
+		// Run
+		const { logger } = await activateGitTree();
+
+		// Assert
+		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/git', version: '2.31.0' }, expect.anything(), expect.anything(), expect.anything(), null, ENGINE_ERROR_MSG);
+		expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
+		expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(ENGINE_ERROR_MSG);
+		expect(logger.logError).toHaveBeenCalledWith(ENGINE_ERROR_MSG);
 	});
 
 	describe('git.path changes', () => {
@@ -126,6 +147,24 @@ describe('activate', () => {
 			// Assert
 			expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(OLD_GIT_MSG);
 			expect(logger.logError).toHaveBeenCalledWith(OLD_GIT_MSG);
+			expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+			expect(repoManager.searchWorkspaceForRepos).not.toHaveBeenCalled();
+		});
+
+		it('Should show the engine\'s error when the engine can\'t be loaded, even if the new Git executable is usable', async () => {
+			// Setup
+			loadEngineMock.mockReturnValueOnce({ error: ENGINE_ERROR_MSG });
+			spyOnFindGit.mockResolvedValueOnce({ path: '/path/to/git', version: '2.31.0' });
+			spyOnGetGitExecutableFromPaths.mockResolvedValueOnce({ path: '/path/to/other-git', version: '2.31.0' });
+			const { logger, repoManager, changeGitPath } = await activateGitTree();
+			vscode.window.showErrorMessage.mockClear();
+
+			// Run
+			await changeGitPath('/path/to/other-git');
+
+			// Assert
+			expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(ENGINE_ERROR_MSG);
+			expect(logger.logError).toHaveBeenCalledWith(ENGINE_ERROR_MSG);
 			expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
 			expect(repoManager.searchWorkspaceForRepos).not.toHaveBeenCalled();
 		});

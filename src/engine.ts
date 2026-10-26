@@ -48,6 +48,44 @@ export interface LogEntry {
 	readonly message: string;
 }
 
+/** The fields of the extension's `git show` format for a commit's details. */
+export interface CommitDetailsEntry {
+	readonly hash: string;
+	readonly parents: string[];
+	readonly author: string;
+	readonly authorEmail: string;
+	readonly authorDate: number;
+	readonly committer: string;
+	readonly committerEmail: string;
+	readonly committerDate: number;
+	readonly signatureStatus: string; // `%G?`, or empty when the format doesn't ask for it
+	readonly signer: string; // `%GS`
+	readonly key: string; // `%GK`
+	readonly body: string; // `%B`, and the newline that ends Git's output
+}
+
+/** The fields the extension's commit details format asks for. */
+export interface EngineDetailsFormat {
+	readonly mailmap: boolean; // `%aN %aE %cN %cE` instead of `%an %ae %cn %ce`
+	readonly signature: boolean; // `%G? %GS %GK` instead of nothing
+}
+
+/** What `git diff` (or `git diff-tree`) prints with `--name-status` and with `--numstat`, split at each NUL. */
+export interface DiffOutput {
+	readonly nameStatus: string[];
+	readonly numStat: string[];
+}
+
+/** The fields of the extension's `git for-each-ref` format for a tag's details, as Git prints them. */
+export interface TagDetailsEntry {
+	readonly hash: string; // `%(objectname)`
+	readonly taggerName: string; // `%(taggername)`
+	readonly taggerEmail: string; // `%(taggeremail)`, with its `<>`
+	readonly taggerDate: string; // `%(taggerdate:unix)`
+	readonly signature: string; // `%(contents:signature)`
+	readonly contents: string; // `%(contents)`, and the newline that ends Git's output
+}
+
 /** The fields the extension's `--format` strings ask for. */
 export interface EngineFormat {
 	readonly mailmap: boolean; // `%aN %aE` instead of `%an %ae`
@@ -82,6 +120,13 @@ export interface Engine {
 	readonly worktrees: (repo: string) => Promise<EngineAnswer<WorktreeListEntry[]>>;
 	readonly refs: (repo: string, includeRemotes: boolean) => Promise<EngineAnswer<ShowRefEntry[]>>;
 	readonly log: (repo: string, request: EngineLogRequest) => Promise<EngineAnswer<LogEntry[]>>;
+	readonly commitDetails: (repo: string, hash: string, format: EngineDetailsFormat) => Promise<EngineAnswer<CommitDetailsEntry>>;
+	readonly commitSubject: (repo: string, hash: string) => Promise<EngineAnswer<string>>;
+	readonly diff: (repo: string, from: string, to: string) => Promise<EngineAnswer<DiffOutput>>;
+	readonly commitFile: (repo: string, hash: string, path: string) => Promise<EngineAnswer<string>>; // The contents in base64
+	readonly config: (repo: string, location: 'local' | 'global' | null) => Promise<EngineAnswer<string[]>>;
+	readonly remoteUrl: (repo: string, remote: string) => Promise<EngineAnswer<string | null>>;
+	readonly tagDetails: (repo: string, name: string) => Promise<EngineAnswer<TagDetailsEntry>>;
 }
 
 /** The functions the native module exports (`native/node/src/lib.rs`). */
@@ -103,7 +148,7 @@ export function getEnginePlatform() {
 		case 'darwin':
 			return 'darwin-' + arch;
 		case 'win32':
-			return 'win32-' + arch + '-msvc';
+			return 'win32-' + arch;
 		default:
 			return null;
 	}
@@ -119,32 +164,30 @@ export function getEnginePath(platform: string) {
 }
 
 /**
- * Load the engine for the current platform.
- * @param logger The Git Tree Logger instance, which says once why the engine isn't used.
- * @returns The engine, or NULL if it isn't available, in which case Git Tree reads repositories with the Git CLI.
+ * Load the engine for the current platform. Git Tree needs it: the package ships the engine for every platform it
+ * supports, so a missing or broken engine is an error, not a reason to read everything with the Git CLI.
+ * @param logger The Git Tree Logger instance.
+ * @returns The engine, or the message that explains why it can't be loaded.
  */
-export function loadEngine(logger: Logger): Engine | null {
+export function loadEngine(logger: Logger): { engine: Engine } | { error: string } {
 	const platform = getEnginePlatform();
 	if (platform === null) {
-		logger.log('The Git Tree engine isn\'t built for ' + process.platform + '-' + process.arch + ', so Git Tree reads repositories with Git.');
-		return null;
+		return { error: 'Git Tree doesn\'t run on ' + process.platform + '-' + process.arch + '. It runs on Windows, macOS and Linux, on x64 and arm64.' };
 	}
 	const enginePath = getEnginePath(platform);
 	if (!fs.existsSync(enginePath)) {
-		logger.log('The Git Tree engine isn\'t installed for ' + platform + ', so Git Tree reads repositories with Git.');
-		return null;
+		return { error: 'This Git Tree installation is missing its engine for ' + platform + '. Reinstall Git Tree.' };
 	}
 
 	let native: NativeModule;
 	try {
 		native = require(enginePath);
 	} catch (error) {
-		logger.logError('Unable to load the Git Tree engine, so Git Tree reads repositories with Git: ' + (error instanceof Error ? error.message : String(error)));
-		return null;
+		return { error: 'Unable to load the Git Tree engine for ' + platform + ': ' + (error instanceof Error ? error.message : String(error)) };
 	}
 	const engine = createEngine(native);
 	logger.log('Using the Git Tree engine (version: ' + engine.version + ')');
-	return engine;
+	return { engine: engine };
 }
 
 /**
@@ -161,7 +204,14 @@ function createEngine(native: NativeModule): Engine {
 		stashes: (repo, format) => read({ read: 'stashes', repo: repo, format: format }),
 		worktrees: (repo) => read({ read: 'worktrees', repo: repo }),
 		refs: (repo, includeRemotes) => read({ read: 'refs', repo: repo, includeRemotes: includeRemotes }),
-		log: (repo, request) => read({ read: 'log', repo: repo, log: request })
+		log: (repo, request) => read({ read: 'log', repo: repo, log: request }),
+		commitDetails: (repo, hash, format) => read({ read: 'commitDetails', repo: repo, hash: hash, format: format }),
+		commitSubject: (repo, hash) => read({ read: 'commitSubject', repo: repo, hash: hash }),
+		diff: (repo, from, to) => read({ read: 'diff', repo: repo, from: from, to: to }),
+		commitFile: (repo, hash, path) => read({ read: 'commitFile', repo: repo, hash: hash, path: path }),
+		config: (repo, location) => read({ read: 'config', repo: repo, location: location }),
+		remoteUrl: (repo, remote) => read({ read: 'remoteUrl', repo: repo, remote: remote }),
+		tagDetails: (repo, name) => read({ read: 'tagDetails', repo: repo, name: name })
 	};
 }
 

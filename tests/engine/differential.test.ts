@@ -5,15 +5,9 @@ jest.mock('../../src/logger');
 
 import * as cp from 'child_process';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
-import { ConfigurationChangeEvent } from 'vscode';
-import { DataSource } from '../../src/dataSource';
-import { Engine, EngineAnswer, getEnginePath, getEnginePlatform, loadEngine } from '../../src/engine';
-import { Logger } from '../../src/logger';
 import { CommitOrdering } from '../../src/types';
-import { GitExecutable, getGitExecutable } from '../../src/utils';
-import { EventEmitter } from '../../src/utils/event';
+import { ROOT, buildLinearRepository, commit, createDataSource, describeWithEngine, engineBuilt, expectAnswers, expectOnlyOkAnswers, git, gitEnv, harness, init, merge, readTwice, useEngineHarness } from './harness';
 
 /*
  * Differential tests: each engine read against the Git CLI read, on real repositories. A DataSource
@@ -22,62 +16,20 @@ import { EventEmitter } from '../../src/utils/event';
  * quietly handed a read it should answer back to Git.
  */
 
-const ROOT = path.join(__dirname, '..', '..');
-const platform = getEnginePlatform();
-const engineBuilt = platform !== null && fs.existsSync(getEnginePath(platform));
-const describeWithEngine = engineBuilt ? describe : describe.skip;
-
 const ORDERINGS = [CommitOrdering.Date, CommitOrdering.AuthorDate, CommitOrdering.Topological];
-
-interface RecordedAnswer {
-	readonly read: string;
-	readonly repo: string;
-	readonly answer: string; // 'ok', or 'unsupported: <why>', or 'failed: <why>'
-}
-
-let tmp: string;
-let gitExecutable: GitExecutable;
-let engine: Engine;
-let answers: RecordedAnswer[] = [];
-let logger: Logger;
-let onDidChangeConfiguration: EventEmitter<ConfigurationChangeEvent>;
-let onDidChangeGitExecutable: EventEmitter<GitExecutable>;
 
 if (!engineBuilt) {
 	test('the engine is not built, so the differential tests are skipped', () => { });
 }
 
 describeWithEngine('The engine reads what Git reads', () => {
-	beforeAll(async () => {
-		tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'git-tree-engine-')));
-		// Git and the engine both read the global configuration; an empty one keeps the tests independent of the machine
-		process.env.HOME = path.join(tmp, 'home');
-		process.env.XDG_CONFIG_HOME = path.join(tmp, 'home', '.config');
-		fs.mkdirSync(process.env.XDG_CONFIG_HOME, { recursive: true });
-
-		cp.execFileSync('bash', [path.join(ROOT, 'scripts', 'make-demo-repo.sh')], { env: Object.assign({}, process.env, { DEMO_DIR: path.join(tmp, 'demo') }), stdio: 'pipe' });
-
-		logger = new Logger();
-		onDidChangeConfiguration = new EventEmitter<ConfigurationChangeEvent>();
-		onDidChangeGitExecutable = new EventEmitter<GitExecutable>();
-		gitExecutable = await getGitExecutable('git');
-		engine = recordAnswers(loadEngine(logger)!);
-	});
-
-	afterAll(() => {
-		onDidChangeConfiguration.dispose();
-		onDidChangeGitExecutable.dispose();
-		fs.rmSync(tmp, { recursive: true, force: true });
-	});
-
-	beforeEach(() => {
-		answers = [];
-		// The uncommitted changes rows carry the current time, so they would differ between two reads
-		vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', false);
+	useEngineHarness();
+	beforeAll(() => {
+		cp.execFileSync('bash', [path.join(ROOT, 'scripts', 'make-demo-repo.sh')], { env: Object.assign({}, process.env, { DEMO_DIR: path.join(harness.tmp, 'demo') }), stdio: 'pipe' });
 	});
 
 	describe('The demo repository', () => {
-		const demo = () => path.join(tmp, 'demo');
+		const demo = () => path.join(harness.tmp, 'demo');
 		const repos: [string, () => string][] = [
 			['the main worktree', () => path.join(demo(), 'demo-repo')],
 			['a linked worktree on a branch', () => path.join(demo(), 'demo-repo', '.worktrees', 'alerts')],
@@ -126,7 +78,7 @@ describeWithEngine('The engine reads what Git reads', () => {
 	describe('A repository built for edge cases', () => {
 		let repo: string;
 		beforeAll(() => {
-			repo = buildEdgeCaseRepository(path.join(tmp, 'edge'));
+			repo = buildEdgeCaseRepository(path.join(harness.tmp, 'edge'));
 		});
 
 		const read = async () => {
@@ -170,6 +122,210 @@ describeWithEngine('The engine reads what Git reads', () => {
 			expectOnlyOkAnswers();
 			git(repo, 'checkout', '-q', 'main');
 		});
+	});
+
+	describe('The log order, on a history built to stress it', () => {
+		// Equal dates, clock skew, octopus merges, a long side branch merged late, several roots, criss-cross
+		// merges and a few hundred random commits. Each read is compared at many page sizes, because a walk
+		// that stops early goes wrong at a page boundary first.
+		const PAGES = [1, 2, 3, 10, 40, 150, 100000];
+		let repo: string;
+		beforeAll(() => {
+			repo = buildOrderingRepository(path.join(harness.tmp, 'ordering'));
+		});
+
+		const readLogs = async () => {
+			const cli = createDataSource(null);
+			const info = await cli.getRepoInfo(repo, true, true, []);
+			cli.dispose();
+			expect(info.stashes.length).toBeGreaterThan(0);
+			const starts: { branches: string[] | null, showTags: boolean, reflogs: boolean }[] = [
+				{ branches: null, showTags: true, reflogs: false },
+				{ branches: null, showTags: true, reflogs: true },
+				{ branches: null, showTags: false, reflogs: false },
+				{ branches: ['main'], showTags: true, reflogs: false }
+			];
+			for (const ordering of ORDERINGS) {
+				for (const firstParent of [false, true]) {
+					for (const start of starts) {
+						for (const maxCount of PAGES) {
+							const label = Object.assign({ ordering: ordering, firstParent: firstParent, maxCount: maxCount }, start);
+							const [expected, actual] = await readTwice((dataSource) => dataSource['getLog'](repo, start.branches, maxCount, start.showTags, true, start.reflogs, firstParent, ordering, info.remotes, [], info.stashes));
+							expect({ label: label, result: actual }).toStrictEqual({ label: label, result: expected });
+						}
+					}
+				}
+			}
+			expectOnlyOkAnswers();
+		};
+
+		it('Reads it without a commit-graph', async () => {
+			await readLogs();
+		});
+
+		it('Reads it with a commit-graph of topological levels (generation version 1)', async () => {
+			git(repo, '-c', 'commitGraph.generationVersion=1', 'commit-graph', 'write', '--reachable');
+			await readLogs();
+		});
+
+		it('Reads it with a commit-graph of corrected commit dates (generation version 2)', async () => {
+			git(repo, '-c', 'commitGraph.generationVersion=2', 'commit-graph', 'write', '--reachable');
+			await readLogs();
+		});
+
+		it('Reads it with core.commitGraph=false', async () => {
+			git(repo, 'config', 'core.commitGraph', 'false');
+			await readLogs();
+			git(repo, 'config', '--unset', 'core.commitGraph');
+		});
+
+		it('Reads it with a split commit-graph, and commits the commit-graph doesn\'t have', async () => {
+			fs.rmSync(path.join(repo, '.git', 'objects', 'info', 'commit-graph'));
+			// One layer of each generation version, which makes git read topological levels from both
+			cp.execFileSync('git', ['-c', 'commitGraph.generationVersion=1', 'commit-graph', 'write', '--split', '--stdin-commits'], { cwd: repo, input: git(repo, 'rev-parse', 'mid') });
+			git(repo, 'commit-graph', 'write', '--reachable', '--split=no-merge');
+			const chain = fs.readFileSync(path.join(repo, '.git', 'objects', 'info', 'commit-graphs', 'commit-graph-chain'), 'utf8');
+			expect(chain.trim().split('\n').length).toBe(2);
+			await readLogs();
+
+			// New commits on main, with tied dates, a merge and an octopus merge
+			commit(repo, 'After the graph one', '1700090000');
+			commit(repo, 'After the graph two', '1700090000');
+			merge(repo, 'r1', 'Merge r1 after the graph', '1700090000');
+			cp.execFileSync('git', ['merge', '-q', '--no-ff', '-m', 'Octopus after the graph', 'r2', 'r3'], { cwd: repo, env: gitEnv('1700090000'), stdio: 'pipe' });
+			await readLogs();
+		});
+
+		/**
+		 * Build the repository for the ordering tests with git fast-import, which sets every date and parent.
+		 */
+		function buildOrderingRepository(dir: string) {
+			init(dir);
+			const T = 1700000000;
+			const stream: string[] = [];
+			const dates: number[] = [];
+			let marks = 0;
+			// Add a commit with these parents (marks) on the scratch branch, and return its mark
+			const add = (parents: number[], date: number, authorDate: number = date) => {
+				const mark = ++marks;
+				const message = 'Commit ' + mark;
+				if (parents.length === 0) stream.push('reset refs/heads/build');
+				stream.push('commit refs/heads/build', 'mark :' + mark, 'author Ada Park <ada@example.com> ' + authorDate + ' +0000', 'committer Ada Park <ada@example.com> ' + date + ' +0000', 'data ' + message.length, message);
+				parents.forEach((parent, i) => stream.push((i === 0 ? 'from :' : 'merge :') + parent));
+				stream.push('');
+				dates[mark] = date;
+				return mark;
+			};
+			const ref = (name: string, mark: number) => stream.push('reset ' + name, 'from :' + mark, '');
+
+			// Main: five commits share each date
+			const mainLine = [add([], T)];
+			for (let i = 1; i <= 30; i++) mainLine.push(add([mainLine[i - 1]], T + Math.floor(i / 5) * 100));
+			let main = mainLine[30];
+			// A long side branch from early on, with dates between and equal to main's, merged late
+			let long = mainLine[3];
+			for (let i = 0; i < 40; i++) long = add([long], T + 50 + Math.floor(i / 3) * 50, T + 7 * i);
+			// Three short branches with one date, merged in one octopus merge
+			const arms = [1, 2, 3].map((arm) => {
+				let tip = main;
+				for (let i = 0; i < 3; i++) tip = add([tip], T + 4000, T + 4000 - arm);
+				return tip;
+			});
+			main = add([main, ...arms], T + 4000);
+			const octopus = main;
+			// Clock skew: a child a day older than its parent, a branch whose dates go backwards, and a merge older than both parents
+			main = add([main], T + 4100 - 86400);
+			let skew = main;
+			for (let i = 0; i < 5; i++) skew = add([skew], T + 4200 - i * 1000);
+			main = add([main], T + 4300);
+			main = add([main, skew], T + 1000);
+			// A second root, merged in, and a third one that is never merged, tying with main's dates
+			let docs = add([], T + 200);
+			for (let i = 0; i < 10; i++) docs = add([docs], T + 300 + i * 500, T + 300);
+			main = add([main, docs], T + 6000);
+			let island = add([], T + 6000);
+			for (let i = 0; i < 5; i++) island = add([island], T + 6000);
+			// Criss-cross merges, then a merge whose first parent is also an ancestor of its second
+			let left = add([main], T + 6100), right = add([main], T + 6100);
+			const leftMerge = add([left, right], T + 6200), rightMerge = add([right, left], T + 6200);
+			left = add([leftMerge], T + 6300);
+			right = add([rightMerge], T + 6300);
+			main = add([left, right], T + 6400);
+			main = add([main, mainLine[28]], T + 6400);
+			// The long branch merged late, with a tied date
+			main = add([main, long], T + 6400);
+			// A branch whose tip is a merge's second parent
+			let feature = add([main], T + 6500);
+			feature = add([feature], T + 6500);
+			main = add([main], T + 6500);
+			main = add([main, feature], T + 6600);
+			// A commit only a tag reaches, and commits only the reflog of wip reaches, with distinct dates
+			const tagged = add([mainLine[10]], T + 7000);
+			const wip = [add([main], T + 7001), add([main], T + 7013), add([main], T + 7029)];
+
+			// A few hundred random commits on a pool of branches, with many tied dates and some skew
+			let seed = 7;
+			const random = () => {
+				seed = (seed * 1103515245 + 12345) % 2147483648;
+				return seed / 2147483648;
+			};
+			const pick = <V>(items: V[]) => items[Math.floor(random() * items.length)];
+			const pool = [main, long, island, left, right, docs];
+			for (let i = 0; i < 300; i++) {
+				const r = random();
+				const count = r < 0.7 ? 1 : r < 0.95 ? 2 : 3 + Math.floor(random() * 2);
+				const slots: number[] = [];
+				while (slots.length < count) {
+					const slot = Math.floor(random() * pool.length);
+					if (!slots.includes(slot)) slots.push(slot);
+					if (slots.length === pool.length) break;
+				}
+				const parents = slots.map((slot) => pool[slot]);
+				const forkOld = random() < 0.1;
+				if (forkOld) parents[0] = 1 + Math.floor(random() * (marks - 1));
+				if (new Set(parents).size !== parents.length) continue;
+				const base = Math.max(...parents.map((parent) => dates[parent]));
+				const date = random() < 0.05 ? base - 5000 : base + pick([0, 0, 0, 0, 30, 60, 3600]);
+				const authorDate = random() < 0.5 ? date : T + Math.floor(random() * 50) * 100;
+				const added = add(parents, date, authorDate);
+				if (forkOld) {
+					pool.push(added);
+				} else {
+					pool[slots[0]] = added;
+				}
+			}
+
+			ref('refs/heads/main', pool[0]);
+			ref('refs/heads/long', long);
+			ref('refs/heads/feature', feature);
+			ref('refs/heads/island', island);
+			ref('refs/heads/mid', mainLine[20]);
+			pool.slice(1).forEach((mark, i) => ref('refs/heads/r' + (i + 1), mark));
+			ref('refs/tags/light', mainLine[5]);
+			ref('refs/tags/octopus', octopus);
+			stream.push('tag release', 'from :' + tagged, 'tagger Ada Park <ada@example.com> ' + (T + 7000) + ' +0000', 'data 7', 'Release');
+			ref('refs/remotes/origin/main', mainLine[25]);
+			ref('refs/remotes/origin/topic', pick(pool));
+			const marksFile = path.join(dir, '.git', 'marks');
+			cp.execFileSync('git', ['fast-import', '--quiet', '--export-marks=' + marksFile], { cwd: dir, input: stream.join('\n') + '\n', stdio: ['pipe', 'pipe', 'pipe'] });
+			const ids: string[] = [];
+			for (const line of fs.readFileSync(marksFile, 'utf8').trim().split('\n')) {
+				const [mark, id] = line.split(' ');
+				ids[parseInt(mark.slice(1))] = id;
+			}
+			git(dir, 'update-ref', '-d', 'refs/heads/build');
+			git(dir, 'remote', 'add', 'origin', 'https://example.com/origin.git');
+
+			// The reflog of wip names commits no branch reaches, and a stash is based on an old commit
+			wip.forEach((mark, i) => git(dir, 'update-ref', '-m', 'wip ' + i, 'refs/heads/wip', ids[mark]));
+			git(dir, 'checkout', '-q', 'main');
+			git(dir, 'checkout', '-q', '--detach', ids[mainLine[12]]);
+			fs.writeFileSync(path.join(dir, 'file.txt'), 'stashed\n');
+			git(dir, 'add', 'file.txt');
+			cp.execFileSync('git', ['stash', 'push', '-q', '-m', 'On an old commit'], { cwd: dir, env: gitEnv(String(T + 7100)), stdio: 'pipe' });
+			git(dir, 'checkout', '-q', 'main');
+			return dir;
+		}
 	});
 
 	describe('Repositories the engine leaves to Git', () => {
@@ -219,22 +375,22 @@ describeWithEngine('The engine reads what Git reads', () => {
 			}, 'branch.sort']
 		];
 		it.each(cases)('%s', async (_, build, reason) => {
-			const repo = build(path.join(tmp, 'unsupported-' + answers.length + '-' + Math.random().toString(36).slice(2)));
+			const repo = build(path.join(harness.tmp, 'unsupported-' + harness.answers.length + '-' + Math.random().toString(36).slice(2)));
 			await expectSameRepoInfo(repo);
 			for (const ordering of ORDERINGS) {
 				await expectSameCommits(repo, ordering, false);
 			}
-			expect(answers.map((answer) => answer.answer).filter((answer) => answer.startsWith('unsupported'))).toContainEqual(expect.stringContaining(reason));
-			expect(answers.filter((answer) => answer.answer.startsWith('failed'))).toStrictEqual([]);
+			expect(harness.answers.map((answer) => answer.answer).filter((answer) => answer.startsWith('unsupported'))).toContainEqual(expect.stringContaining(reason));
+			expect(harness.answers.filter((answer) => answer.answer.startsWith('failed'))).toStrictEqual([]);
 		});
 
 		it('A mailmap, when the mailmap is used', async () => {
-			const repo = buildLinearRepository(path.join(tmp, 'mailmap'), 2);
+			const repo = buildLinearRepository(path.join(harness.tmp, 'mailmap'), 2);
 			fs.writeFileSync(path.join(repo, '.mailmap'), 'Real Name <real@example.com> <ada@example.com>\n');
 			vscode.mockExtensionSettingReturnValue('repository.useMailmap', true);
 			await expectSameRepoInfo(repo);
 			await expectSameCommits(repo, CommitOrdering.Date, false);
-			expect(answers.map((answer) => answer.answer)).toContainEqual(expect.stringContaining('.mailmap'));
+			expect(harness.answers.map((answer) => answer.answer)).toContainEqual(expect.stringContaining('.mailmap'));
 		});
 	});
 });
@@ -291,101 +447,8 @@ async function expectSameCommits(repo: string, ordering: CommitOrdering, firstPa
 	}
 }
 
-/**
- * Run a read with Git, and then with the engine.
- * @returns The result with Git, and the result with the engine.
- */
-async function readTwice<T>(read: (dataSource: DataSource) => Promise<T>) {
-	const cli = createDataSource(null), withEngine = createDataSource(engine);
-	try {
-		const expected = await read(cli);
-		const before = answers.length;
-		const actual = await read(withEngine);
-		expect(answers.length).toBeGreaterThan(before);
-		return [expected, actual];
-	} finally {
-		cli.dispose();
-		withEngine.dispose();
-	}
-}
-
-function createDataSource(engine: Engine | null) {
-	return new DataSource(gitExecutable, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger, engine);
-}
-
-/**
- * Wrap the engine, recording each answer it gives.
- */
-function recordAnswers(engine: Engine): Engine {
-	const record = <T>(read: string, repo: string, answer: Promise<EngineAnswer<T>>) => answer.then((value) => {
-		answers.push({ read: read, repo: repo, answer: 'ok' in value ? 'ok' : 'unsupported' in value ? 'unsupported: ' + value.unsupported : 'failed: ' + value.failed });
-		return value;
-	});
-	return {
-		version: engine.version,
-		branches: (repo, includeRemotes) => record('branches', repo, engine.branches(repo, includeRemotes)),
-		remotes: (repo) => record('remotes', repo, engine.remotes(repo)),
-		stashes: (repo, format) => record('stashes', repo, engine.stashes(repo, format)),
-		worktrees: (repo) => record('worktrees', repo, engine.worktrees(repo)),
-		refs: (repo, includeRemotes) => record('refs', repo, engine.refs(repo, includeRemotes)),
-		log: (repo, request) => record('log', repo, engine.log(repo, request))
-	};
-}
-
-/**
- * Expect the engine to have answered every read itself.
- */
-function expectOnlyOkAnswers() {
-	expect(answers.filter((answer) => answer.answer !== 'ok')).toStrictEqual([]);
-}
-
-/**
- * Expect the engine to have answered, or said why it didn't. Used for this repository, whose state the tests don't control.
- */
-function expectAnswers() {
-	expect(answers.filter((answer) => answer.answer.startsWith('failed'))).toStrictEqual([]);
-	expect(answers.some((answer) => answer.answer === 'ok')).toBe(true);
-}
-
 
 /* Building repositories */
-
-function gitEnv(date: string, name: string = 'Ada Park', email: string = 'ada@example.com') {
-	return Object.assign({}, process.env, {
-		GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_AUTHOR_DATE: '@' + date + ' +0000',
-		GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email, GIT_COMMITTER_DATE: '@' + date + ' +0000'
-	});
-}
-
-function git(cwd: string, ...args: string[]) {
-	return cp.execFileSync('git', args, { cwd: cwd, env: gitEnv('1700000000'), stdio: 'pipe' }).toString();
-}
-
-function init(dir: string, ...options: string[]) {
-	fs.mkdirSync(dir, { recursive: true });
-	git(dir, 'init', '-q', '-b', 'main', ...options);
-	git(dir, 'config', 'commit.gpgsign', 'false');
-	git(dir, 'config', 'tag.gpgsign', 'false');
-	return dir;
-}
-
-function commit(dir: string, message: string, date: string, authorDate?: string, name?: string) {
-	const env = gitEnv(date, name);
-	if (authorDate) env.GIT_AUTHOR_DATE = '@' + authorDate + ' +0000';
-	cp.execFileSync('git', ['commit', '-q', '--allow-empty', '--cleanup=verbatim', '-m', message], { cwd: dir, env: env, stdio: 'pipe' });
-}
-
-function merge(dir: string, branch: string, message: string, date: string) {
-	cp.execFileSync('git', ['merge', '-q', '--no-ff', '-m', message, branch], { cwd: dir, env: gitEnv(date), stdio: 'pipe' });
-}
-
-function buildLinearRepository(dir: string, commits: number) {
-	init(dir);
-	for (let i = 0; i < commits; i++) {
-		commit(dir, 'Commit ' + i, String(1700000000 + i * 100));
-	}
-	return dir;
-}
 
 /**
  * Build a repository with the history shapes, refs and messages where the orderings and the reads are easiest to get wrong.

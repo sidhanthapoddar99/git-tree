@@ -12,7 +12,13 @@
 // worktrees), then the refs and the first 300 commits. git status, which stays on the CLI, is left out
 // (repository.showUncommittedChanges is off), so the times compare only the reads the engine replaces.
 //
+// The details reads are what the Commit Details View reads: a commit's details with its diff, for a small
+// commit, the merge with the largest diff from its first parent and the commit with the most changed lines
+// (among the latest 500, preferring commits the engine answers), and a stash, a comparison, a file, a subject,
+// a remote's URL, a tag's details and the configuration.
+//
 // It needs out/ (npm run bench-engine compiles src/ first) and the engine (npm run build-engine).
+const cp = require('child_process');
 const Module = require('module');
 const path = require('path');
 
@@ -49,12 +55,12 @@ async function main() {
 	const repo = path.resolve(repoArg);
 	const logger = new Logger();
 	const loaded = loadEngine(logger);
-	if (loaded === null) {
-		console.error('The engine isn\'t built. Run npm run build-engine first.');
+	if ('error' in loaded) {
+		console.error(loaded.error + ' Run npm run build-engine first.');
 		process.exit(1);
 	}
 	const notOk = [];
-	const engine = recordUnanswered(loaded, notOk);
+	const engine = recordUnanswered(loaded.engine, notOk);
 	const gitExecutable = await getGitExecutable('git');
 	const subscribe = () => ({ dispose: () => { } });
 	const cli = new DataSource(gitExecutable, subscribe, subscribe, logger, null);
@@ -79,11 +85,12 @@ async function main() {
 		['view load: repository info, refs and 300 commits', async (dataSource) => {
 			const repoInfo = await dataSource.getRepoInfo(repo, true, true, []);
 			return dataSource.getCommits(repo, null, 300, true, true, false, false, ORDER.date, repoInfo.remotes, [], repoInfo.stashes, repoInfo.worktrees);
-		}]
+		}],
+		...await detailsReads(repo, info, loaded.engine)
 	];
 
 	console.log('Repository: ' + repo);
-	console.log('Git ' + gitExecutable.version + ', engine ' + loaded.version + ', median of ' + runs + ' runs');
+	console.log('Git ' + gitExecutable.version + ', engine ' + loaded.engine.version + ', median of ' + runs + ' runs');
 	console.log('');
 	console.log('| Read | Git CLI (ms) | Engine (ms) | Speed-up |');
 	console.log('|---|---:|---:|---:|');
@@ -97,6 +104,62 @@ async function main() {
 	cli.dispose();
 	withEngine.dispose();
 	logger.dispose();
+}
+
+/**
+ * The Commit Details View's reads, on commits picked from the latest 500.
+ */
+async function detailsReads(repo, info, engine) {
+	const git = (...gitArgs) => cp.execFileSync('git', gitArgs, { cwd: repo, maxBuffer: 1 << 30 }).toString();
+	const engineAnswers = async (from, to) => 'ok' in await engine.diff(repo, from, to);
+
+	// Each commit's parents, changed files and changed lines (git log shows no diff for a merge)
+	const commits = [];
+	for (const block of git('log', '-n', '500', '--format=@%H %P', '--numstat', '--no-renames', '--all').split('@').slice(1)) {
+		const lines = block.trim().split('\n');
+		const [hash, ...parents] = lines[0].split(' ');
+		const stats = lines.slice(1).filter((line) => line !== '').map((line) => line.split('\t'));
+		commits.push({ hash: hash, parents: parents, files: stats.length, lines: stats.reduce((sum, stat) => sum + (parseInt(stat[0]) || 0) + (parseInt(stat[1]) || 0), 0) });
+	}
+	const pick = async (candidates) => {
+		for (const commit of candidates) {
+			if (await engineAnswers(commit.parents.length > 0 ? commit.hash + '^' : commit.hash, commit.hash)) return commit;
+		}
+		return candidates[0];
+	};
+	const nonMerges = commits.filter((commit) => commit.parents.length === 1);
+	const small = await pick(nonMerges.filter((commit) => commit.files >= 1 && commit.files <= 3));
+	const big = await pick(nonMerges.slice().sort((a, b) => b.lines - a.lines).slice(0, 20));
+	const merges = commits.filter((commit) => commit.parents.length > 1).slice(0, 40);
+	merges.forEach((merge) => merge.files = git('diff', '--name-only', merge.hash + '^', merge.hash).split('\n').filter((line) => line !== '').length);
+	const largeMerge = await pick(merges.sort((a, b) => b.files - a.files).slice(0, 20));
+
+	const details = (label, commit) => commit ? [['commit details, ' + label, (dataSource) => dataSource.getCommitDetails(repo, commit.hash, commit.parents.length > 0)]] : [];
+	const reads = [
+		...details('small commit (' + (small && small.files) + ' files)', small),
+		...details('large merge (' + (largeMerge && largeMerge.files) + ' files from the first parent)', largeMerge),
+		...details('big diff (' + (big && big.lines) + ' lines)', big)
+	];
+	if (info.stashes.length > 0) {
+		reads.push(['stash details', (dataSource) => dataSource.getStashDetails(repo, info.stashes[0].hash, info.stashes[0])]);
+	}
+	if (commits.length > 50) {
+		reads.push(['commit comparison, 50 commits apart', (dataSource) => dataSource.getCommitComparison(repo, commits[50].hash, commits[0].hash)]);
+	}
+	if (small) {
+		const file = git('diff-tree', '--no-commit-id', '--name-only', '-r', '--diff-filter=AM', small.hash).split('\n')[0];
+		if (file) reads.push(['commit file (git show)', (dataSource) => dataSource.getCommitFile(repo, small.hash, file)]);
+		reads.push(['commit subject', (dataSource) => dataSource.getCommitSubject(repo, small.hash)]);
+	}
+	if (info.remotes.length > 0) {
+		reads.push(['remote URL (git config --get)', (dataSource) => dataSource.getRemoteUrl(repo, info.remotes[0])]);
+	}
+	const tag = git('for-each-ref', '--format=%(objecttype) %(refname:strip=2)', 'refs/tags').split('\n').find((line) => line.startsWith('tag '));
+	if (tag) {
+		reads.push(['tag details (git for-each-ref)', (dataSource) => dataSource.getTagDetails(repo, tag.substring(4))]);
+	}
+	reads.push(['configuration (three git config --list)', (dataSource) => dataSource.getConfig(repo, info.remotes)]);
+	return reads;
 }
 
 /**
@@ -135,7 +198,7 @@ function unique(value, index, array) {
  */
 function recordUnanswered(engine, notOk) {
 	const wrapped = { version: engine.version };
-	for (const read of ['branches', 'remotes', 'stashes', 'worktrees', 'refs', 'log']) {
+	for (const read of Object.keys(engine).filter((key) => typeof engine[key] === 'function')) {
 		wrapped[read] = (...readArgs) => engine[read](...readArgs).then((answer) => {
 			if (!('ok' in answer)) notOk.push(read + ': ' + ('unsupported' in answer ? answer.unsupported : answer.failed));
 			return answer;

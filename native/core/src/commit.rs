@@ -12,9 +12,14 @@ use crate::error::{unsupported, Error, Result};
 /// The parts of a commit object the view needs.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Commit<'a> {
+    pub tree: ObjectId,
     pub parents: Vec<ObjectId>,
     pub author: Ident<'a>,
     pub committer: Ident<'a>,
+    /// Has a `gpgsig` or `gpgsig-sha256` header: git checks its signature for `%G?`.
+    pub signed: bool,
+    /// Has the blank line that ends the headers. Without it, git's `%B` reads past the commit.
+    pub has_body: bool,
     /// Everything after the blank line that ends the headers.
     pub message: &'a [u8],
 }
@@ -41,10 +46,9 @@ pub fn parse(data: &[u8]) -> Result<Commit<'_>> {
     }
     let mut rest = data;
 
-    let tree = header_line(&mut rest)?;
-    if hex_id(tree.strip_prefix(b"tree ")).is_none() {
+    let Some(tree) = hex_id(header_line(&mut rest)?.strip_prefix(b"tree ")) else {
         unsupported!("the commit doesn't start with a tree header");
-    }
+    };
 
     // Git reads the parents only from the lines right after the tree
     let mut parents: Vec<ObjectId> = Vec::new();
@@ -71,6 +75,8 @@ pub fn parse(data: &[u8]) -> Result<Commit<'_>> {
     let committer = ident(committer)?;
 
     // The other headers (encoding, gpgsig, mergetag...), up to the blank line before the message
+    let mut signed = false;
+    let mut has_body = false;
     loop {
         if rest.is_empty() {
             // No message at all
@@ -78,6 +84,7 @@ pub fn parse(data: &[u8]) -> Result<Commit<'_>> {
         }
         let line = header_line(&mut rest)?;
         if line.is_empty() {
+            has_body = true;
             break;
         }
         if line[0] == b' ' {
@@ -96,11 +103,12 @@ pub fn parse(data: &[u8]) -> Result<Commit<'_>> {
                     unsupported!("the commit is encoded in {}", String::from_utf8_lossy(value));
                 }
             }
+            b"gpgsig" | b"gpgsig-sha256" => signed = true,
             _ => {}
         }
     }
 
-    Ok(Commit { parents, author, committer, message: rest })
+    Ok(Commit { tree, parents, author, committer, signed, has_body, message: rest })
 }
 
 /// Take the next header line, which must end with a newline. Git stops reading the dates of a header
@@ -151,7 +159,7 @@ fn ident(line: &[u8]) -> Result<Ident<'_>> {
 }
 
 /// Parse ` 1700000000 +0000` (the part after `>`), the only form git writes.
-fn ident_time(date: &[u8]) -> Option<i64> {
+pub(crate) fn ident_time(date: &[u8]) -> Option<i64> {
     let date = date.strip_prefix(b" ")?;
     let space = date.iter().position(|&b| b == b' ')?;
     let (digits, zone) = (&date[..space], &date[space + 1..]);

@@ -13,28 +13,47 @@
 //! | [`worktrees`] | `git worktree list --porcelain` |
 //! | [`show_refs`] | `git show-ref [--heads --tags] -d --head` |
 //! | [`log`] | `git log --max-count=N --format=... --<order>-order [--first-parent] <revisions> --` |
+//! | [`commit_details`] | `git show --quiet <commit> --format=...` |
+//! | [`commit_subject`] | `git log --format=%s -n 1 <commit> --` |
+//! | [`diff`] | `git diff --name-status\|--numstat --find-renames --diff-filter=AMDR -z <from> <to>`, or `git diff-tree ... -r --root <commit>` |
+//! | [`commit_file`] | `git show <commit>:<path>` |
+//! | [`config_list`] | `git config --list -z --includes [--local\|--global]` |
+//! | [`remote_url`] | `git config --get remote.<name>.url` |
+//! | [`tag_details`] | `git for-each-ref refs/tags/<name> --format=...` |
 //!
 //! Every read opens the repository afresh, as each git command does.
 
+mod attributes;
+mod blob;
 mod commit;
+mod config;
+mod details;
+mod diff;
 mod error;
 mod format;
+mod lines;
 mod log;
 mod reflog;
 mod refs;
 mod remotes;
 mod repo;
 mod stash;
+mod tag;
+mod tree;
 mod worktree;
 
 use std::path::Path;
 
+pub use config::ConfigLocation;
+pub use details::{CommitDetailsRecord, DetailsFormat};
+pub use diff::DiffRecords;
 pub use error::{Error, Result};
 pub use format::{CommitRecord, Format};
 pub use log::{LogRequest, Order};
 pub use refs::{BranchLine, ShowRefLine};
 pub use repo::Repo;
 pub use stash::StashRecord;
+pub use tag::TagRecord;
 pub use worktree::WorktreeRecord;
 
 /// `git branch --no-color --no-column`, with `-a` when `include_remotes` is set.
@@ -65,6 +84,41 @@ pub fn show_refs(repo: impl AsRef<Path>, include_remotes: bool) -> Result<Vec<Sh
 /// `git log` with the extension's format.
 pub fn log(repo: impl AsRef<Path>, request: &LogRequest) -> Result<Vec<CommitRecord>> {
     log::log(&Repo::open(repo)?, request)
+}
+
+/// `git show --quiet <commit> --format=...` with the extension's commit details format.
+pub fn commit_details(repo: impl AsRef<Path>, hash: &str, format: DetailsFormat) -> Result<CommitDetailsRecord> {
+    details::commit_details(&Repo::open(repo)?, hash, format)
+}
+
+/// `git log --format=%s -n 1 <commit> --`, without its newline.
+pub fn commit_subject(repo: impl AsRef<Path>, hash: &str) -> Result<String> {
+    details::commit_subject(&Repo::open(repo)?, hash)
+}
+
+/// `git diff --name-status` and `--numstat` between two commits, or `git diff-tree` of one commit.
+pub fn diff(repo: impl AsRef<Path>, from: &str, to: &str) -> Result<DiffRecords> {
+    diff::diff(&Repo::open(repo)?, from, to)
+}
+
+/// `git show <commit>:<path>`, in base64.
+pub fn commit_file(repo: impl AsRef<Path>, hash: &str, path: &str) -> Result<String> {
+    blob::commit_file(&Repo::open(repo)?, hash, path)
+}
+
+/// `git config --list -z --includes`, with `--local` or `--global`, as its NUL-separated records.
+pub fn config_list(repo: impl AsRef<Path>, location: Option<ConfigLocation>) -> Result<Vec<String>> {
+    config::list(&Repo::open(repo)?, location)
+}
+
+/// `git config --get remote.<name>.url`, or `None` when it isn't set.
+pub fn remote_url(repo: impl AsRef<Path>, remote: &str) -> Result<Option<String>> {
+    config::remote_url(&Repo::open(repo)?, remote)
+}
+
+/// `git for-each-ref refs/tags/<name>` with the extension's tag details format.
+pub fn tag_details(repo: impl AsRef<Path>, name: &str) -> Result<TagRecord> {
+    tag::tag_details(&Repo::open(repo)?, name)
 }
 
 /// The engine's version, which is the extension's.

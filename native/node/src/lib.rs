@@ -11,7 +11,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use git_tree_engine::{Error, Format, LogRequest};
+use git_tree_engine::{ConfigLocation, DetailsFormat, Error, Format, LogRequest};
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 use napi_derive::napi;
@@ -26,6 +26,13 @@ enum Request {
     Worktrees { repo: String },
     Refs { repo: String, include_remotes: bool },
     Log { repo: String, log: LogRequest },
+    CommitDetails { repo: String, hash: String, format: DetailsFormat },
+    CommitSubject { repo: String, hash: String },
+    Diff { repo: String, from: String, to: String },
+    CommitFile { repo: String, hash: String, path: String },
+    Config { repo: String, location: Option<ConfigLocation> },
+    RemoteUrl { repo: String, remote: String },
+    TagDetails { repo: String, name: String },
 }
 
 #[derive(Serialize)]
@@ -61,6 +68,13 @@ fn handle(request: &str) -> String {
         Request::Worktrees { repo } => answer(git_tree_engine::worktrees(repo)),
         Request::Refs { repo, include_remotes } => answer(git_tree_engine::show_refs(repo, include_remotes)),
         Request::Log { repo, log } => answer(git_tree_engine::log(repo, &log)),
+        Request::CommitDetails { repo, hash, format } => answer(git_tree_engine::commit_details(repo, &hash, format)),
+        Request::CommitSubject { repo, hash } => answer(git_tree_engine::commit_subject(repo, &hash)),
+        Request::Diff { repo, from, to } => answer(git_tree_engine::diff(repo, &from, &to)),
+        Request::CommitFile { repo, hash, path } => answer(git_tree_engine::commit_file(repo, &hash, &path)),
+        Request::Config { repo, location } => answer(git_tree_engine::config_list(repo, location)),
+        Request::RemoteUrl { repo, remote } => answer(git_tree_engine::remote_url(repo, &remote)),
+        Request::TagDetails { repo, name } => answer(git_tree_engine::tag_details(repo, &name)),
     }
 }
 

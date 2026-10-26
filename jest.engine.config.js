@@ -5,5 +5,8 @@ const base = require('./jest.config');
 module.exports = Object.assign({}, base, {
 	roots: ['./tests/engine'],
 	testPathIgnorePatterns: ['/node_modules/'],
+	// An empty home folder for Git and the engine, set before Jest starts its workers
+	globalSetup: './tests/engine/home-setup.js',
+	globalTeardown: './tests/engine/home-teardown.js',
 	testTimeout: 600000
 });

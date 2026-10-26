@@ -244,7 +244,7 @@ fn tag_target(data: &[u8]) -> Result<ObjectId> {
 
 /// Is `name` something git can only read as a ref name, with no revision syntax (`~`, `^`, `:`, `@{`,
 /// `..`) and nothing `check_refname_format` refuses?
-fn is_plain_ref_name(name: &str) -> bool {
+pub(crate) fn is_plain_ref_name(name: &str) -> bool {
     !name.is_empty()
         && name != "@"
         && !name.starts_with('-')

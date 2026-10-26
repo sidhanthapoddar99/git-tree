@@ -6,17 +6,30 @@
 //! ready commits goes first: the newest by commit date, the newest by author date, or the last one
 //! that became ready, which keeps a line of history together.
 //!
-//! The engine runs the same algorithm (`sort_in_topological_order` in git's `commit.c`) over every
-//! commit the start points reach, so the page it returns is exact. Two details decide the output when
-//! commits tie, and the engine follows git in both:
+//! A commit is ready when its count of children not shown yet reaches zero, so the walk must have
+//! counted every child first. Git counts them in one of two ways, and the engine does the same:
+//!
+//! - **With generation numbers** from a commit-graph, the walk is incremental (`init_topo_walk` and
+//!   `expand_topo_walk` in git's `revision.c`). A commit's generation is higher than its parents', so
+//!   once the walk has counted the parents of every commit down to a generation, the counts of the
+//!   commits at that generation are complete. The walk counts only as deep as the commits it shows
+//!   need, and stops at `--max-count`, so a page costs about the commits on it.
+//! - **Without them**, git counts every commit the start points reach before it shows the first
+//!   (`limit_list`, then `sort_in_topological_order` in `commit.c`). The engine runs the same walk with
+//!   every commit's generation taken as infinite, which counts them all first too.
+//!
+//! The engine reads its generations from the commit-graph's topological levels, while git may read
+//! corrected commit dates from the same file. Both rise from parent to child, and the shown order
+//! doesn't depend on which numbers count the children, only on the counts being complete. Two more
+//! details decide the output when commits tie, and the engine follows git in both:
 //!
 //! - Among ready commits with the same date, the one that became ready first goes first.
-//! - With `--first-parent`, git's walk depends on whether it can use generation numbers from a
-//!   commit-graph. With them, only first-parent links order the commits. Without them, git also waits
-//!   for a merge before showing a commit that is the merge's second parent.
+//! - With `--first-parent`, the incremental walk counts only first-parent links. Without generation
+//!   numbers, git also counts a link to a merge's second parent when the walk reached that commit, so
+//!   it waits for the merge before showing it.
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashSet};
 use std::path::Path;
 
 use gix::bstr::ByteSlice;
@@ -32,6 +45,10 @@ use crate::worktree;
 
 /// Git's commit-graph stores commit dates in 34 bits.
 const MAX_GRAPH_DATE: i64 = 1 << 34;
+
+/// The generation of a commit the commit-graph doesn't have, and of every commit when git doesn't use
+/// generation numbers: newer than any other.
+const INFINITY: u32 = gix::commitgraph::GENERATION_NUMBER_INFINITY;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 pub enum Order {
@@ -73,16 +90,17 @@ pub fn log(repo: &Repo, request: &LogRequest) -> Result<Vec<CommitRecord>> {
         return Ok(Vec::new());
     }
 
-    // With --first-parent, the order depends on the walk git uses (see the module documentation)
-    let first_parent_links_only = request.first_parent && generation_numbers_enabled(repo)?;
-    let mut graph = Graph::new(repo, request.order == Order::AuthorDate);
-    let order = graph.order(&starts, request, first_parent_links_only)?;
+    let mut walk = Walk::new(repo, request)?;
+    let shown = walk.run(&starts)?;
 
-    let mut records = Vec::with_capacity(order.len());
-    for index in order {
-        let id = graph.ids[index];
-        let data = repo.commit_data(id)?;
-        records.push(format::record(id, &commit::parse(&data)?, request.format)?);
+    let mut records = Vec::with_capacity(shown.len());
+    for index in shown {
+        let node = &mut walk.nodes[index];
+        let data = match node.data.take() {
+            Some(data) => data,
+            None => repo.commit_data(node.id)?,
+        };
+        records.push(format::record(node.id, &commit::parse(&data)?, request.format)?);
     }
     Ok(records)
 }
@@ -115,10 +133,15 @@ fn start_points(repo: &Repo, revisions: &[String]) -> Result<Vec<Start>> {
         }
     }
 
-    // Git walks from the commit a tag points to, and leaves out trees and blobs
+    // Git walks from the commit a tag points to, and leaves out trees and blobs. The reflogs name
+    // the same objects many times, and only the first time counts, so each is peeled once.
+    let mut peeled = HashSet::new();
     let mut seen = HashSet::new();
     let mut starts = Vec::new();
     for (id, from_reflog) in pending {
+        if !peeled.insert(id) {
+            continue;
+        }
         let (id, kind, _) = repo.peel(id)?;
         if kind == gix::object::Kind::Commit && seen.insert(id) {
             starts.push(Start { id, from_reflog });
@@ -216,10 +239,11 @@ fn list_files(dir: &Path, prefix: &str, files: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// Does git use generation numbers from a commit-graph (`generation_numbers_enabled`)?
-fn generation_numbers_enabled(repo: &Repo) -> Result<bool> {
+/// The commit-graph git reads, if it reads one, and whether git orders its walk by the generation
+/// numbers in it (`generation_numbers_enabled`).
+fn commit_graph(repo: &Repo) -> Result<Option<(gix::commitgraph::Graph, bool)>> {
     if repo.config_bool("core.commitGraph")? == Some(false) {
-        return Ok(false);
+        return Ok(None);
     }
     let info = repo.git.objects.store_ref().path().join("info");
     if info.join("alternates").exists() {
@@ -235,177 +259,290 @@ fn generation_numbers_enabled(repo: &Repo) -> Result<bool> {
         let text = std::fs::read_to_string(&chain).context("Unable to read the commit-graph chain")?;
         match text.lines().last() {
             Some(hash) => info.join("commit-graphs").join(format!("graph-{hash}.graph")),
-            None => return Ok(false),
+            None => return Ok(None),
         }
     } else {
-        return Ok(false);
+        return Ok(None);
     };
     let unreadable = |_| Error::unsupported("the commit-graph can't be read, and git may still read it");
-    gix::commitgraph::Graph::from_info_dir(&info, gix::hash::Kind::Sha1).map_err(unreadable)?;
+    let graph = gix::commitgraph::Graph::from_info_dir(&info, gix::hash::Kind::Sha1).map_err(unreadable)?;
     let file = gix::commitgraph::File::at(&newest).map_err(unreadable)?;
-    if file.num_commits() == 0 {
-        return Ok(false);
-    }
-    Ok(file.commit_at(gix::commitgraph::file::Position(0)).generation() != 0)
+    let generations = file.num_commits() > 0 && file.commit_at(gix::commitgraph::file::Position(0)).generation() != 0;
+    Ok(Some((graph, generations)))
 }
 
-/// The commits the walk reaches, with what the orderings need to know about each.
-struct Graph<'r> {
+/// Git's walk for the three orderings, over the commits it reaches (see the module documentation).
+struct Walk<'r> {
     repo: &'r Repo,
     /// Git reads parents and commit dates from the commit-graph when it can; so does the engine.
-    cache: Option<gix::commitgraph::Graph>,
-    /// Author dates are only in the commit objects.
-    author_dates: bool,
-    ids: Vec<ObjectId>,
-    index: HashMap<ObjectId, usize>,
-    nodes: Vec<Option<Node>>,
+    graph: Option<gix::commitgraph::Graph>,
+    /// Does git use generation numbers? Without them, every commit's generation is [`INFINITY`].
+    generations: bool,
+    order: Order,
+    first_parent: bool,
+    max_count: usize,
+    index: gix::hashtable::HashMap<ObjectId, usize>,
+    nodes: Vec<Node>,
+    /// The commits whose parents the walk hasn't counted yet, highest generation first, then newest
+    /// (git's `indegree_queue`).
+    uncounted: BinaryHeap<(u32, i64, Reverse<u64>, usize)>,
+    /// The number of commits put in a queue so far, which breaks ties as git's `prio_queue` does.
+    queued: u64,
+    /// The number of commit objects the walk read and kept for the records.
+    kept: usize,
 }
 
 struct Node {
+    id: ObjectId,
+    /// The commit's position in the commit-graph, when the walk knows it.
+    position: Option<gix::commitgraph::Position>,
+    /// Have the parents and dates been read?
+    loaded: bool,
     parents: Vec<usize>,
     date: i64,
-    author_date: i64,
+    generation: u32,
+    /// Read only for `--author-date-order`, and only for the commits that become ready.
+    author_date: Option<i64>,
+    /// Zero before the walk reaches the commit and after it's shown; otherwise one more than the
+    /// children the walk counted and hasn't shown (git's `indegree` slab).
+    indegree: u32,
+    /// Has the walk reached the commit (git's `TOPO_WALK_INDEGREE` flag)?
+    reached: bool,
+    /// The commit object, when the walk read it, so the record doesn't read it again.
+    data: Option<Vec<u8>>,
 }
 
-impl<'r> Graph<'r> {
-    fn new(repo: &'r Repo, author_dates: bool) -> Graph<'r> {
-        // An unreadable commit-graph is only slower: the commit objects say the same
-        let cache = repo.git.commit_graph_if_enabled().ok().flatten();
-        Graph { repo, cache, author_dates, ids: Vec::new(), index: HashMap::new(), nodes: Vec::new() }
+/// The commits that are ready to show, in the order of the request.
+enum Ready {
+    /// `--topo-order`: the last commit that became ready goes first.
+    Stack(Vec<usize>),
+    /// `--date-order` and `--author-date-order`: the newest goes first, then the one that became
+    /// ready first.
+    Newest(BinaryHeap<(i64, Reverse<u64>, usize)>),
+}
+
+impl<'r> Walk<'r> {
+    fn new(repo: &'r Repo, request: &LogRequest) -> Result<Walk<'r>> {
+        let (graph, generations) = match commit_graph(repo)? {
+            Some((graph, generations)) => (Some(graph), generations),
+            None => (None, false),
+        };
+        Ok(Walk {
+            repo,
+            graph,
+            generations,
+            order: request.order,
+            first_parent: request.first_parent,
+            max_count: request.max_count,
+            index: Default::default(),
+            nodes: Vec::new(),
+            uncounted: BinaryHeap::new(),
+            queued: 0,
+            kept: 0,
+        })
     }
 
-    fn intern(&mut self, id: ObjectId) -> usize {
+    fn intern(&mut self, id: ObjectId, position: Option<gix::commitgraph::Position>) -> usize {
         if let Some(&index) = self.index.get(&id) {
             return index;
         }
-        let index = self.ids.len();
-        self.ids.push(id);
+        let index = self.nodes.len();
         self.index.insert(id, index);
-        self.nodes.push(None);
+        self.nodes.push(Node {
+            id,
+            position,
+            loaded: false,
+            parents: Vec::new(),
+            date: 0,
+            generation: INFINITY,
+            author_date: None,
+            indegree: 0,
+            reached: false,
+            data: None,
+        });
         index
     }
 
-    /// Read a commit's parents and dates.
+    /// Read a commit's parents, commit date and generation: from the commit-graph when it has the
+    /// commit, and otherwise from the commit object.
     fn load(&mut self, index: usize) -> Result<()> {
-        if self.nodes[index].is_some() {
+        if self.nodes[index].loaded {
             return Ok(());
         }
-        let id = self.ids[index];
-        let mut parent_ids = Vec::new();
-        let (date, author_date);
-        let cached = if self.author_dates { None } else { self.cache.as_ref().and_then(|cache| cache.commit_by_id(id)) };
-        if let Some(cached) = cached {
-            let cache = self.cache.as_ref().unwrap();
+        let id = self.nodes[index].id;
+        let mut parents = Vec::new();
+        let graph = self.graph.as_ref();
+        if let Some((graph, position)) = graph.and_then(|graph| Some((graph, self.nodes[index].position.or_else(|| graph.lookup(id))?))) {
+            let cached = graph.commit_at(position);
             for parent in cached.iter_parents() {
                 let position = parent.map_err(|e| Error::failed(format!("Unable to read the commit-graph: {e}")))?;
-                parent_ids.push(cache.id_at(position).to_owned());
+                parents.push((graph.id_at(position).to_owned(), Some(position)));
             }
-            date = cached.committer_timestamp() as i64;
-            author_date = 0;
+            let node = &mut self.nodes[index];
+            node.date = cached.committer_timestamp() as i64;
+            node.generation = if self.generations { cached.generation() } else { INFINITY };
         } else {
             let data = self.repo.commit_data(id)?;
             let parsed = commit::parse(&data)?;
-            parent_ids = parsed.parents;
-            date = parsed.committer.time;
-            author_date = parsed.author.time;
-            if date >= MAX_GRAPH_DATE {
+            if parsed.committer.time >= MAX_GRAPH_DATE {
                 unsupported!("the commit {id} has a date git's commit-graph can't store");
             }
+            parents.extend(parsed.parents.iter().map(|&parent| (parent, None)));
+            let node = &mut self.nodes[index];
+            node.date = parsed.committer.time;
+            node.author_date = Some(parsed.author.time);
+            self.keep(index, data);
         }
-        let parents = parent_ids.into_iter().map(|parent| self.intern(parent)).collect();
-        self.nodes[index] = Some(Node { parents, date, author_date });
+        let parents = parents.into_iter().map(|(id, position)| self.intern(id, position)).collect();
+        let node = &mut self.nodes[index];
+        node.parents = parents;
+        node.loaded = true;
         Ok(())
     }
 
-    fn node(&self, index: usize) -> &Node {
-        self.nodes[index].as_ref().expect("the walk loads every commit it reaches")
+    /// Keep a commit object the walk read, for the record. The walk keeps at most `max_count`, so its
+    /// memory stays proportional to the page, and when every commit it reads is shown, it reads each
+    /// only once.
+    fn keep(&mut self, index: usize, data: Vec<u8>) {
+        if self.kept < self.max_count {
+            self.nodes[index].data = Some(data);
+            self.kept += 1;
+        }
     }
 
-    /// The first `max_count` commits of the log, as indices into `ids`.
-    fn order(&mut self, starts: &[Start], request: &LogRequest, first_parent_links_only: bool) -> Result<Vec<usize>> {
-        // Every commit the start points reach, following only first parents with --first-parent
-        let mut member = Vec::new();
-        let mut stack: Vec<usize> = Vec::new();
-        let start_indices: Vec<usize> = starts.iter().map(|start| self.intern(start.id)).collect();
-        for &index in &start_indices {
-            stack.push(index);
+    /// The key that orders ready commits by date.
+    fn date_key(&mut self, index: usize) -> Result<i64> {
+        if self.order == Order::Date {
+            return Ok(self.nodes[index].date);
         }
-        while let Some(index) = stack.pop() {
-            if member.len() < self.ids.len() {
-                member.resize(self.ids.len(), false);
-            }
-            if member[index] {
-                continue;
-            }
-            member[index] = true;
-            self.load(index)?;
-            let parents = &self.node(index).parents;
-            let followed = if request.first_parent { &parents[..parents.len().min(1)] } else { &parents[..] };
-            stack.extend(followed.iter().copied());
+        if let Some(date) = self.nodes[index].author_date {
+            return Ok(date);
         }
-        member.resize(self.ids.len(), false);
+        // Author dates are only in the commit objects
+        let data = self.repo.commit_data(self.nodes[index].id)?;
+        let date = commit::parse(&data)?.author.time;
+        self.nodes[index].author_date = Some(date);
+        self.keep(index, data);
+        Ok(date)
+    }
 
-        // The links that order the commits: the first-parent links only when git uses generation
-        // numbers with --first-parent, and otherwise every link between two commits of the walk
-        let links = |node: &Node| -> Vec<usize> {
-            let parents = if first_parent_links_only { &node.parents[..node.parents.len().min(1)] } else { &node.parents[..] };
-            parents.iter().copied().filter(|&parent| member[parent]).collect()
-        };
-        let mut children = vec![0usize; self.ids.len()];
-        let mut links_of: Vec<Vec<usize>> = vec![Vec::new(); self.ids.len()];
-        for index in 0..self.ids.len() {
-            if member[index] {
-                links_of[index] = links(self.node(index));
-                for &parent in &links_of[index] {
-                    children[parent] += 1;
+    /// Mark a loaded commit as reached, and queue it for counting its parents.
+    fn reach(&mut self, index: usize) {
+        let node = &mut self.nodes[index];
+        if !node.reached {
+            node.reached = true;
+            self.uncounted.push((node.generation, node.date, Reverse(self.queued), index));
+            self.queued += 1;
+        }
+    }
+
+    /// Count the children of every commit at `generation` or above (git's `compute_indegrees_to_depth`).
+    fn count_to(&mut self, generation: u32) -> Result<()> {
+        while let Some(&(top, _, _, index)) = self.uncounted.peek() {
+            if top < generation {
+                break;
+            }
+            self.uncounted.pop();
+            let followed = if self.first_parent { self.nodes[index].parents.len().min(1) } else { self.nodes[index].parents.len() };
+            for i in 0..followed {
+                let parent = self.nodes[index].parents[i];
+                self.load(parent)?;
+                if self.nodes[parent].generation > self.nodes[index].generation {
+                    // The walk would show the commit before its child
+                    unsupported!("the commit-graph gives {} a higher generation than its child", self.nodes[parent].id);
                 }
+                let node = &mut self.nodes[parent];
+                node.indegree = if node.indegree == 0 { 2 } else { node.indegree + 1 };
+                self.reach(parent);
             }
         }
+        Ok(())
+    }
 
+    /// The first `max_count` commits of the log, as indices into `nodes`.
+    fn run(&mut self, starts: &[Start]) -> Result<Vec<usize>> {
+        let mut sorted = Vec::with_capacity(starts.len());
+        for start in starts {
+            let index = self.intern(start.id, None);
+            self.load(index)?;
+            sorted.push((index, start.from_reflog));
+        }
         // The start points, sorted by commit date as git sorts them (a stable sort)
-        let mut sorted: Vec<(usize, bool)> = start_indices.iter().zip(starts).map(|(&index, start)| (index, start.from_reflog)).collect();
-        sorted.sort_by_key(|&(index, _)| Reverse(self.node(index).date));
-        let tips: Vec<usize> = sorted.iter().filter(|&&(index, _)| children[index] == 0).map(|&(index, _)| index).collect();
-        let mut reflog_dates = HashSet::new();
-        for &(index, from_reflog) in &sorted {
-            if from_reflog && children[index] == 0 && !reflog_dates.insert(self.node(index).date) {
-                unsupported!("two commits from the reflogs tie as start points");
-            }
-        }
+        sorted.sort_by_key(|&(index, _)| Reverse(self.nodes[index].date));
 
-        let mut shown = Vec::with_capacity(request.max_count.min(self.ids.len()));
-        match request.order {
-            Order::Topo => {
-                // Git's queue is a stack here, with the first tip on top
-                let mut ready: Vec<usize> = tips.into_iter().rev().collect();
-                while shown.len() < request.max_count {
-                    let Some(index) = ready.pop() else { break };
-                    shown.push(index);
-                    for &parent in &links_of[index] {
-                        children[parent] -= 1;
-                        if children[parent] == 0 {
-                            ready.push(parent);
-                        }
+        let mut lowest = INFINITY;
+        for &(index, _) in &sorted {
+            self.reach(index);
+            self.nodes[index].indegree = 1;
+            lowest = lowest.min(self.nodes[index].generation);
+        }
+        self.count_to(lowest)?;
+        let first_parent_links_only = self.generations && self.first_parent;
+        if self.first_parent && !self.generations {
+            // Git's sort also counts the other parents' links between commits of the walk
+            for index in 0..self.nodes.len() {
+                for i in 1..self.nodes[index].parents.len() {
+                    let parent = self.nodes[index].parents[i];
+                    if self.nodes[index].reached && self.nodes[parent].reached {
+                        self.nodes[parent].indegree += 1;
                     }
                 }
             }
+        }
+
+        // The tips: start points that no other commit of the walk leads to
+        let tips: Vec<usize> = sorted.iter().map(|&(index, _)| index).filter(|&index| self.nodes[index].indegree == 1).collect();
+        let mut reflog_dates = HashSet::new();
+        for &(index, from_reflog) in &sorted {
+            if from_reflog && self.nodes[index].indegree == 1 && !reflog_dates.insert(self.nodes[index].date) {
+                unsupported!("two commits from the reflogs tie as start points");
+            }
+        }
+        let mut ready = match self.order {
+            // Git's queue is a stack here, with the first tip on top
+            Order::Topo => Ready::Stack(tips.into_iter().rev().collect()),
             Order::Date | Order::AuthorDate => {
-                // Newest first; among equal dates, the commit that became ready first
-                let key = |node: &Node| if request.order == Order::Date { node.date } else { node.author_date };
-                let mut ready = BinaryHeap::new();
-                let mut counter = 0u64;
+                let mut heap = BinaryHeap::new();
                 for index in tips {
-                    ready.push((key(self.node(index)), Reverse(counter), index));
-                    counter += 1;
+                    heap.push((self.date_key(index)?, Reverse(self.queued), index));
+                    self.queued += 1;
                 }
-                while shown.len() < request.max_count {
-                    let Some((_, _, index)) = ready.pop() else { break };
-                    shown.push(index);
-                    for &parent in &links_of[index] {
-                        children[parent] -= 1;
-                        if children[parent] == 0 {
-                            ready.push((key(self.node(parent)), Reverse(counter), parent));
-                            counter += 1;
+                Ready::Newest(heap)
+            }
+        };
+
+        let mut shown = Vec::with_capacity(self.max_count.min(self.nodes.len()));
+        while shown.len() < self.max_count {
+            let next = match &mut ready {
+                Ready::Stack(stack) => stack.pop(),
+                Ready::Newest(heap) => heap.pop().map(|(_, _, index)| index),
+            };
+            let Some(index) = next else { break };
+            self.nodes[index].indegree = 0;
+            shown.push(index);
+            if shown.len() == self.max_count {
+                break;
+            }
+
+            let links = if first_parent_links_only { self.nodes[index].parents.len().min(1) } else { self.nodes[index].parents.len() };
+            for i in 0..links {
+                let parent = self.nodes[index].parents[i];
+                if !self.nodes[parent].reached {
+                    // Only with --first-parent and no generation numbers: a parent the walk didn't follow
+                    continue;
+                }
+                let generation = self.nodes[parent].generation;
+                if generation < lowest {
+                    lowest = generation;
+                    self.count_to(lowest)?;
+                }
+                self.nodes[parent].indegree -= 1;
+                if self.nodes[parent].indegree == 1 {
+                    match &mut ready {
+                        Ready::Stack(stack) => stack.push(parent),
+                        Ready::Newest(heap) => {
+                            heap.push((self.date_key(parent)?, Reverse(self.queued), parent));
+                            self.queued += 1;
                         }
                     }
                 }
