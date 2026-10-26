@@ -499,6 +499,13 @@ export class GitTreeView extends Disposable {
 					this.extensionState.setLastActiveRepo(msg.repo);
 					this.repoFileWatcher.start(msg.repo);
 					this.updateTitle();
+					if (repoInfo.error === null && getConfig().writeCommitGraph) {
+						// In the background, because the file only speeds up later loads
+						const repo = msg.repo;
+						this.dataSource.writeCommitGraphIfMissing(repo).then((errorInfo) => {
+							if (errorInfo !== null) this.logger.logError('Unable to write the commit-graph of ' + repo + ': ' + errorInfo);
+						});
+					}
 				}
 				break;
 			case 'loadRepos':

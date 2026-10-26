@@ -2845,6 +2845,8 @@ describe('Config', () => {
 
 	describe('useMailmap', testRenamedBooleanExtensionSetting('useMailmap', 'repository.useMailmap', 'useMailmap', false));
 
+	describe('writeCommitGraph', testBooleanExtensionSetting('writeCommitGraph', 'repository.writeCommitGraph', true));
+
 	describe('repoDropdownOrder', () => {
 		it('Should return RepoDropdownOrder.Name when the configuration value is "Name"', () => {
 			// Setup

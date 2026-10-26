@@ -47,6 +47,7 @@ export class DataSource extends Disposable {
 	private gitFormatCommitDetails!: string;
 	private gitFormatLog!: string;
 	private gitFormatStash!: string;
+	private readonly commitGraphChecked = new Set<string>(); // The repositories whose commit-graph has been checked in this session
 
 	/**
 	 * Creates the Git Tree Data Source.
@@ -1360,6 +1361,34 @@ export class DataSource extends Disposable {
 
 
 	/* Public Utils */
+
+	/**
+	 * Write Git's commit-graph file for a repository that has none. Git walks the history much faster with it, so the graph of a large repository loads several times faster.
+	 * Each repository is checked at most once per session.
+	 * @param repo The path of the repository.
+	 * @returns The ErrorInfo from writing the file. NULL if it was written, or wasn't needed.
+	 */
+	public async writeCommitGraphIfMissing(repo: string): Promise<ErrorInfo> {
+		if (this.commitGraphChecked.has(repo)) return null;
+		this.commitGraphChecked.add(repo);
+		if (this.gitExecutable === null || !doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.CommitGraph)) {
+			// Git doesn't read the commit-graph by default before 2.24.0
+			return null;
+		}
+
+		let graphPaths: string[];
+		try {
+			graphPaths = await this.spawnGit(['rev-parse', '--git-path', 'objects/info/commit-graph', '--git-path', 'objects/info/commit-graphs/commit-graph-chain'], repo, (stdout) => stdout.split(RECORD_EOL_REGEX).filter((line) => line !== ''));
+		} catch (errorMessage) {
+			return <ErrorInfo>errorMessage;
+		}
+		if (graphPaths.length !== 2) {
+			return 'Unable to locate the commit-graph of the repository.';
+		}
+
+		const exists = await Promise.all(graphPaths.map((graphPath) => new Promise<boolean>((resolve) => fs.stat(path.resolve(repo, graphPath), (err) => resolve(err === null)))));
+		return exists.includes(true) ? null : this.runGitCommand(['commit-graph', 'write', '--reachable'], repo);
+	}
 
 	/**
 	 * Opens an external directory diff for the specified commits.

@@ -6912,6 +6912,106 @@ describe('DataSource', () => {
 		});
 	});
 
+	describe('writeCommitGraphIfMissing', () => {
+		const mockStatOnce = (exists: boolean) => jest.spyOn(fs, 'stat').mockImplementationOnce((_: fs.PathLike, callback: any) => callback(exists ? null : new Error('ENOENT'), {} as fs.Stats));
+
+		it('Should write the commit-graph when the repository has none', async () => {
+			// Setup
+			mockGitSuccessOnce('.git/objects/info/commit-graph\n.git/objects/info/commit-graphs/commit-graph-chain\n');
+			mockStatOnce(false);
+			mockStatOnce(false);
+			mockGitSuccessOnce();
+
+			// Run
+			const result = await dataSource.writeCommitGraphIfMissing('/path/to/repo');
+
+			// Assert
+			expect(result).toBe(null);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['rev-parse', '--git-path', 'objects/info/commit-graph', '--git-path', 'objects/info/commit-graphs/commit-graph-chain'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(fs.stat).toHaveBeenCalledWith(path.resolve('/path/to/repo', '.git/objects/info/commit-graph'), expect.anything());
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['commit-graph', 'write', '--reachable'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should not write the commit-graph when the repository has a split commit-graph', async () => {
+			// Setup
+			mockGitSuccessOnce('.git/objects/info/commit-graph\n.git/objects/info/commit-graphs/commit-graph-chain\n');
+			mockStatOnce(false);
+			mockStatOnce(true);
+
+			// Run
+			const result = await dataSource.writeCommitGraphIfMissing('/path/to/repo');
+
+			// Assert
+			expect(result).toBe(null);
+			expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+		});
+
+		it('Should check each repository only once', async () => {
+			// Setup
+			mockGitSuccessOnce('.git/objects/info/commit-graph\n.git/objects/info/commit-graphs/commit-graph-chain\n');
+			mockStatOnce(true);
+			mockStatOnce(false);
+			await dataSource.writeCommitGraphIfMissing('/path/to/repo');
+
+			// Run
+			const result = await dataSource.writeCommitGraphIfMissing('/path/to/repo');
+
+			// Assert
+			expect(result).toBe(null);
+			expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+		});
+
+		it('Should return the error message when writing the commit-graph fails', async () => {
+			// Setup
+			mockGitSuccessOnce('.git/objects/info/commit-graph\n.git/objects/info/commit-graphs/commit-graph-chain\n');
+			mockStatOnce(false);
+			mockStatOnce(false);
+			mockGitThrowingErrorOnce();
+
+			// Run
+			const result = await dataSource.writeCommitGraphIfMissing('/path/to/repo');
+
+			// Assert
+			expect(result).toBe('error message');
+		});
+
+		it('Should return an error when the commit-graph location can\'t be determined', async () => {
+			// Setup
+			mockGitSuccessOnce('.git/objects/info/commit-graph\n');
+
+			// Run
+			const result = await dataSource.writeCommitGraphIfMissing('/path/to/repo');
+
+			// Assert
+			expect(result).toBe('Unable to locate the commit-graph of the repository.');
+			expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+		});
+
+		it('Should return the error message when the commit-graph location can\'t be found', async () => {
+			// Setup
+			mockGitThrowingErrorOnce();
+
+			// Run
+			const result = await dataSource.writeCommitGraphIfMissing('/path/to/repo');
+
+			// Assert
+			expect(result).toBe('error message');
+		});
+
+		it('Should do nothing with a Git version that doesn\'t read the commit-graph by default', async () => {
+			// Setup
+			dataSource.dispose();
+			dataSource = new DataSource({ path: '/path/to/git', version: '2.23.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger);
+
+			// Run
+			const result = await dataSource.writeCommitGraphIfMissing('/path/to/repo');
+
+			// Assert
+			expect(result).toBe(null);
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+	});
+
 	describe('openExternalDirDiff', () => {
 		it('Should launch a gui directory diff (for one commit)', async () => {
 			// Setup

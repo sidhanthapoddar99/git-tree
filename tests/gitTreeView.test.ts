@@ -37,6 +37,7 @@ describe('GitTreeView', () => {
 	let spyOnLogError: jest.SpyInstance;
 	let spyOnGetRepos: jest.SpyInstance;
 	let spyOnIsGitExecutableUnknown: jest.SpyInstance;
+	let spyOnWriteCommitGraphIfMissing: jest.SpyInstance;
 
 	beforeAll(() => {
 		onDidChangeConfiguration = new EventEmitter<ConfigurationChangeEvent>();
@@ -57,6 +58,8 @@ describe('GitTreeView', () => {
 
 		spyOnGetRepos.mockReturnValue({ '/path/to/repo': mockRepoState() });
 		spyOnIsGitExecutableUnknown.mockReturnValue(false);
+		spyOnWriteCommitGraphIfMissing = jest.spyOn(dataSource, 'writeCommitGraphIfMissing');
+		spyOnWriteCommitGraphIfMissing.mockResolvedValue(null);
 		Object.defineProperty(repoManager, 'onDidChangeRepos', {
 			get: () => onDidChangeRepos.subscribe
 		});
@@ -2598,7 +2601,38 @@ describe('GitTreeView', () => {
 					expect(GitTreeView.currentPanel!['currentRepo']).toBe('/path/to/repo');
 					expect(GitTreeView.currentPanel!['loadRepoInfoRefreshId']).toBe(0);
 					expect(GitTreeView.currentPanel!['panel'].title).toBe('Git Tree: repo');
+					expect(spyOnWriteCommitGraphIfMissing).toHaveBeenCalledWith('/path/to/repo');
 				});
+			});
+
+			it('Should log the error when the commit-graph can\'t be written', async () => {
+				// Setup
+				jest.spyOn(dataSource, 'getRepoInfo').mockResolvedValueOnce({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], error: null });
+				jest.spyOn(extensionState, 'setLastActiveRepo').mockImplementationOnce(() => { });
+				jest.spyOn(GitTreeView.currentPanel!['repoFileWatcher'], 'start').mockImplementationOnce(() => { });
+				spyOnWriteCommitGraphIfMissing.mockResolvedValueOnce('error message');
+
+				// Run
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+
+				// Assert
+				await waitForExpect(() => expect(spyOnLogError).toHaveBeenCalledWith('Unable to write the commit-graph of /path/to/repo: error message'));
+			});
+
+			it('Should not write the commit-graph when the setting is disabled', async () => {
+				// Setup
+				vscode.mockExtensionSettingReturnValue('repository.writeCommitGraph', false);
+				jest.spyOn(dataSource, 'getRepoInfo').mockResolvedValueOnce({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], error: null });
+				jest.spyOn(extensionState, 'setLastActiveRepo').mockImplementationOnce(() => { });
+				const spyOnRepoFileWatcherStart = jest.spyOn(GitTreeView.currentPanel!['repoFileWatcher'], 'start');
+				spyOnRepoFileWatcherStart.mockImplementationOnce(() => { });
+
+				// Run
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+
+				// Assert
+				await waitForExpect(() => expect(spyOnRepoFileWatcherStart).toHaveBeenCalled());
+				expect(spyOnWriteCommitGraphIfMissing).not.toHaveBeenCalled();
 			});
 
 			it('Should get the repository information (subsequent repo load)', async () => {

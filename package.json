@@ -1122,6 +1122,11 @@
 					"default": false,
 					"markdownDescription": "Respect [.mailmap](https://git-scm.com/docs/git-check-mailmap#_mapping_authors) files when displaying author & committer names and email addresses."
 				},
+				"git-tree.repository.writeCommitGraph": {
+					"type": "boolean",
+					"default": true,
+					"markdownDescription": "When a repository is opened and has no [commit-graph](https://git-scm.com/docs/git-commit-graph) file, write one in the background (requires Git >= 2.24.0). Git walks the history much faster with it, so large repositories load several times faster. It is the same file that `git gc` writes."
+				},
 				"git-tree.repositoryDropdownOrder": {
 					"type": "string",
 					"enum": [

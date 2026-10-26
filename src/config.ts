@@ -510,6 +510,13 @@ class Config {
 	}
 
 	/**
+	 * Get the value of the `git-tree.repository.writeCommitGraph` Extension Setting.
+	 */
+	get writeCommitGraph() {
+		return !!this.config.get('repository.writeCommitGraph', true);
+	}
+
+	/**
 	 * Get the value of the `git-tree.repository.sign.tags` Extension Setting.
 	 */
 	get signTags() {
