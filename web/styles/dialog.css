@@ -88,10 +88,10 @@ body.vscode-high-contrast .dialog{
 	padding:4px 6px;
 	box-sizing:border-box;
 	outline-style:none;
-	background-color:rgba(128,128,128,0.1);
-	border:1px solid rgba(128,128,128,0.5);
+	background-color:var(--vscode-input-background, rgba(128,128,128,0.1));
+	border:1px solid var(--vscode-input-border, var(--git-tree-border));
 	border-radius:4px;
-	color:var(--vscode-menu-foreground);
+	color:var(--vscode-input-foreground, var(--vscode-menu-foreground));
 	font-family:var(--vscode-font-family);
 	font-size:13px;
 	line-height:17px;

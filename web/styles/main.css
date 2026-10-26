@@ -1,3 +1,32 @@
+/* Theme
+ * Colours shared by the view. Light and dark themes get tuned values, and any other theme
+ * (such as high contrast) keeps the neutral grey that works on both. */
+
+body{
+	--git-tree-surface:rgba(128,128,128,0.1);
+	--git-tree-surface-hover:rgba(128,128,128,0.2);
+	--git-tree-border:rgba(128,128,128,0.5);
+	--git-tree-ref-background:rgba(128,128,128,0.15);
+	--git-tree-ref-border:rgba(128,128,128,0.75);
+	--git-tree-row-hover:var(--vscode-list-hoverBackground, rgba(128,128,128,0.15));
+	--git-tree-row-selected:var(--vscode-list-inactiveSelectionBackground, rgba(128,128,128,0.25));
+}
+body.vscode-light{
+	--git-tree-surface:rgba(0,0,0,0.04);
+	--git-tree-surface-hover:rgba(0,0,0,0.08);
+	--git-tree-border:rgba(0,0,0,0.16);
+	--git-tree-ref-background:rgba(0,0,0,0.035);
+	--git-tree-ref-border:rgba(0,0,0,0.28);
+}
+body.vscode-dark{
+	--git-tree-surface:rgba(255,255,255,0.05);
+	--git-tree-surface-hover:rgba(255,255,255,0.1);
+	--git-tree-border:rgba(255,255,255,0.14);
+	--git-tree-ref-background:rgba(255,255,255,0.06);
+	--git-tree-ref-border:rgba(255,255,255,0.3);
+}
+
+
 /* Body */
 
 body{
@@ -174,9 +203,9 @@ code{
 .graphTooltipRef{
 	margin:2px;
 	padding:0 5px;
-	background-color:rgba(128,128,128,0.15);
+	background-color:var(--git-tree-ref-background);
 	border-radius:5px;
-	border:1px solid rgba(128,128,128,0.75);
+	border:1px solid var(--git-tree-ref-border);
 	vertical-align:top;
 	font-size:12px;
 	cursor:default;
@@ -214,7 +243,7 @@ code{
 	padding:0 4px;
 }
 #commitTable th{
-	border-bottom:1px solid rgba(128,128,128,0.5);
+	border-bottom:1px solid var(--git-tree-border);
 	line-height:18px;
 	padding:6px 12px;
 }
@@ -300,7 +329,7 @@ code{
 	vertical-align:top;
 }
 #cdv.inline td{
-	background-color:rgba(128,128,128,0.1);
+	background-color:var(--git-tree-surface);
 	position:relative;
 	font-size:13px;
 	line-height:18px;
@@ -312,7 +341,7 @@ code{
 	left:0;
 	right:0;
 	bottom:0;
-	background-color:rgba(128,128,128,0.1);
+	background-color:var(--git-tree-surface);
 	font-size:13px;
 	line-height:18px;
 	white-space:normal;
@@ -653,13 +682,14 @@ svg.openFolderIcon, svg.closedFolderIcon, svg.fileIcon{
 	cursor:help;
 }
 #commitTable tr.commit:hover, #commitTable tr.commit.contextMenuActive, #commitTable tr.commit.findCurrentCommit:hover, #commitTable tr.commit.graphVertexActive, #commitTable tr.commit.dialogActive{
-	background-color:rgba(128,128,128,0.15);
+	background-color:var(--git-tree-row-hover);
 }
 #commitTable tr.commit.commitDetailsOpen{
-	background-color:rgba(128,128,128,0.25);
+	background-color:var(--git-tree-row-selected);
 }
 #commitTable tr.commit.commitDetailsOpen:hover, #commitTable tr.commit.commitDetailsOpen.contextMenuActive, #commitTable tr.commit.commitDetailsOpen.dialogActive, #commitTable tr.commit.commitDetailsOpen.graphVertexActive{
-	background-color:rgba(128,128,128,0.35);
+	background-color:var(--git-tree-row-selected);
+	background-image:linear-gradient(var(--git-tree-surface), var(--git-tree-surface));
 }
 
 #commitTable tr.commit.findCurrentCommit {
@@ -699,9 +729,9 @@ body.vscode-high-contrast #commitTable tr.commit.findCurrentCommit{
 	line-height:18px;
 	margin-top:2px;
 	margin-right:5px;
-	background-color:rgba(128,128,128,0.15);
+	background-color:var(--git-tree-ref-background);
 	border-radius:5px;
-	border:1px solid rgba(128,128,128,0.75);
+	border:1px solid var(--git-tree-ref-border);
 	vertical-align:top;
 	font-size:12px;
 	cursor:default;
@@ -798,7 +828,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 	right:0;
 	top:0;
 	padding:4px 132px 4px 0;
-	border-bottom:1px solid rgba(128,128,128,0.5);
+	border-bottom:1px solid var(--git-tree-border);
 	line-height:32px;
 	text-align:center;
 	font-weight:700;
@@ -937,14 +967,14 @@ body.tagLabelsRightAligned .gitRef.tag{
 
 .roundedBtn{
 	display:block;
-	background-color:rgba(128,128,128,0.1);
-	border:1px solid rgba(128,128,128,0.5);
+	background-color:var(--git-tree-surface);
+	border:1px solid var(--git-tree-border);
 	font-size:13px;
 	text-align:center;
 	cursor:pointer;
 }
 .roundedBtn:hover{
-	background-color:rgba(128,128,128,0.2);
+	background-color:var(--git-tree-surface-hover);
 }
 
 a, span.internalUrl{
@@ -974,13 +1004,13 @@ input[type=checkbox], input[type=radio]{
 
 .customCheckbox, .customRadio{
 	display:inline-block;
-	background-color:rgba(128,128,128,0.1);
-	border:1px solid rgba(128,128,128,0.5);
+	background-color:var(--git-tree-surface);
+	border:1px solid var(--git-tree-border);
 	vertical-align:middle;
 }
 
 label:hover > .customCheckbox, label:hover > .customRadio{
-	background-color:rgba(128,128,128,0.2);
+	background-color:var(--git-tree-surface-hover);
 }
 
 .customCheckbox:after, .customRadio:after{

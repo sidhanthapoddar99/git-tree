@@ -1735,6 +1735,27 @@ describe('Config', () => {
 			});
 		});
 
+		describe('coloursLight', () => {
+			it('Should return the configured colours, so custom colours are used on light themes too', () => {
+				// Setup
+				vscode.mockExtensionSettingReturnValue('graph.colours', ['#ff0000', 'rgb(1,2,3)']);
+
+				// Run
+				const value = config.graph.coloursLight;
+
+				// Assert
+				expect(value).toStrictEqual(['#ff0000', 'rgb(1,2,3)']);
+			});
+
+			it('Should return the default light theme colours when the configuration value is unknown', () => {
+				// Run
+				const value = config.graph.coloursLight;
+
+				// Assert
+				expect(value).toStrictEqual(['#0070b8', '#b8007a', '#00a307', '#b86f00', '#8a00b8', '#d60000', '#00a399', '#b51fbd', '#5f9c00', '#c2491a', '#5a1bb0', '#a88600']);
+			});
+		});
+
 		describe('style', () => {
 			it('Should return GraphStyle.Rounded when the configuration value is "rounded"', () => {
 				// Setup

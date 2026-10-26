@@ -11,8 +11,8 @@
 	display:inline-block;
 }
 .dropdownCurrentValue{
-	background-color:rgba(128,128,128,0.1);
-	border:1px solid rgba(128,128,128,0.5);
+	background-color:var(--git-tree-surface);
+	border:1px solid var(--git-tree-border);
 	border-radius:6px;
 	box-sizing:border-box;
 	height:26px;
@@ -27,7 +27,7 @@
 	text-overflow:ellipsis;
 }
 .dropdownCurrentValue:hover{
-	background-color:rgba(128,128,128,0.2);
+	background-color:var(--git-tree-surface-hover);
 }
 .dropdownCurrentValue:after{
 	position:absolute;

@@ -295,6 +295,7 @@ export interface CommitDetailsViewConfig {
 
 export interface GraphConfig {
 	readonly colours: ReadonlyArray<string>;
+	readonly coloursLight: ReadonlyArray<string>; // The colours used on light themes, in the same order as `colours`
 	readonly style: GraphStyle;
 	readonly grid: { x: number, y: number, offsetX: number, offsetY: number, expandY: number };
 	readonly uncommittedChanges: GraphUncommittedChangesStyle;

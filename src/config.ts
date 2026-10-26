@@ -269,10 +269,13 @@ class Config {
 	 */
 	get graph(): GraphConfig {
 		const colours = this.getRenamedExtensionSetting<string[]>('graph.colours', 'graphColours', []);
+		const customColours = Array.isArray(colours) && colours.length > 0
+			? colours.filter((v) => v.match(/^\s*(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|rgb[a]?\s*\(\d{1,3},\s*\d{1,3},\s*\d{1,3}\))\s*$/) !== null)
+			: null;
 		return {
-			colours: Array.isArray(colours) && colours.length > 0
-				? colours.filter((v) => v.match(/^\s*(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|rgb[a]?\s*\(\d{1,3},\s*\d{1,3},\s*\d{1,3}\))\s*$/) !== null)
-				: ['#0085d9', '#d9008f', '#00d90a', '#d98500', '#a300d9', '#ff0000', '#00d9cc', '#e138e8', '#85d900', '#dc5b23', '#6f24d6', '#ffcc00'],
+			colours: customColours !== null ? customColours : ['#0085d9', '#d9008f', '#00d90a', '#d98500', '#a300d9', '#ff0000', '#00d9cc', '#e138e8', '#85d900', '#dc5b23', '#6f24d6', '#ffcc00'],
+			// Darker versions of the default colours, so the graph stays readable on light themes. Custom colours are used on every theme.
+			coloursLight: customColours !== null ? customColours : ['#0070b8', '#b8007a', '#00a307', '#b86f00', '#8a00b8', '#d60000', '#00a399', '#b51fbd', '#5f9c00', '#c2491a', '#5a1bb0', '#a88600'],
 			style: this.getRenamedExtensionSetting<string>('graph.style', 'graphStyle', 'rounded') === 'angular'
 				? GraphStyle.Angular
 				: GraphStyle.Rounded,

@@ -727,9 +727,10 @@ export class GitGraphView extends Disposable {
 		const globalState = this.extensionState.getGlobalViewState();
 		const workspaceState = this.extensionState.getWorkspaceViewState();
 
-		let body, numRepos = Object.keys(initialState.repos).length, colorVars = '', colorParams = '';
+		let body, numRepos = Object.keys(initialState.repos).length, colorVars = '', colorVarsLight = '', colorParams = '';
 		for (let i = 0; i < initialState.config.graph.colours.length; i++) {
 			colorVars += '--git-tree-color' + i + ':' + initialState.config.graph.colours[i] + '; ';
+			colorVarsLight += '--git-tree-color' + i + ':' + initialState.config.graph.coloursLight[i] + '; ';
 			colorParams += '[data-color="' + i + '"]{--git-tree-color:var(--git-tree-color' + i + ');} ';
 		}
 
@@ -781,7 +782,7 @@ export class GitGraphView extends Disposable {
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
 				<link rel="stylesheet" type="text/css" href="${this.getMediaUri('out.min.css')}">
 				<title>Git Tree</title>
-				<style>body{${colorVars}} ${colorParams}</style>
+				<style>body{${colorVars}} body.vscode-light, body.vscode-high-contrast-light{${colorVarsLight}} ${colorParams}</style>
 			</head>
 			${body}
 		</html>`;

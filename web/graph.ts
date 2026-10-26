@@ -73,7 +73,7 @@ class Branch {
 	/* Rendering */
 
 	public draw(svg: SVGElement, config: GG.GraphConfig, expandAt: number) {
-		let colour = config.colours[this.colour % config.colours.length], i, x1, y1, x2, y2, lines: PlacedLine[] = [], curPath = '', d = config.grid.y * (config.style === GG.GraphStyle.Angular ? 0.38 : 0.8), line, nextLine;
+		let colour = 'var(--git-tree-color' + (this.colour % config.colours.length) + ')', i, x1, y1, x2, y2, lines: PlacedLine[] = [], curPath = '', d = config.grid.y * (config.style === GG.GraphStyle.Angular ? 0.38 : 0.8), line, nextLine;
 
 		// Convert branch lines into pixel coordinates, respecting expanded commit extensions
 		for (i = 0; i < this.lines.length; i++) {
@@ -152,7 +152,7 @@ class Branch {
 		shadow.setAttribute('d', path);
 		line.setAttribute('class', 'line');
 		line.setAttribute('d', path);
-		line.setAttribute('stroke', isCommitted ? colour : '#808080');
+		line.style.stroke = isCommitted ? colour : '#808080';
 		if (!isCommitted && uncommittedChanges === GG.GraphUncommittedChangesStyle.OpenCircleAtTheCheckedOutCommit) {
 			line.setAttribute('stroke-dasharray', '2px');
 		}
@@ -298,7 +298,7 @@ class Vertex {
 	public draw(svg: SVGElement, config: GG.GraphConfig, expandOffset: boolean, overListener: (event: MouseEvent) => void, outListener: (event: MouseEvent) => void) {
 		if (this.onBranch === null) return;
 
-		const colour = this.isCommitted ? config.colours[this.onBranch.getColour() % config.colours.length] : '#808080';
+		const colour = this.isCommitted ? 'var(--git-tree-color' + (this.onBranch.getColour() % config.colours.length) + ')' : '#808080';
 		const cx = (this.x * config.grid.x + config.grid.offsetX).toString();
 		const cy = (this.id * config.grid.y + config.grid.offsetY + (expandOffset ? config.grid.expandY : 0)).toString();
 
@@ -309,9 +309,9 @@ class Vertex {
 		circle.setAttribute('r', '4');
 		if (this.isCurrent) {
 			circle.setAttribute('class', 'current');
-			circle.setAttribute('stroke', colour);
+			circle.style.stroke = colour;
 		} else {
-			circle.setAttribute('fill', colour);
+			circle.style.fill = colour;
 		}
 		svg.appendChild(circle);
 

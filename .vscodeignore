@@ -6,7 +6,6 @@ out/**/*.d.ts
 out/**/*.js.map
 out/*.d.ts
 out/*.js.map
-resources/demo.gif
 src/
 tests/
 web/
