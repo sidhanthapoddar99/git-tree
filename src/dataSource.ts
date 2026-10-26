@@ -422,7 +422,7 @@ export class DataSource extends Disposable {
 	 * @returns The comparison details.
 	 */
 	public getCommitComparison(repo: string, fromHash: string, toHash: string): Promise<GitCommitComparisonData> {
-		return Promise.all<DiffNameStatusRecord[], DiffNumStatRecord[], GitStatusFiles | null>([
+		return Promise.all([
 			this.getDiffNameStatus(repo, fromHash, toHash === UNCOMMITTED ? '' : toHash),
 			this.getDiffNumStat(repo, fromHash, toHash === UNCOMMITTED ? '' : toHash),
 			toHash === UNCOMMITTED ? this.getStatus(repo) : Promise.resolve(null)
@@ -1267,7 +1267,7 @@ export class DataSource extends Disposable {
 			const mainWorktree = (await this.getWorktrees(repo)).find((worktree) => worktree.isMain);
 			mainWorktreePath = typeof mainWorktree !== 'undefined' ? mainWorktree.path : repo;
 		} catch (errorMessage) {
-			return { errors: [errorMessage], path: null };
+			return { errors: [<ErrorInfo>errorMessage], path: null };
 		}
 
 		const absolutePath = getPathFromStr(path.resolve(mainWorktreePath, worktreePath));
@@ -1323,7 +1323,7 @@ export class DataSource extends Disposable {
 			const commonDir = await this.spawnGit(['rev-parse', '--git-common-dir'], repo, (stdout) => stdout.trim());
 			excludeFilePath = path.join(path.resolve(repo, commonDir), 'info', 'exclude');
 		} catch (errorMessage) {
-			return errorMessage;
+			return <ErrorInfo>errorMessage;
 		}
 
 		return new Promise<ErrorInfo>((resolve) => {

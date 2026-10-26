@@ -16,8 +16,7 @@
 		"types": [
 			"jest",
 			"node",
-			"vscode",
-			"../src/utils/@types/node"
+			"vscode"
 		]
 	}
 }

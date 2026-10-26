@@ -1,15 +1,11 @@
 module.exports = {
 	roots: ['./tests'],
 	transform: {
-		'^.+\\.ts$': 'ts-jest',
+		'^.+\\.ts$': ['ts-jest', { tsconfig: './tests/tsconfig.json' }]
 	},
 	testRegex: '\\.test\\.ts$',
+	fakeTimers: { legacyFakeTimers: true },
 	moduleFileExtensions: ['ts', 'js'],
-	globals: {
-		'ts-jest': {
-			tsconfig: './tests/tsconfig.json'
-		}
-	},
 	collectCoverageFrom: [
 		'src/utils/*.ts',
 		'src/*.ts'

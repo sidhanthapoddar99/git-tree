@@ -21,8 +21,15 @@ interface WebviewPanelMocks {
 
 let mockedWebviews: { panel: vscode.WebviewPanel, mocks: WebviewPanelMocks }[] = [];
 
+// The parts of the ExtensionContext that the tests mock, typed so tests can still use the Jest mock methods
+type MockedExtensionContext = vscode.ExtensionContext & {
+	asAbsolutePath: jest.Mock;
+	globalState: { get: jest.Mock, update: jest.Mock };
+	workspaceState: { get: jest.Mock, update: jest.Mock };
+};
+
 export const mocks = {
-	extensionContext: {
+	extensionContext: <MockedExtensionContext><unknown>{
 		asAbsolutePath: jest.fn(),
 		extensionPath: '/path/to/extension',
 		globalState: {
@@ -200,6 +207,7 @@ function createWebviewPanel(viewType: string, title: string, _showOptions: ViewC
 
 	const webviewPanel: Writeable<vscode.WebviewPanel> = {
 		active: true,
+		viewColumn: undefined,
 		dispose: jest.fn(),
 		iconPath: undefined,
 		onDidChangeViewState: jest.fn((onDidChangeViewState) => {

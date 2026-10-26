@@ -619,21 +619,21 @@ export function resolveSpawnOutput(cmd: cp.ChildProcess) {
 			});
 			cmd.on('exit', (code) => {
 				if (resolved) return;
-				resolve({ code: code, error: null });
+				resolve({ code: code !== null ? code : -1, error: null }); // A null exit code means the process was ended by a signal
 				resolved = true;
 			});
 		}),
 		new Promise<Buffer>((resolve) => {
 			// stdout promise
 			let buffers: Buffer[] = [];
-			cmd.stdout.on('data', (b: Buffer) => { buffers.push(b); });
-			cmd.stdout.on('close', () => resolve(Buffer.concat(buffers)));
+			cmd.stdout!.on('data', (b: Buffer) => { buffers.push(b); });
+			cmd.stdout!.on('close', () => resolve(Buffer.concat(buffers)));
 		}),
 		new Promise<string>((resolve) => {
 			// stderr promise
 			let stderr = '';
-			cmd.stderr.on('data', (d) => { stderr += d; });
-			cmd.stderr.on('close', () => resolve(stderr));
+			cmd.stderr!.on('data', (d) => { stderr += d; });
+			cmd.stderr!.on('close', () => resolve(stderr));
 		})
 	]);
 }

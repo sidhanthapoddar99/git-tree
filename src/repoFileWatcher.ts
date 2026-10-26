@@ -15,7 +15,7 @@ export class RepoFileWatcher {
 	private repo: string | null = null;
 	private worktreeFolder: string | null = null;
 	private fsWatcher: vscode.FileSystemWatcher | null = null;
-	private refreshTimeout: NodeJS.Timer | null = null;
+	private refreshTimeout: NodeJS.Timeout | null = null;
 	private muted: boolean = false;
 	private resumeAt: number = 0;
 

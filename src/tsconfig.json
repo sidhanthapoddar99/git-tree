@@ -17,8 +17,7 @@
 		"target": "es6",
 		"types": [
 			"node",
-			"vscode",
-			"./utils/@types/node"
+			"vscode"
 		]
 	}
 }
