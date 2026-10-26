@@ -556,6 +556,15 @@ class Config {
 	}
 
 	/**
+	 * Get the value of the `git-tree.worktree.defaultLocation` Extension Setting.
+	 */
+	get worktreeDefaultLocation() {
+		const configValue = this.config.get<string>('worktree.defaultLocation', '.worktrees');
+		const location = typeof configValue === 'string' ? configValue.trim().replace(/[\\/]+$/, '') : '';
+		return location !== '' ? location : '.worktrees';
+	}
+
+	/**
 	 * Get the Git executable paths configured by the `git.path` Visual Studio Code Setting.
 	 */
 	get gitPaths() {

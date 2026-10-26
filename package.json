@@ -1167,6 +1167,11 @@
 					"default": "colour",
 					"description": "Specifies the colour theme of the icon displayed on the Git Tree tab."
 				},
+				"git-tree.worktree.defaultLocation": {
+					"type": "string",
+					"default": ".worktrees",
+					"markdownDescription": "The folder new worktrees are created in, relative to the repository's main worktree (or an absolute path). A worktree named `feature` is created at `<defaultLocation>/feature`. When this folder is inside the repository, Git Tree adds it to `.git/info/exclude`, so the worktrees don't show as untracked files."
+				},
 				"git-tree.autoCenterCommitDetailsView": {
 					"type": "boolean",
 					"default": true,

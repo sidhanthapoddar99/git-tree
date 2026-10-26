@@ -8,7 +8,7 @@ import { Logger } from './logger';
 import { RepoFileWatcher } from './repoFileWatcher';
 import { RepoManager } from './repoManager';
 import { ErrorInfo, GitConfigLocation, GitGraphViewInitialState, GitPushBranchMode, GitRepoSet, LoadGitGraphViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
-import { UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, getNonce, openExtensionSettings, openExternalUrl, openFile, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
+import { UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, getNonce, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
 
 /**
@@ -286,6 +286,17 @@ export class GitGraphView extends Disposable {
 					errors: await this.dataSource.createBranch(msg.repo, msg.branchName, msg.commitHash, msg.checkout, msg.force)
 				});
 				break;
+			case 'createWorktree': {
+				const result = await this.dataSource.createWorktree(msg.repo, msg.path, msg.commitish, msg.newBranch);
+				if (result.path !== null && msg.openInNewWindow) {
+					result.errors.push(await openWorktree(result.path, true));
+				}
+				this.sendMessage({
+					command: 'createWorktree',
+					errors: result.errors
+				});
+				break;
+			}
 			case 'createPullRequest':
 				errorInfos = [msg.push ? await this.dataSource.pushBranch(msg.repo, msg.sourceBranch, msg.sourceRemote, true, GitPushBranchMode.Normal) : null];
 				if (errorInfos[0] === null) {
@@ -482,6 +493,12 @@ export class GitGraphView extends Disposable {
 					error: await this.dataSource.openGitTerminal(msg.repo, null, msg.name)
 				});
 				break;
+			case 'openWorktree':
+				this.sendMessage({
+					command: 'openWorktree',
+					error: await openWorktree(msg.path, msg.newWindow)
+				});
+				break;
 			case 'popStash':
 				this.sendMessage({
 					command: 'popStash',
@@ -529,6 +546,12 @@ export class GitGraphView extends Disposable {
 					actionOn: msg.actionOn,
 					interactive: msg.interactive,
 					error: await this.dataSource.rebase(msg.repo, msg.obj, msg.actionOn, msg.ignoreDate, msg.interactive)
+				});
+				break;
+			case 'removeWorktree':
+				this.sendMessage({
+					command: 'removeWorktree',
+					error: await this.dataSource.removeWorktree(msg.repo, msg.path, msg.force)
 				});
 				break;
 			case 'renameBranch':
@@ -692,7 +715,8 @@ export class GitGraphView extends Disposable {
 				repoDropdownOrder: config.repoDropdownOrder,
 				showRemoteBranches: config.showRemoteBranches,
 				showStashes: config.showStashes,
-				showTags: config.showTags
+				showTags: config.showTags,
+				worktreeDefaultLocation: config.worktreeDefaultLocation
 			},
 			lastActiveRepo: this.extensionState.getLastActiveRepo(),
 			loadViewTo: this.loadViewTo,

@@ -156,6 +156,7 @@ describe('DataSource', () => {
 				'98adab72e57a098a45cc36e43a6c0fda95c44f8bXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbb30d6d4d14462e09515df02a8635e83b4278c8b1 26970361eca306caa6d6bed3baf022dbd8fa404cXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbrefs/stash@{0}XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest AuthorXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest@mhutchie.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1592306634XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbWIP on develop: b30d6d4 y\n' +
 				'0fc3e571c275213de2b3bca9c85e852323056121XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb9157723d0856bd828800ff185ee72658ee51d19f d45009bc4224537e97b0e52883ea7ae657928fcf 9d81ce0a6cf64b6651bacd7a6c3a6ca90fd63235XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbrefs/stash@{1}XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest AuthorXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest@mhutchie.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1592135134XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbWIP on master: 9157723 y\n'
 			);
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 
 			// Run
@@ -188,6 +189,7 @@ describe('DataSource', () => {
 						untrackedFilesHash: '9d81ce0a6cf64b6651bacd7a6c3a6ca90fd63235'
 					}
 				],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-a', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -203,6 +205,7 @@ describe('DataSource', () => {
 			);
 			mockGitSuccessOnce('origin\n');
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 
 			// Run
@@ -214,6 +217,7 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -229,6 +233,7 @@ describe('DataSource', () => {
 			);
 			mockGitSuccessOnce('origin\n');
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 			vscode.mockExtensionSettingReturnValue('date.type', 'Commit Date');
 			vscode.mockExtensionSettingReturnValue('repository.useMailmap', false);
@@ -246,6 +251,7 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -261,6 +267,7 @@ describe('DataSource', () => {
 			);
 			mockGitSuccessOnce('origin\n');
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 			vscode.mockExtensionSettingReturnValue('date.type', 'Commit Date');
 			vscode.mockExtensionSettingReturnValue('repository.useMailmap', false);
@@ -278,6 +285,7 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -293,6 +301,7 @@ describe('DataSource', () => {
 			);
 			mockGitSuccessOnce('origin\n');
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 			vscode.mockExtensionSettingReturnValue('date.type', 'Author Date');
 			vscode.mockExtensionSettingReturnValue('repository.useMailmap', true);
@@ -310,6 +319,7 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -325,6 +335,7 @@ describe('DataSource', () => {
 			);
 			mockGitSuccessOnce('origin\n');
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 			vscode.mockExtensionSettingReturnValue('date.type', 'Author Date');
 			vscode.mockExtensionSettingReturnValue('useMailmap', true);
@@ -342,6 +353,7 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -356,6 +368,7 @@ describe('DataSource', () => {
 				'  master\n'
 			);
 			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 
 			// Run
 			const result = await dataSource.getRepoInfo('/path/to/repo', true, false, []);
@@ -366,11 +379,86 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-a', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['remote'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['worktree', 'list', '--porcelain'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toHaveBeenCalledTimes(3);
+		});
+
+		it('Should return the worktrees (linked worktrees on a branch, detached, locked and prunable)', async () => {
+			// Setup
+			mockGitSuccessOnce('* develop\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce(
+				'worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n' +
+				'worktree /path/to/repo/.worktrees/feature\nHEAD 2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c\nbranch refs/heads/feature/one\nlocked reason\n\n' +
+				'worktree /path/to/other\nHEAD 3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d\ndetached\nprunable gitdir file points to non-existent location\n\n'
+			);
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo/.worktrees/feature', true, false, []);
+
+			// Assert
+			expect(result.worktrees).toStrictEqual([
+				{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: false, locked: false, prunable: false },
+				{ path: '/path/to/repo/.worktrees/feature', name: 'feature', head: '2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c', branch: 'feature/one', isMain: false, isCurrent: true, locked: true, prunable: false },
+				{ path: '/path/to/other', name: 'other', head: '3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d', branch: null, isMain: false, isCurrent: false, locked: false, prunable: true }
+			]);
+		});
+
+		it('Should return the worktrees (bare main repository, and a worktree with no commits)', async () => {
+			// Setup
+			mockGitSuccessOnce('* develop\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce(
+				'worktree /path/to/repo.git\nbare\n\n' +
+				'worktree /path/to/repo\nHEAD 0000000000000000000000000000000000000000\nbranch refs/heads/develop\n\n'
+			);
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', true, false, []);
+
+			// Assert
+			expect(result.worktrees).toStrictEqual([
+				{ path: '/path/to/repo', name: 'repo', head: null, branch: 'develop', isMain: false, isCurrent: true, locked: false, prunable: false }
+			]);
+		});
+
+		it('Should return no worktrees when Git is older than 2.7.0', async () => {
+			// Setup
+			mockGitSuccessOnce('* develop\n');
+			mockGitSuccessOnce('origin\n');
+			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.6.0' });
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', true, false, []);
+
+			// Assert
+			expect(result.worktrees).toStrictEqual([]);
 			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
+		});
+
+		it('Should return an error message thrown by git (when getting worktrees)', async () => {
+			// Setup
+			mockGitSuccessOnce('* develop\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitThrowingErrorOnce();
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', true, false, []);
+
+			// Assert
+			expect(result).toStrictEqual({
+				branches: [],
+				head: null,
+				remotes: [],
+				stashes: [],
+				worktrees: [],
+				error: 'error message'
+			});
 		});
 
 		it('Should return the repository info (hidden remote and an invalid branch)', async () => {
@@ -384,6 +472,7 @@ describe('DataSource', () => {
 			);
 			mockGitSuccessOnce('origin\n');
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 
 			// Run
@@ -395,6 +484,7 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-a', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -413,6 +503,7 @@ describe('DataSource', () => {
 			);
 			mockGitSuccessOnce('origin\n');
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', false);
 
 			// Run
@@ -424,6 +515,7 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-a', '--no-color'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -436,6 +528,7 @@ describe('DataSource', () => {
 			mockGitThrowingErrorOnce();
 			mockGitSuccessOnce('origin\n');
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 
 			// Run
@@ -447,6 +540,7 @@ describe('DataSource', () => {
 				head: null,
 				remotes: [],
 				stashes: [],
+				worktrees: [],
 				error: 'error message'
 			});
 		});
@@ -459,6 +553,7 @@ describe('DataSource', () => {
 			);
 			mockGitThrowingErrorOnce();
 			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 
 			// Run
@@ -470,6 +565,7 @@ describe('DataSource', () => {
 				head: null,
 				remotes: [],
 				stashes: [],
+				worktrees: [],
 				error: 'error message'
 			});
 		});
@@ -482,6 +578,7 @@ describe('DataSource', () => {
 			);
 			mockGitSuccessOnce('origin\n');
 			mockGitThrowingErrorOnce();
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n');
 			vscode.mockExtensionSettingReturnValue('repository.showRemoteHeads', true);
 
 			// Run
@@ -493,6 +590,7 @@ describe('DataSource', () => {
 				head: 'develop',
 				remotes: ['origin'],
 				stashes: [],
+				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
 				error: null
 			});
 		});
@@ -6624,6 +6722,158 @@ describe('DataSource', () => {
 
 			// Assert
 			expect(result).toBe('A newer version of Git (>= 2.13.2) is required for this feature. Git 2.13.1 is currently installed. Please install a newer version of Git to use this feature.');
+		});
+	});
+
+	describe('createWorktree', () => {
+		const mainWorktreeList = 'worktree /path/to/repo\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\nbranch refs/heads/develop\n\n';
+
+		it('Should create a worktree with a new branch at a commit, in a folder that is already ignored', async () => {
+			// Setup
+			mockGitSuccessOnce(mainWorktreeList);
+			mockGitSuccessOnce();
+			mockGitSuccessOnce();
+
+			// Run
+			const result = await dataSource.createWorktree('/path/to/repo', '.worktrees/feature', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', 'feature');
+
+			// Assert
+			expect(result).toStrictEqual({ errors: [null, null], path: '/path/to/repo/.worktrees/feature' });
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['worktree', 'add', '-b', 'feature', '/path/to/repo/.worktrees/feature', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['check-ignore', '-q', '.worktrees/'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toHaveBeenCalledTimes(3);
+		});
+
+		it('Should create a worktree with an existing branch, and add its folder to the exclude file', async () => {
+			// Setup
+			mockGitSuccessOnce(mainWorktreeList);
+			mockGitSuccessOnce();
+			mockGitThrowingErrorOnce();
+			mockGitSuccessOnce('.git\n');
+			const spyOnReadFile = jest.spyOn(fs, 'readFile');
+			spyOnReadFile.mockImplementationOnce((...args) => ((args as unknown) as [fs.PathLike, any, (err: NodeJS.ErrnoException | null, data: string) => void])[2](null, '# git ls-files --others --exclude-from=.git/info/exclude'));
+			const spyOnMkdir = jest.spyOn(fs, 'mkdir');
+			spyOnMkdir.mockImplementationOnce((...args) => ((args as unknown) as [fs.PathLike, (err: NodeJS.ErrnoException | null) => void])[1](null));
+			const spyOnAppendFile = jest.spyOn(fs, 'appendFile');
+			spyOnAppendFile.mockImplementationOnce((...args) => ((args as unknown) as [fs.PathLike, any, (err: NodeJS.ErrnoException | null) => void])[2](null));
+
+			// Run
+			const result = await dataSource.createWorktree('/path/to/repo', '.worktrees/feature', 'feature', null);
+
+			// Assert
+			expect(result).toStrictEqual({ errors: [null, null], path: '/path/to/repo/.worktrees/feature' });
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['worktree', 'add', '/path/to/repo/.worktrees/feature', 'feature'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['rev-parse', '--git-common-dir'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(utils.getPathFromStr(spyOnAppendFile.mock.calls[0][0] as string)).toBe('/path/to/repo/.git/info/exclude');
+			expect(spyOnAppendFile.mock.calls[0][1]).toBe('\n/.worktrees/\n');
+		});
+
+		it('Should create a worktree outside the main worktree, relative to the main worktree when viewing a linked worktree', async () => {
+			// Setup
+			mockGitSuccessOnce(mainWorktreeList + 'worktree /path/to/repo/.worktrees/other\nHEAD 1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b\ndetached\n\n');
+			mockGitSuccessOnce();
+
+			// Run
+			const result = await dataSource.createWorktree('/path/to/repo/.worktrees/other', '../sibling', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', null);
+
+			// Assert
+			expect(result).toStrictEqual({ errors: [null, null], path: '/path/to/sibling' });
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['worktree', 'add', '/path/to/sibling', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b'], expect.objectContaining({ cwd: '/path/to/repo/.worktrees/other' }));
+			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
+		});
+
+		it('Should return an error message thrown by git when creating the worktree', async () => {
+			// Setup
+			mockGitSuccessOnce(mainWorktreeList);
+			mockGitThrowingErrorOnce();
+
+			// Run
+			const result = await dataSource.createWorktree('/path/to/repo', '.worktrees/feature', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', 'feature');
+
+			// Assert
+			expect(result).toStrictEqual({ errors: ['error message'], path: null });
+			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
+		});
+
+		it('Should return an error message thrown by git when listing the worktrees', async () => {
+			// Setup
+			mockGitThrowingErrorOnce();
+
+			// Run
+			const result = await dataSource.createWorktree('/path/to/repo', '.worktrees/feature', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', 'feature');
+
+			// Assert
+			expect(result).toStrictEqual({ errors: ['error message'], path: null });
+			expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+		});
+
+		it('Should report when the exclude file can\'t be updated', async () => {
+			// Setup
+			mockGitSuccessOnce(mainWorktreeList);
+			mockGitSuccessOnce();
+			mockGitThrowingErrorOnce();
+			mockGitSuccessOnce('/path/to/repo/.git\n');
+			const spyOnReadFile = jest.spyOn(fs, 'readFile');
+			spyOnReadFile.mockImplementationOnce((...args) => ((args as unknown) as [fs.PathLike, any, (err: NodeJS.ErrnoException | null, data: string) => void])[2](new Error(), ''));
+			const spyOnMkdir = jest.spyOn(fs, 'mkdir');
+			spyOnMkdir.mockImplementationOnce((...args) => ((args as unknown) as [fs.PathLike, (err: NodeJS.ErrnoException | null) => void])[1](null));
+			const spyOnAppendFile = jest.spyOn(fs, 'appendFile');
+			spyOnAppendFile.mockImplementationOnce((...args) => ((args as unknown) as [fs.PathLike, any, (err: NodeJS.ErrnoException | null) => void])[2](new Error('permission denied')));
+
+			// Run
+			const result = await dataSource.createWorktree('/path/to/repo', 'feature', 'feature', null);
+
+			// Assert
+			expect(result).toStrictEqual({ errors: [null, 'The worktree was created, but Git Tree was unable to add "/feature/" to "/path/to/repo/.git/info/exclude" (permission denied).'], path: '/path/to/repo/feature' });
+			expect(spyOnAppendFile.mock.calls[0][1]).toBe('/feature/\n');
+		});
+	});
+
+	describe('removeWorktree', () => {
+		it('Should remove a worktree', async () => {
+			// Setup
+			mockGitSuccessOnce();
+
+			// Run
+			const result = await dataSource.removeWorktree('/path/to/repo', '/path/to/repo/.worktrees/feature', false);
+
+			// Assert
+			expect(result).toBe(null);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['worktree', 'remove', '/path/to/repo/.worktrees/feature'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should force remove a worktree', async () => {
+			// Setup
+			mockGitSuccessOnce();
+
+			// Run
+			const result = await dataSource.removeWorktree('/path/to/repo', '/path/to/repo/.worktrees/feature', true);
+
+			// Assert
+			expect(result).toBe(null);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['worktree', 'remove', '--force', '/path/to/repo/.worktrees/feature'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should return an error message thrown by git', async () => {
+			// Setup
+			mockGitThrowingErrorOnce();
+
+			// Run
+			const result = await dataSource.removeWorktree('/path/to/repo', '/path/to/repo/.worktrees/feature', false);
+
+			// Assert
+			expect(result).toBe('error message');
+		});
+
+		it('Should return the "Incompatible Git Version" error message when Git is older than 2.17.0', async () => {
+			// Setup
+			onDidChangeGitExecutable.emit({ path: '/path/to/git', version: '2.16.0' });
+
+			// Run
+			const result = await dataSource.removeWorktree('/path/to/repo', '/path/to/repo/.worktrees/feature', false);
+
+			// Assert
+			expect(result).toBe('A newer version of Git (>= 2.17.0) is required for removing worktrees. Git 2.16.0 is currently installed. Please install a newer version of Git to use this feature.');
 		});
 	});
 

@@ -2934,6 +2934,51 @@ describe('Config', () => {
 		});
 	});
 
+	describe('worktreeDefaultLocation', () => {
+		it('Should return the configured value', () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('worktree.defaultLocation', '../worktrees/');
+
+			// Run
+			const value = config.worktreeDefaultLocation;
+
+			// Assert
+			expect(workspaceConfiguration.get).toBeCalledWith('worktree.defaultLocation', '.worktrees');
+			expect(value).toBe('../worktrees');
+		});
+
+		it('Should return the default value (".worktrees") when the configuration value is blank', () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('worktree.defaultLocation', ' ');
+
+			// Run
+			const value = config.worktreeDefaultLocation;
+
+			// Assert
+			expect(value).toBe('.worktrees');
+		});
+
+		it('Should return the default value (".worktrees") when the configuration value is invalid', () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('worktree.defaultLocation', 5);
+
+			// Run
+			const value = config.worktreeDefaultLocation;
+
+			// Assert
+			expect(value).toBe('.worktrees');
+		});
+
+		it('Should return the default value (".worktrees") when the configuration value is not set', () => {
+			// Run
+			const value = config.worktreeDefaultLocation;
+
+			// Assert
+			expect(workspaceConfiguration.get).toBeCalledWith('worktree.defaultLocation', '.worktrees');
+			expect(value).toBe('.worktrees');
+		});
+	});
+
 	describe('gitPaths', () => {
 		it('Should return the configured path', () => {
 			// Setup

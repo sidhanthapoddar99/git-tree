@@ -1274,6 +1274,94 @@ describe('GitGraphView', () => {
 			});
 		});
 
+		describe('createWorktree', () => {
+			it('Should create a worktree', async () => {
+				// Setup
+				const spyOnCreateWorktree = jest.spyOn(dataSource, 'createWorktree');
+				spyOnCreateWorktree.mockResolvedValueOnce({ errors: [null, null], path: '/path/to/repo/.worktrees/feature' });
+				const spyOnOpenWorktree = jest.spyOn(utils, 'openWorktree');
+
+				// Run
+				onDidReceiveMessage({
+					command: 'createWorktree',
+					repo: '/path/to/repo',
+					path: '.worktrees/feature',
+					commitish: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b',
+					newBranch: 'feature',
+					openInNewWindow: false
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnCreateWorktree).toHaveBeenCalledWith('/path/to/repo', '.worktrees/feature', '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', 'feature');
+					expect(spyOnOpenWorktree).not.toHaveBeenCalled();
+					expect(messages).toStrictEqual([
+						{
+							command: 'createWorktree',
+							errors: [null, null]
+						}
+					]);
+				});
+			});
+
+			it('Should create a worktree, and open it in a new window', async () => {
+				// Setup
+				const spyOnCreateWorktree = jest.spyOn(dataSource, 'createWorktree');
+				spyOnCreateWorktree.mockResolvedValueOnce({ errors: [null, null], path: '/path/to/repo/.worktrees/feature' });
+				const spyOnOpenWorktree = jest.spyOn(utils, 'openWorktree');
+				spyOnOpenWorktree.mockResolvedValueOnce(null);
+
+				// Run
+				onDidReceiveMessage({
+					command: 'createWorktree',
+					repo: '/path/to/repo',
+					path: '.worktrees/feature',
+					commitish: 'feature',
+					newBranch: null,
+					openInNewWindow: true
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnOpenWorktree).toHaveBeenCalledWith('/path/to/repo/.worktrees/feature', true);
+					expect(messages).toStrictEqual([
+						{
+							command: 'createWorktree',
+							errors: [null, null, null]
+						}
+					]);
+				});
+			});
+
+			it('Shouldn\'t open a worktree that wasn\'t created', async () => {
+				// Setup
+				const spyOnCreateWorktree = jest.spyOn(dataSource, 'createWorktree');
+				spyOnCreateWorktree.mockResolvedValueOnce({ errors: ['error message'], path: null });
+				const spyOnOpenWorktree = jest.spyOn(utils, 'openWorktree');
+
+				// Run
+				onDidReceiveMessage({
+					command: 'createWorktree',
+					repo: '/path/to/repo',
+					path: '.worktrees/feature',
+					commitish: 'feature',
+					newBranch: null,
+					openInNewWindow: true
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnOpenWorktree).not.toHaveBeenCalled();
+					expect(messages).toStrictEqual([
+						{
+							command: 'createWorktree',
+							errors: ['error message']
+						}
+					]);
+				});
+			});
+		});
+
 		describe('createPullRequest', () => {
 			it('Should create a pull request', async () => {
 				// Setup
@@ -2319,6 +2407,7 @@ describe('GitGraphView', () => {
 					head: 'master',
 					remotes: ['origin', 'upstream'],
 					stashes: [],
+					worktrees: [],
 					error: null
 				};
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
@@ -2353,6 +2442,7 @@ describe('GitGraphView', () => {
 							head: getRepoInfoResolvedValue.head,
 							remotes: getRepoInfoResolvedValue.remotes,
 							stashes: getRepoInfoResolvedValue.stashes,
+							worktrees: getRepoInfoResolvedValue.worktrees,
 							isRepo: true,
 							error: getRepoInfoResolvedValue.error
 						}
@@ -2369,6 +2459,7 @@ describe('GitGraphView', () => {
 					head: 'master',
 					remotes: ['origin', 'upstream'],
 					stashes: [],
+					worktrees: [],
 					error: null
 				};
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
@@ -2402,6 +2493,7 @@ describe('GitGraphView', () => {
 							head: getRepoInfoResolvedValue.head,
 							remotes: getRepoInfoResolvedValue.remotes,
 							stashes: getRepoInfoResolvedValue.stashes,
+							worktrees: getRepoInfoResolvedValue.worktrees,
 							isRepo: true,
 							error: getRepoInfoResolvedValue.error
 						}
@@ -2418,6 +2510,7 @@ describe('GitGraphView', () => {
 					head: 'master',
 					remotes: ['origin', 'upstream'],
 					stashes: [],
+					worktrees: [],
 					error: 'error message'
 				};
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
@@ -2452,6 +2545,7 @@ describe('GitGraphView', () => {
 							head: getRepoInfoResolvedValue.head,
 							remotes: getRepoInfoResolvedValue.remotes,
 							stashes: getRepoInfoResolvedValue.stashes,
+							worktrees: getRepoInfoResolvedValue.worktrees,
 							isRepo: true,
 							error: getRepoInfoResolvedValue.error
 						}
@@ -2468,6 +2562,7 @@ describe('GitGraphView', () => {
 					head: 'master',
 					remotes: ['origin', 'upstream'],
 					stashes: [],
+					worktrees: [],
 					error: 'error message'
 				};
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
@@ -2502,6 +2597,7 @@ describe('GitGraphView', () => {
 							head: getRepoInfoResolvedValue.head,
 							remotes: getRepoInfoResolvedValue.remotes,
 							stashes: getRepoInfoResolvedValue.stashes,
+							worktrees: getRepoInfoResolvedValue.worktrees,
 							isRepo: false,
 							error: null
 						}
@@ -2837,6 +2933,32 @@ describe('GitGraphView', () => {
 			});
 		});
 
+		describe('openWorktree', () => {
+			it('Should open a worktree in a new window', async () => {
+				// Setup
+				const spyOnOpenWorktree = jest.spyOn(utils, 'openWorktree');
+				spyOnOpenWorktree.mockResolvedValueOnce(null);
+
+				// Run
+				onDidReceiveMessage({
+					command: 'openWorktree',
+					path: '/path/to/repo/.worktrees/feature',
+					newWindow: true
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnOpenWorktree).toHaveBeenCalledWith('/path/to/repo/.worktrees/feature', true);
+					expect(messages).toStrictEqual([
+						{
+							command: 'openWorktree',
+							error: null
+						}
+					]);
+				});
+			});
+		});
+
 		describe('popStash', () => {
 			it('Should pop a stash', async () => {
 				// Setup
@@ -3042,6 +3164,33 @@ describe('GitGraphView', () => {
 							actionOn: RebaseActionOn.Branch,
 							interactive: false,
 							error: rebaseResolvedValue
+						}
+					]);
+				});
+			});
+		});
+
+		describe('removeWorktree', () => {
+			it('Should remove a worktree', async () => {
+				// Setup
+				const spyOnRemoveWorktree = jest.spyOn(dataSource, 'removeWorktree');
+				spyOnRemoveWorktree.mockResolvedValueOnce(null);
+
+				// Run
+				onDidReceiveMessage({
+					command: 'removeWorktree',
+					repo: '/path/to/repo',
+					path: '/path/to/repo/.worktrees/feature',
+					force: true
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnRemoveWorktree).toHaveBeenCalledWith('/path/to/repo', '/path/to/repo/.worktrees/feature', true);
+					expect(messages).toStrictEqual([
+						{
+							command: 'removeWorktree',
+							error: null
 						}
 					]);
 				});

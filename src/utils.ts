@@ -368,6 +368,19 @@ export function openExternalUrl(url: string, type: string = 'External URL'): The
 }
 
 /**
+ * Open a worktree's folder in Visual Studio Code.
+ * @param path The path of the worktree.
+ * @param newWindow Open the worktree in a new window (TRUE), or in the current window (FALSE).
+ * @returns A promise resolving to the ErrorInfo of the executed command.
+ */
+export function openWorktree(path: string, newWindow: boolean): Thenable<ErrorInfo> {
+	return vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(path), newWindow).then(
+		() => null,
+		() => 'Visual Studio Code was unable to open the worktree: ' + path
+	);
+}
+
+/**
  * Open a file within a repository in Visual Studio Code.
  * @param repo The repository the file is contained in.
  * @param filePath The relative path of the file within the repository.
@@ -778,7 +791,9 @@ export const enum GitVersionRequirement {
 	FetchAndPruneTags = '2.17.0',
 	GpgInfo = '2.4.0',
 	PushStash = '2.13.2',
-	TagDetails = '1.7.8'
+	TagDetails = '1.7.8',
+	WorktreeList = '2.7.0',
+	WorktreeRemove = '2.17.0'
 }
 
 export const enum VsCodeVersionRequirement {

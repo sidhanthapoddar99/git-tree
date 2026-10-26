@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
 import { getConfig } from './config';
 import { Logger } from './logger';
-import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
+import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, GitVersionRequirement, UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, abbrevCommit, constructIncompatibleGitVersionMessage, doesVersionMeetRequirement, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
 import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
@@ -138,11 +138,12 @@ export class DataSource extends Disposable {
 		return Promise.all([
 			this.getBranches(repo, showRemoteBranches, hideRemotes),
 			this.getRemotes(repo),
-			showStashes ? this.getStashes(repo) : Promise.resolve([])
+			showStashes ? this.getStashes(repo) : Promise.resolve([]),
+			this.getWorktrees(repo)
 		]).then((results) => {
-			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], error: null };
+			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], worktrees: results[3], error: null };
 		}).catch((errorMessage) => {
-			return { branches: [], head: null, remotes: [], stashes: [], error: errorMessage };
+			return { branches: [], head: null, remotes: [], stashes: [], worktrees: [], error: errorMessage };
 		});
 	}
 
@@ -1250,6 +1251,95 @@ export class DataSource extends Disposable {
 	}
 
 
+	/* Git Action Methods - Worktrees */
+
+	/**
+	 * Create a worktree, and check out a commit or branch in it.
+	 * @param repo The path of the repository.
+	 * @param worktreePath An absolute path, or a path relative to the main worktree.
+	 * @param commitish The commit or branch to check out in the worktree.
+	 * @param newBranch The name of a new branch to create at `commitish` and check out, or NULL to check out `commitish` itself.
+	 * @returns The ErrorInfo's from the executed command(s), and the absolute path of the worktree (NULL if it wasn't created).
+	 */
+	public async createWorktree(repo: string, worktreePath: string, commitish: string, newBranch: string | null): Promise<{ errors: ErrorInfo[], path: string | null }> {
+		let mainWorktreePath: string;
+		try {
+			const mainWorktree = (await this.getWorktrees(repo)).find((worktree) => worktree.isMain);
+			mainWorktreePath = typeof mainWorktree !== 'undefined' ? mainWorktree.path : repo;
+		} catch (errorMessage) {
+			return { errors: [errorMessage], path: null };
+		}
+
+		const absolutePath = getPathFromStr(path.resolve(mainWorktreePath, worktreePath));
+		const args = ['worktree', 'add'];
+		if (newBranch !== null) args.push('-b', newBranch);
+		args.push(absolutePath, commitish);
+
+		const status = await this.runGitCommand(args, repo);
+		if (status !== null) {
+			return { errors: [status], path: null };
+		}
+		return { errors: [null, await this.excludeWorktreeFolder(repo, mainWorktreePath, absolutePath)], path: absolutePath };
+	}
+
+	/**
+	 * Remove a worktree.
+	 * @param repo The path of the repository.
+	 * @param worktreePath The path of the worktree.
+	 * @param force Remove the worktree even if it has uncommitted changes or untracked files.
+	 * @returns The ErrorInfo from the executed command.
+	 */
+	public removeWorktree(repo: string, worktreePath: string, force: boolean) {
+		if (this.gitExecutable === null) {
+			return Promise.resolve(UNABLE_TO_FIND_GIT_MSG);
+		} else if (!doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.WorktreeRemove)) {
+			return Promise.resolve(constructIncompatibleGitVersionMessage(this.gitExecutable, GitVersionRequirement.WorktreeRemove, 'removing worktrees'));
+		}
+
+		const args = ['worktree', 'remove'];
+		if (force) args.push('--force');
+		args.push(worktreePath);
+		return this.runGitCommand(args, repo);
+	}
+
+	/**
+	 * If a new worktree is inside the main worktree, add its top-level folder to `.git/info/exclude`, so the
+	 * worktree isn't shown as untracked files of the repository. Folders that are already ignored are left alone.
+	 * @param repo The path of the repository.
+	 * @param mainWorktreePath The path of the main worktree.
+	 * @param worktreePath The absolute path of the new worktree.
+	 * @returns The ErrorInfo from updating the exclude file.
+	 */
+	private async excludeWorktreeFolder(repo: string, mainWorktreePath: string, worktreePath: string): Promise<ErrorInfo> {
+		const relativePath = getPathFromStr(path.relative(mainWorktreePath, worktreePath));
+		if (relativePath === '' || relativePath.startsWith('../') || path.isAbsolute(relativePath)) return null;
+
+		const folder = relativePath.split('/')[0];
+		const isIgnored = await this._spawnGit(['check-ignore', '-q', folder + '/'], mainWorktreePath, () => true).catch(() => false);
+		if (isIgnored) return null;
+
+		let excludeFilePath: string;
+		try {
+			const commonDir = await this.spawnGit(['rev-parse', '--git-common-dir'], repo, (stdout) => stdout.trim());
+			excludeFilePath = path.join(path.resolve(repo, commonDir), 'info', 'exclude');
+		} catch (errorMessage) {
+			return errorMessage;
+		}
+
+		return new Promise<ErrorInfo>((resolve) => {
+			fs.readFile(excludeFilePath, 'utf8', (readErr, contents) => {
+				const existing = readErr === null ? contents : '';
+				const prefix = existing === '' || existing.endsWith('\n') ? '' : '\n';
+				fs.mkdir(path.dirname(excludeFilePath), () => { // The info folder is normally present, any error is reported by appendFile
+					fs.appendFile(excludeFilePath, prefix + '/' + folder + '/\n', (writeErr) => {
+						resolve(writeErr === null ? null : 'The worktree was created, but Git Tree was unable to add "/' + folder + '/" to "' + getPathFromStr(excludeFilePath) + '" (' + writeErr.message + ').');
+					});
+				});
+			});
+		});
+	}
+
+
 	/* Public Utils */
 
 	/**
@@ -1705,6 +1795,22 @@ export class DataSource extends Disposable {
 	}
 
 	/**
+	 * Get the worktrees of a repository.
+	 * @param repo The path of the repository.
+	 * @returns An array of the worktrees, with the main worktree first.
+	 */
+	private getWorktrees(repo: string): Promise<GitWorktree[]> {
+		if (this.gitExecutable !== null && !doesVersionMeetRequirement(this.gitExecutable.version, GitVersionRequirement.WorktreeList)) {
+			// Git can't list worktrees before 2.7.0
+			return Promise.resolve([]);
+		}
+		return Promise.all([
+			this.spawnGit(['worktree', 'list', '--porcelain'], repo, (stdout) => stdout),
+			realpath(repo)
+		]).then((results) => parseWorktreeList(results[0], [repo, results[1]]));
+	}
+
+	/**
 	 * Get the untracked and deleted files that are not staged or committed.
 	 * @param repo The path of the repository.
 	 * @returns The untracked and deleted files.
@@ -1881,6 +1987,51 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 }
 
 /**
+ * Parse the output of `git worktree list --porcelain`.
+ * @param stdout The output of the command.
+ * @param viewedRepoPaths The paths of the repository being viewed, used to mark its worktree as the current worktree.
+ * @returns An array of the worktrees, with the main worktree first. A bare main repository has no worktree, so it is left out.
+ */
+function parseWorktreeList(stdout: string, viewedRepoPaths: ReadonlyArray<string>) {
+	const worktrees: GitWorktree[] = [];
+	const records = stdout.split(/\r?\n\r?\n/);
+	for (let i = 0; i < records.length; i++) {
+		let worktreePath: string | null = null, head: string | null = null, branch: string | null = null;
+		let bare = false, locked = false, prunable = false;
+		const lines = records[i].split(EOL_REGEX);
+		for (let j = 0; j < lines.length; j++) {
+			const line = lines[j];
+			if (line.startsWith('worktree ')) {
+				worktreePath = getPathFromUri(vscode.Uri.file(path.normalize(line.substring(9))));
+			} else if (line.startsWith('HEAD ')) {
+				head = /^0+$/.test(line.substring(5)) ? null : line.substring(5);
+			} else if (line.startsWith('branch ')) {
+				branch = line.substring(7).replace(/^refs\/heads\//, '');
+			} else if (line === 'bare') {
+				bare = true;
+			} else if (line === 'locked' || line.startsWith('locked ')) {
+				locked = true;
+			} else if (line === 'prunable' || line.startsWith('prunable ')) {
+				prunable = true;
+			}
+		}
+		if (worktreePath === null || bare) continue;
+
+		worktrees.push({
+			path: worktreePath,
+			name: path.basename(worktreePath),
+			head: head,
+			branch: branch,
+			isMain: i === 0,
+			isCurrent: viewedRepoPaths.includes(worktreePath),
+			locked: locked,
+			prunable: prunable
+		});
+	}
+	return worktrees;
+}
+
+/**
  * Get the specified config value from a set of key-value config pairs.
  * @param configs A set key-value pairs of Git configuration records.
  * @param key The key of the desired config.
@@ -2002,6 +2153,7 @@ interface GitRefData {
 interface GitRepoInfo extends GitBranchData {
 	remotes: string[];
 	stashes: GitStash[];
+	worktrees: GitWorktree[];
 }
 
 interface GitRepoConfigData {

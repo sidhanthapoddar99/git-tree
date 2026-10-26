@@ -24,7 +24,7 @@ import { DataSource } from '../src/dataSource';
 import { ExtensionState } from '../src/extensionState';
 import { Logger } from '../src/logger';
 import { GitFileStatus, PullRequestProvider, RepoDropdownOrder } from '../src/types';
-import { GitExecutable, GitVersionRequirement, UNCOMMITTED, abbrevCommit, abbrevText, archive, constructIncompatibleGitVersionMessage, copyFilePathToClipboard, copyToClipboard, createPullRequest, doesFileExist, doesVersionMeetRequirement, evalPromises, findGit, getExtensionVersion, getGitExecutable, getGitExecutableFromPaths, getNonce, getPathFromStr, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openExtensionSettings, openExternalUrl, openFile, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, resolveToSymbolicPath, showErrorMessage, showInformationMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from '../src/utils';
+import { GitExecutable, GitVersionRequirement, UNCOMMITTED, abbrevCommit, abbrevText, archive, constructIncompatibleGitVersionMessage, copyFilePathToClipboard, copyToClipboard, createPullRequest, doesFileExist, doesVersionMeetRequirement, evalPromises, findGit, getExtensionVersion, getGitExecutable, getGitExecutableFromPaths, getNonce, getPathFromStr, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openExtensionSettings, openExternalUrl, openFile, openGitTerminal, openWorktree, pathWithTrailingSlash, realpath, resolveSpawnOutput, resolveToSymbolicPath, showErrorMessage, showInformationMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from '../src/utils';
 import { EventEmitter } from '../src/utils/event';
 
 import { mockRepoState } from './helpers/utils';
@@ -958,6 +958,31 @@ describe('openExtensionSettings', () => {
 
 		// Assert
 		expect(result).toBe('Visual Studio Code was unable to open the Git Tree Extension Settings.');
+	});
+});
+
+describe('openWorktree', () => {
+	it('Opens the worktree in a new window', async () => {
+		// Setup
+		vscode.commands.executeCommand.mockResolvedValueOnce(null);
+
+		// Run
+		const result = await openWorktree('/path/to/repo/.worktrees/feature', true);
+
+		// Assert
+		expect(vscode.commands.executeCommand).toHaveBeenCalledWith('vscode.openFolder', expect.objectContaining({ fsPath: '/path/to/repo/.worktrees/feature' }), true);
+		expect(result).toBe(null);
+	});
+
+	it('Returns an error message when executeCommand fails', async () => {
+		// Setup
+		vscode.commands.executeCommand.mockRejectedValueOnce(null);
+
+		// Run
+		const result = await openWorktree('/path/to/repo/.worktrees/feature', false);
+
+		// Assert
+		expect(result).toBe('Visual Studio Code was unable to open the worktree: /path/to/repo/.worktrees/feature');
 	});
 });
 

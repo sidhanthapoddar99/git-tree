@@ -114,4 +114,44 @@ describe('RepoFileWatcher', () => {
 		// Assert
 		expect(callback).toHaveBeenCalledTimes(0);
 	});
+
+	it('Should report file events when a worktree\'s HEAD changes', () => {
+		// Setup
+		repoFileWatcher.start('/path/to/repo');
+		const onDidChange = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidChange).mock.calls[0][0];
+
+		// Run
+		onDidChange(vscode.Uri.file('/path/to/repo/.git/worktrees/feature/HEAD'));
+		jest.runOnlyPendingTimers();
+
+		// Assert
+		expect(callback).toHaveBeenCalledTimes(1);
+	});
+
+	it('Should ignore file system events in the folder that worktrees are created in', () => {
+		// Setup
+		repoFileWatcher.start('/path/to/repo');
+		const onDidChange = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidChange).mock.calls[0][0];
+
+		// Run
+		onDidChange(vscode.Uri.file('/path/to/repo/.worktrees/feature/file'));
+		jest.runOnlyPendingTimers();
+
+		// Assert
+		expect(callback).toHaveBeenCalledTimes(0);
+	});
+
+	it('Should report file events in the repository when worktrees are created outside it', () => {
+		// Setup
+		vscode.mockExtensionSettingReturnValue('worktree.defaultLocation', '/path/to/worktrees');
+		repoFileWatcher.start('/path/to/repo');
+		const onDidChange = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidChange).mock.calls[0][0];
+
+		// Run
+		onDidChange(vscode.Uri.file('/path/to/repo/.worktrees/feature/file'));
+		jest.runOnlyPendingTimers();
+
+		// Assert
+		expect(callback).toHaveBeenCalledTimes(1);
+	});
 });

@@ -144,6 +144,17 @@ export interface GitTagDetails {
 	readonly signature: GitSignature | null;
 }
 
+export interface GitWorktree {
+	readonly path: string;
+	readonly name: string; // The folder name of the worktree, used as its label
+	readonly head: string | null; // null => the worktree has no commits yet
+	readonly branch: string | null; // null => detached HEAD
+	readonly isMain: boolean; // Is the main worktree of the repository
+	readonly isCurrent: boolean; // Is the worktree of the repository being viewed
+	readonly locked: boolean;
+	readonly prunable: boolean; // The worktree's folder no longer exists
+}
+
 
 /* Git Repo State */
 
@@ -260,6 +271,7 @@ export interface GitGraphViewConfig {
 	readonly showRemoteBranches: boolean;
 	readonly showStashes: boolean;
 	readonly showTags: boolean;
+	readonly worktreeDefaultLocation: string;
 }
 
 export interface GitGraphViewGlobalState {
@@ -749,6 +761,17 @@ export interface ResponseCreateBranch extends ResponseWithMultiErrorInfo {
 	readonly command: 'createBranch';
 }
 
+export interface RequestCreateWorktree extends RepoRequest {
+	readonly command: 'createWorktree';
+	readonly path: string; // An absolute path, or a path relative to the main worktree
+	readonly commitish: string; // The commit or branch to check out in the worktree
+	readonly newBranch: string | null; // null => check out `commitish` without creating a branch
+	readonly openInNewWindow: boolean;
+}
+export interface ResponseCreateWorktree extends ResponseWithMultiErrorInfo {
+	readonly command: 'createWorktree';
+}
+
 export interface RequestCreatePullRequest extends RepoRequest {
 	readonly command: 'createPullRequest';
 	readonly config: PullRequestConfig;
@@ -946,6 +969,7 @@ export interface ResponseLoadRepoInfo extends ResponseWithErrorInfo {
 	readonly head: string | null;
 	readonly remotes: ReadonlyArray<string>;
 	readonly stashes: ReadonlyArray<GitStash>;
+	readonly worktrees: ReadonlyArray<GitWorktree>;
 	readonly isRepo: boolean;
 }
 
@@ -1018,6 +1042,15 @@ export interface RequestOpenTerminal extends RepoRequest {
 }
 export interface ResponseOpenTerminal extends ResponseWithErrorInfo {
 	readonly command: 'openTerminal';
+}
+
+export interface RequestOpenWorktree extends BaseMessage {
+	readonly command: 'openWorktree';
+	readonly path: string;
+	readonly newWindow: boolean;
+}
+export interface ResponseOpenWorktree extends ResponseWithErrorInfo {
+	readonly command: 'openWorktree';
 }
 
 export interface RequestPopStash extends RepoRequest {
@@ -1113,6 +1146,15 @@ export interface RequestRenameBranch extends RepoRequest {
 }
 export interface ResponseRenameBranch extends ResponseWithErrorInfo {
 	readonly command: 'renameBranch';
+}
+
+export interface RequestRemoveWorktree extends RepoRequest {
+	readonly command: 'removeWorktree';
+	readonly path: string;
+	readonly force: boolean;
+}
+export interface ResponseRemoveWorktree extends ResponseWithErrorInfo {
+	readonly command: 'removeWorktree';
 }
 
 export interface RequestRescanForRepos extends BaseMessage {
@@ -1262,6 +1304,7 @@ export type RequestMessage =
 	| RequestCopyToClipboard
 	| RequestCreateArchive
 	| RequestCreateBranch
+	| RequestCreateWorktree
 	| RequestCreatePullRequest
 	| RequestDeleteBranch
 	| RequestDeleteRemote
@@ -1287,6 +1330,7 @@ export type RequestMessage =
 	| RequestOpenExternalUrl
 	| RequestOpenFile
 	| RequestOpenTerminal
+	| RequestOpenWorktree
 	| RequestPopStash
 	| RequestPruneRemote
 	| RequestPullBranch
@@ -1294,6 +1338,7 @@ export type RequestMessage =
 	| RequestPushStash
 	| RequestPushTag
 	| RequestRebase
+	| RequestRemoveWorktree
 	| RequestRenameBranch
 	| RequestRescanForRepos
 	| RequestResetFileToRevision
@@ -1326,6 +1371,7 @@ export type ResponseMessage =
 	| ResponseCopyToClipboard
 	| ResponseCreateArchive
 	| ResponseCreateBranch
+	| ResponseCreateWorktree
 	| ResponseCreatePullRequest
 	| ResponseDeleteBranch
 	| ResponseDeleteRemote
@@ -1350,6 +1396,7 @@ export type ResponseMessage =
 	| ResponseOpenExternalUrl
 	| ResponseOpenFile
 	| ResponseOpenTerminal
+	| ResponseOpenWorktree
 	| ResponsePopStash
 	| ResponsePruneRemote
 	| ResponsePullBranch
@@ -1358,6 +1405,7 @@ export type ResponseMessage =
 	| ResponsePushTag
 	| ResponseRebase
 	| ResponseRefresh
+	| ResponseRemoveWorktree
 	| ResponseRenameBranch
 	| ResponseResetFileToRevision
 	| ResponseResetToCommit

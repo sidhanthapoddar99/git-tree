@@ -1,8 +1,10 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
+import { getConfig } from './config';
 import { Logger } from './logger';
-import { getPathFromUri } from './utils';
+import { getPathFromStr, getPathFromUri } from './utils';
 
-const FILE_CHANGE_REGEX = /(^\.git\/(config|index|HEAD|refs\/stash|refs\/heads\/.*|refs\/remotes\/.*|refs\/tags\/.*)$)|(^(?!\.git).*$)|(^\.git[^\/]+$)/;
+const FILE_CHANGE_REGEX = /(^\.git\/(config|index|HEAD|refs\/stash|refs\/heads\/.*|refs\/remotes\/.*|refs\/tags\/.*|worktrees\/[^\/]+\/HEAD)$)|(^(?!\.git).*$)|(^\.git[^\/]+$)/;
 
 /**
  * Watches a Git repository for file events.
@@ -11,6 +13,7 @@ export class RepoFileWatcher {
 	private readonly logger: Logger;
 	private readonly repoChangeCallback: () => void;
 	private repo: string | null = null;
+	private worktreeFolder: string | null = null;
 	private fsWatcher: vscode.FileSystemWatcher | null = null;
 	private refreshTimeout: NodeJS.Timer | null = null;
 	private muted: boolean = false;
@@ -37,6 +40,9 @@ export class RepoFileWatcher {
 		}
 
 		this.repo = repo;
+		// Ignore file events in the folder that worktrees are created in, as they don't change this repository
+		const worktreeLocation = getConfig(repo).worktreeDefaultLocation;
+		this.worktreeFolder = path.isAbsolute(worktreeLocation) ? null : getPathFromStr(path.normalize(worktreeLocation)) + '/';
 		// Create a File System Watcher for all events within the specified repository
 		this.fsWatcher = vscode.workspace.createFileSystemWatcher(repo + '/**');
 		this.fsWatcher.onDidCreate(uri => this.refresh(uri));
@@ -84,7 +90,8 @@ export class RepoFileWatcher {
 	 */
 	private refresh(uri: vscode.Uri) {
 		if (this.muted) return;
-		if (!getPathFromUri(uri).replace(this.repo + '/', '').match(FILE_CHANGE_REGEX)) return;
+		const filePath = getPathFromUri(uri).replace(this.repo + '/', '');
+		if (!filePath.match(FILE_CHANGE_REGEX) || (this.worktreeFolder !== null && filePath.startsWith(this.worktreeFolder))) return;
 		if ((new Date()).getTime() < this.resumeAt) return;
 
 		if (this.refreshTimeout !== null) {
