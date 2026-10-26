@@ -4,7 +4,7 @@ jest.mock('vscode', () => vscode, { virtual: true });
 jest.mock('../src/avatarManager');
 jest.mock('../src/dataSource');
 jest.mock('../src/extensionState');
-jest.mock('../src/gitGraphView');
+jest.mock('../src/gitTreeView');
 jest.mock('../src/logger');
 jest.mock('../src/repoManager');
 
@@ -15,7 +15,7 @@ import { CommandManager } from '../src/commands';
 import { DataSource } from '../src/dataSource';
 import { DiffSide, encodeDiffDocUri } from '../src/diffDocProvider';
 import { ExtensionState } from '../src/extensionState';
-import { GitGraphView } from '../src/gitGraphView';
+import { GitTreeView } from '../src/gitTreeView';
 import { Logger } from '../src/logger';
 import { RepoManager } from '../src/repoManager';
 import { GitFileStatus, RepoDropdownOrder } from '../src/types';
@@ -32,7 +32,7 @@ let dataSource: DataSource;
 let extensionState: ExtensionState;
 let avatarManager: AvatarManager;
 let repoManager: RepoManager;
-let spyOnGitGraphViewCreateOrShow: jest.SpyInstance, spyOnGetRepos: jest.SpyInstance, spyOnGetKnownRepo: jest.SpyInstance, spyOnRegisterRepo: jest.SpyInstance, spyOnGetCodeReviews: jest.SpyInstance, spyOnEndCodeReview: jest.SpyInstance, spyOnGetCommitSubject: jest.SpyInstance, spyOnLog: jest.SpyInstance, spyOnLogError: jest.SpyInstance;
+let spyOnGitTreeViewCreateOrShow: jest.SpyInstance, spyOnGetRepos: jest.SpyInstance, spyOnGetKnownRepo: jest.SpyInstance, spyOnRegisterRepo: jest.SpyInstance, spyOnGetCodeReviews: jest.SpyInstance, spyOnEndCodeReview: jest.SpyInstance, spyOnGetCommitSubject: jest.SpyInstance, spyOnLog: jest.SpyInstance, spyOnLogError: jest.SpyInstance;
 beforeAll(() => {
 	onDidChangeConfiguration = new EventEmitter<ConfigurationChangeEvent>();
 	onDidChangeGitExecutable = new EventEmitter<utils.GitExecutable>();
@@ -41,7 +41,7 @@ beforeAll(() => {
 	extensionState = new ExtensionState(vscode.mocks.extensionContext, onDidChangeGitExecutable.subscribe);
 	avatarManager = new AvatarManager(dataSource, extensionState, logger);
 	repoManager = new RepoManager(dataSource, extensionState, onDidChangeConfiguration.subscribe, logger);
-	spyOnGitGraphViewCreateOrShow = jest.spyOn(GitGraphView, 'createOrShow');
+	spyOnGitTreeViewCreateOrShow = jest.spyOn(GitTreeView, 'createOrShow');
 	spyOnGetRepos = jest.spyOn(repoManager, 'getRepos');
 	spyOnGetKnownRepo = jest.spyOn(repoManager, 'getKnownRepo');
 	spyOnRegisterRepo = jest.spyOn(repoManager, 'registerRepo');
@@ -185,7 +185,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.view');
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
 			});
 		});
 
@@ -200,7 +200,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.view');
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/workspace-folder/repo' });
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/workspace-folder/repo' });
 			});
 		});
 
@@ -216,7 +216,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.view');
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/workspace-folder/repo' });
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/workspace-folder/repo' });
 			});
 		});
 
@@ -232,7 +232,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.view');
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/workspace-folder' });
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/workspace-folder' });
 			});
 		});
 	});
@@ -622,7 +622,7 @@ describe('CommandManager', () => {
 						canPickMany: false
 					}
 				);
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1', runCommandOnLoad: 'fetch' });
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1', runCommandOnLoad: 'fetch' });
 			});
 		});
 
@@ -660,7 +660,7 @@ describe('CommandManager', () => {
 						canPickMany: false
 					}
 				);
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1', runCommandOnLoad: 'fetch' });
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1', runCommandOnLoad: 'fetch' });
 			});
 		});
 
@@ -698,7 +698,7 @@ describe('CommandManager', () => {
 						canPickMany: false
 					}
 				);
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1', runCommandOnLoad: 'fetch' });
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1', runCommandOnLoad: 'fetch' });
 			});
 		});
 
@@ -733,7 +733,7 @@ describe('CommandManager', () => {
 						canPickMany: false
 					}
 				);
-				expect(spyOnGitGraphViewCreateOrShow).not.toHaveBeenCalled();
+				expect(spyOnGitTreeViewCreateOrShow).not.toHaveBeenCalled();
 			});
 		});
 
@@ -770,7 +770,7 @@ describe('CommandManager', () => {
 					}
 				);
 				expect(vscode.window.showErrorMessage).toHaveBeenCalledWith('An unexpected error occurred while running the command "Fetch from Remote(s)".');
-				expect(spyOnGitGraphViewCreateOrShow).not.toHaveBeenCalled();
+				expect(spyOnGitTreeViewCreateOrShow).not.toHaveBeenCalled();
 			});
 		});
 
@@ -786,7 +786,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.fetch');
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1', runCommandOnLoad: 'fetch' });
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo1', runCommandOnLoad: 'fetch' });
 			});
 		});
 
@@ -800,7 +800,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.fetch');
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
 			});
 		});
 	});
@@ -1033,7 +1033,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.resumeWorkspaceCodeReview');
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, {
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, {
 					repo: '/path/to/repo',
 					commitDetails: {
 						commitHash: '2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c',
@@ -1090,7 +1090,7 @@ describe('CommandManager', () => {
 			// Assert
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.resumeWorkspaceCodeReview');
-				expect(spyOnGitGraphViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, {
+				expect(spyOnGitTreeViewCreateOrShow).toHaveBeenCalledWith('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, {
 					repo: '/path/to/repo',
 					commitDetails: {
 						commitHash: '2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c',
@@ -1137,7 +1137,7 @@ describe('CommandManager', () => {
 			await waitForExpect(() => {
 				expect(spyOnLog).toHaveBeenCalledWith('Command Invoked: git-tree.resumeWorkspaceCodeReview');
 				expect(vscode.window.showQuickPick).toHaveBeenCalledTimes(1);
-				expect(spyOnGitGraphViewCreateOrShow).not.toHaveBeenCalled();
+				expect(spyOnGitTreeViewCreateOrShow).not.toHaveBeenCalled();
 			});
 		});
 

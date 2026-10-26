@@ -1,6 +1,6 @@
 The following license is the MIT License of the Microsoft Visual Studio Code 
 Git Extension, which was used as the base for the following components of this
-Git Graph extension:
+Git Tree extension:
 - Askpass (./src/askpass/* in the source code, and ./out/askpass/* in the 
   distributed code).
 - Find Git Executable methods (in ./src/utils.ts in the source code, and in 

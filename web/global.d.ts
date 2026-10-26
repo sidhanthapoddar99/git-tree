@@ -13,11 +13,11 @@ declare global {
 
 	/* State Types */
 
-	type Config = GG.GitGraphViewConfig;
+	type Config = GG.GitTreeViewConfig;
 
-	const initialState: GG.GitGraphViewInitialState;
-	const globalState: GG.DeepReadonly<GG.GitGraphViewGlobalState>;
-	const workspaceState: GG.DeepReadonly<GG.GitGraphViewWorkspaceState>;
+	const initialState: GG.GitTreeViewInitialState;
+	const globalState: GG.DeepReadonly<GG.GitTreeViewGlobalState>;
+	const workspaceState: GG.DeepReadonly<GG.GitTreeViewWorkspaceState>;
 
 	type AvatarImageCollection = { [email: string]: string };
 

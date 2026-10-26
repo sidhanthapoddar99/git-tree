@@ -513,8 +513,8 @@ function handledEvent(event: Event) {
  * @param key The key identifying the value to update.
  * @param value The new value.
  */
-function updateGlobalViewState<K extends keyof GG.GitGraphViewGlobalState>(key: K, value: GG.GitGraphViewGlobalState[K]) {
-	(<GG.DeepWriteable<GG.GitGraphViewGlobalState>>globalState)[key] = value;
+function updateGlobalViewState<K extends keyof GG.GitTreeViewGlobalState>(key: K, value: GG.GitTreeViewGlobalState[K]) {
+	(<GG.DeepWriteable<GG.GitTreeViewGlobalState>>globalState)[key] = value;
 	sendMessage({ command: 'setGlobalViewState', state: globalState });
 }
 
@@ -523,8 +523,8 @@ function updateGlobalViewState<K extends keyof GG.GitGraphViewGlobalState>(key: 
  * @param key The key identifying the value to update.
  * @param value The new value.
  */
-function updateWorkspaceViewState<K extends keyof GG.GitGraphViewWorkspaceState>(key: K, value: GG.GitGraphViewWorkspaceState[K]) {
-	(<GG.DeepWriteable<GG.GitGraphViewWorkspaceState>>workspaceState)[key] = value;
+function updateWorkspaceViewState<K extends keyof GG.GitTreeViewWorkspaceState>(key: K, value: GG.GitTreeViewWorkspaceState[K]) {
+	(<GG.DeepWriteable<GG.GitTreeViewWorkspaceState>>workspaceState)[key] = value;
 	sendMessage({ command: 'setWorkspaceViewState', state: workspaceState });
 }
 

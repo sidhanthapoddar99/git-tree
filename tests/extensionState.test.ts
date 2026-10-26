@@ -5,7 +5,7 @@ jest.mock('fs');
 
 import * as fs from 'fs';
 import { ExtensionState } from '../src/extensionState';
-import { BooleanOverride, FileViewType, GitGraphViewGlobalState, GitGraphViewWorkspaceState, GitRepoState, RepoCommitOrdering } from '../src/types';
+import { BooleanOverride, FileViewType, GitRepoState, GitTreeViewGlobalState, GitTreeViewWorkspaceState, RepoCommitOrdering } from '../src/types';
 import { GitExecutable } from '../src/utils';
 import { EventEmitter } from '../src/utils/event';
 
@@ -425,7 +425,7 @@ describe('ExtensionState', () => {
 	describe('getGlobalViewState', () => {
 		it('Should return the stored global view state', () => {
 			// Setup
-			const globalViewState: GitGraphViewGlobalState = {
+			const globalViewState: GitTreeViewGlobalState = {
 				alwaysAcceptCheckoutCommit: true,
 				issueLinkingConfig: null,
 				pushTagSkipRemoteCheck: false
@@ -478,7 +478,7 @@ describe('ExtensionState', () => {
 	describe('setGlobalViewState', () => {
 		it('Should successfully store the global view state', async () => {
 			// Setup
-			const globalViewState: GitGraphViewGlobalState = {
+			const globalViewState: GitTreeViewGlobalState = {
 				alwaysAcceptCheckoutCommit: true,
 				issueLinkingConfig: null,
 				pushTagSkipRemoteCheck: false
@@ -495,7 +495,7 @@ describe('ExtensionState', () => {
 
 		it('Should return an error message when vscode is unable to store the global view state', async () => {
 			// Setup
-			const globalViewState: GitGraphViewGlobalState = {
+			const globalViewState: GitTreeViewGlobalState = {
 				alwaysAcceptCheckoutCommit: true,
 				issueLinkingConfig: null,
 				pushTagSkipRemoteCheck: false
@@ -514,7 +514,7 @@ describe('ExtensionState', () => {
 	describe('getWorkspaceViewState', () => {
 		it('Should return the stored workspace view state', () => {
 			// Setup
-			const workspaceViewState: GitGraphViewWorkspaceState = {
+			const workspaceViewState: GitTreeViewWorkspaceState = {
 				findIsCaseSensitive: true,
 				findIsRegex: false,
 				findOpenCommitDetailsView: true
@@ -568,7 +568,7 @@ describe('ExtensionState', () => {
 	describe('setWorkspaceViewState', () => {
 		it('Should successfully store the workspace view state', async () => {
 			// Setup
-			const workspaceViewState: GitGraphViewWorkspaceState = {
+			const workspaceViewState: GitTreeViewWorkspaceState = {
 				findIsCaseSensitive: true,
 				findIsRegex: false,
 				findOpenCommitDetailsView: true
@@ -585,7 +585,7 @@ describe('ExtensionState', () => {
 
 		it('Should return an error message when vscode is unable to store the workspace view state', async () => {
 			// Setup
-			const workspaceViewState: GitGraphViewWorkspaceState = {
+			const workspaceViewState: GitTreeViewWorkspaceState = {
 				findIsCaseSensitive: true,
 				findIsRegex: false,
 				findOpenCommitDetailsView: true

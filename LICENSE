@@ -20,7 +20,5 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Git Tree is based on Git Graph. The code that comes from Git Graph is used
-with the permission of its author, and its copyright notice and license are
-in ./licenses/LICENSE_GIT_GRAPH. THIRD_PARTY_NOTICES.md lists all the code
-Git Tree uses from other projects.
+Some code and icons in Git Tree come from other projects, under their own
+licenses. Those licenses are in the ./licenses folder.

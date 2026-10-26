@@ -233,16 +233,16 @@ export interface GitRepoState {
 
 /* Git Tree View Types */
 
-export interface GitGraphViewInitialState {
-	readonly config: GitGraphViewConfig;
+export interface GitTreeViewInitialState {
+	readonly config: GitTreeViewConfig;
 	readonly lastActiveRepo: string | null;
-	readonly loadViewTo: LoadGitGraphViewTo;
+	readonly loadViewTo: LoadGitTreeViewTo;
 	readonly repos: GitRepoSet;
 	readonly loadRepoInfoRefreshId: number;
 	readonly loadCommitsRefreshId: number;
 }
 
-export interface GitGraphViewConfig {
+export interface GitTreeViewConfig {
 	readonly commitDetailsView: CommitDetailsViewConfig;
 	readonly commitOrdering: CommitOrdering;
 	readonly contextMenuActionsVisibility: ContextMenuActionsVisibility;
@@ -274,13 +274,13 @@ export interface GitGraphViewConfig {
 	readonly worktreeDefaultLocation: string;
 }
 
-export interface GitGraphViewGlobalState {
+export interface GitTreeViewGlobalState {
 	alwaysAcceptCheckoutCommit: boolean;
 	issueLinkingConfig: IssueLinkingConfig | null;
 	pushTagSkipRemoteCheck: boolean;
 }
 
-export interface GitGraphViewWorkspaceState {
+export interface GitTreeViewWorkspaceState {
 	findIsCaseSensitive: boolean;
 	findIsRegex: boolean;
 	findOpenCommitDetailsView: boolean;
@@ -308,7 +308,7 @@ export interface KeybindingConfig {
 	readonly scrollToStash: string | null;
 }
 
-export type LoadGitGraphViewTo = {
+export type LoadGitTreeViewTo = {
 	readonly repo: string,
 	readonly commitDetails?: {
 		readonly commitHash: string,
@@ -982,7 +982,7 @@ export interface ResponseLoadRepos extends BaseMessage {
 	readonly command: 'loadRepos';
 	readonly repos: GitRepoSet;
 	readonly lastActiveRepo: string | null;
-	readonly loadViewTo: LoadGitGraphViewTo;
+	readonly loadViewTo: LoadGitTreeViewTo;
 }
 
 export const enum MergeActionOn {
@@ -1191,7 +1191,7 @@ export interface ResponseRevertCommit extends ResponseWithErrorInfo {
 
 export interface RequestSetGlobalViewState extends BaseMessage {
 	readonly command: 'setGlobalViewState';
-	readonly state: GitGraphViewGlobalState;
+	readonly state: GitTreeViewGlobalState;
 }
 export interface ResponseSetGlobalViewState extends ResponseWithErrorInfo {
 	readonly command: 'setGlobalViewState';
@@ -1204,7 +1204,7 @@ export interface RequestSetRepoState extends RepoRequest {
 
 export interface RequestSetWorkspaceViewState extends BaseMessage {
 	readonly command: 'setWorkspaceViewState';
-	readonly state: GitGraphViewWorkspaceState;
+	readonly state: GitTreeViewWorkspaceState;
 }
 export interface ResponseSetWorkspaceViewState extends ResponseWithErrorInfo {
 	readonly command: 'setWorkspaceViewState';

@@ -1,4 +1,4 @@
-class GitGraphView {
+class GitTreeView {
 	private gitRepos: GG.GitRepoSet;
 	private gitBranches: ReadonlyArray<string> = [];
 	private gitBranchHead: string | null = null;
@@ -26,7 +26,7 @@ class GitGraphView {
 		requestingRepoInfo: boolean;
 		requestingConfig: boolean;
 	};
-	private loadViewTo: GG.LoadGitGraphViewTo = null;
+	private loadViewTo: GG.LoadGitTreeViewTo = null;
 
 	private readonly graph: Graph;
 	private readonly config: Config;
@@ -168,7 +168,7 @@ class GitGraphView {
 
 	/* Loading Data */
 
-	public loadRepos(repos: GG.GitRepoSet, lastActiveRepo: string | null, loadViewTo: GG.LoadGitGraphViewTo) {
+	public loadRepos(repos: GG.GitRepoSet, lastActiveRepo: string | null, loadViewTo: GG.LoadGitTreeViewTo) {
 		this.gitRepos = repos;
 		this.saveState();
 
@@ -2252,7 +2252,7 @@ class GitGraphView {
 						index: this.commitLookup[this.expandedCommit.commitHash],
 						elem: <HTMLElement>eventTarget
 					};
-					GitGraphView.closeCdvContextMenuIfOpen(this.expandedCommit);
+					GitTreeView.closeCdvContextMenuIfOpen(this.expandedCommit);
 					this.expandedCommit.contextMenuOpen.summary = true;
 				} else if ((eventElem = eventTarget.closest('.commit')) !== null) {
 					// URL is in the Commits
@@ -2493,7 +2493,7 @@ class GitGraphView {
 		if (expandedCommit.compareWithElem !== null) {
 			expandedCommit.compareWithElem.classList.remove(CLASS_COMMIT_DETAILS_OPEN);
 		}
-		GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
+		GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 		this.expandedCommit = null;
 		if (saveAndRender) {
 			this.saveState();
@@ -2516,7 +2516,7 @@ class GitGraphView {
 		if (haveFilesChanged(expandedCommit.fileChanges, commitDetails.fileChanges)) {
 			expandedCommit.fileChanges = commitDetails.fileChanges;
 			expandedCommit.fileTree = fileTree;
-			GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
+			GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 		}
 		expandedCommit.avatar = avatar;
 		expandedCommit.codeReview = codeReview;
@@ -2591,7 +2591,7 @@ class GitGraphView {
 		if (expandedCommit.compareWithElem !== null) {
 			expandedCommit.compareWithElem.classList.remove(CLASS_COMMIT_DETAILS_OPEN);
 		}
-		GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
+		GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 		if (saveAndRequestCommitDetails) {
 			if (expandedCommit.commitElem !== null) {
 				this.saveExpandedCommitLoading(expandedCommit.index, expandedCommit.commitHash, expandedCommit.commitElem, null, null);
@@ -2610,7 +2610,7 @@ class GitGraphView {
 		if (haveFilesChanged(expandedCommit.fileChanges, fileChanges)) {
 			expandedCommit.fileChanges = fileChanges;
 			expandedCommit.fileTree = fileTree;
-			GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
+			GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 		}
 		expandedCommit.codeReview = codeReview;
 		if (!refresh) {
@@ -2978,7 +2978,7 @@ class GitGraphView {
 	private changeFileViewType(type: GG.FileViewType) {
 		const expandedCommit = this.expandedCommit, filesElem = document.getElementById('cdvFiles');
 		if (expandedCommit === null || expandedCommit.fileTree === null || expandedCommit.fileChanges === null || filesElem === null) return;
-		GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
+		GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 		this.setFileViewType(type);
 		const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
 		filesElem.innerHTML = generateFileViewHtml(expandedCommit.fileTree, expandedCommit.fileChanges, expandedCommit.lastViewedFile, expandedCommit.contextMenuOpen.fileView, type, commitOrder.to === UNCOMMITTED);
@@ -3144,7 +3144,7 @@ class GitGraphView {
 			const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
 			const isUncommitted = commitOrder.to === UNCOMMITTED;
 
-			GitGraphView.closeCdvContextMenuIfOpen(expandedCommit);
+			GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 			expandedCommit.contextMenuOpen.fileView = parseInt(fileElem.dataset.index!);
 
 			const target: ContextMenuTarget & CommitTarget = {
@@ -3301,7 +3301,7 @@ window.addEventListener('load', () => {
 	const viewElem = document.getElementById('view');
 	if (viewElem === null) return;
 
-	const gitGraph = new GitGraphView(viewElem, VSCODE_API.getState());
+	const gitTree = new GitTreeView(viewElem, VSCODE_API.getState());
 	const imageResizer = new ImageResizer();
 
 	/* Command Processing */
@@ -3313,7 +3313,7 @@ window.addEventListener('load', () => {
 				break;
 			case 'addTag':
 				if (msg.pushToRemote !== null && msg.errors.length === 2 && msg.errors[0] === null && isExtensionErrorInfo(msg.errors[1], GG.ErrorInfoExtensionPrefix.PushTagCommitNotOnRemote)) {
-					gitGraph.refresh(false);
+					gitTree.refresh(false);
 					handleResponsePushTagCommitNotOnRemote(msg.repo, msg.tagName, [msg.pushToRemote], msg.commitHash, msg.errors[1]!);
 				} else {
 					refreshAndDisplayErrors(msg.errors, 'Unable to Add Tag');
@@ -3339,17 +3339,17 @@ window.addEventListener('load', () => {
 				break;
 			case 'commitDetails':
 				if (msg.commitDetails !== null) {
-					gitGraph.showCommitDetails(msg.commitDetails, gitGraph.createFileTree(msg.commitDetails.fileChanges, msg.codeReview), msg.avatar, msg.codeReview, msg.codeReview !== null ? msg.codeReview.lastViewedFile : null, msg.refresh);
+					gitTree.showCommitDetails(msg.commitDetails, gitTree.createFileTree(msg.commitDetails.fileChanges, msg.codeReview), msg.avatar, msg.codeReview, msg.codeReview !== null ? msg.codeReview.lastViewedFile : null, msg.refresh);
 				} else {
-					gitGraph.closeCommitDetails(true);
+					gitTree.closeCommitDetails(true);
 					dialog.showError('Unable to load Commit Details', msg.error, null, null);
 				}
 				break;
 			case 'compareCommits':
 				if (msg.error === null) {
-					gitGraph.showCommitComparison(msg.commitHash, msg.compareWithHash, msg.fileChanges, gitGraph.createFileTree(msg.fileChanges, msg.codeReview), msg.codeReview, msg.codeReview !== null ? msg.codeReview.lastViewedFile : null, msg.refresh);
+					gitTree.showCommitComparison(msg.commitHash, msg.compareWithHash, msg.fileChanges, gitTree.createFileTree(msg.fileChanges, msg.codeReview), msg.codeReview, msg.codeReview !== null ? msg.codeReview.lastViewedFile : null, msg.refresh);
 				} else {
-					gitGraph.closeCommitComparison(true);
+					gitTree.closeCommitComparison(true);
 					dialog.showError('Unable to load Commit Comparison', msg.error, null, null);
 				}
 				break;
@@ -3371,7 +3371,7 @@ window.addEventListener('load', () => {
 			case 'createPullRequest':
 				finishOrDisplayErrors(msg.errors, 'Unable to Create Pull Request', () => {
 					if (msg.push) {
-						gitGraph.refresh(false);
+						gitTree.refresh(false);
 					}
 				}, true);
 				break;
@@ -3388,7 +3388,7 @@ window.addEventListener('load', () => {
 				refreshOrDisplayError(msg.error, 'Unable to Delete Tag');
 				break;
 			case 'deleteUserDetails':
-				finishOrDisplayErrors(msg.errors, 'Unable to Remove Git User Details', () => gitGraph.requestLoadConfig(), true);
+				finishOrDisplayErrors(msg.errors, 'Unable to Remove Git User Details', () => gitTree.requestLoadConfig(), true);
 				break;
 			case 'dropCommit':
 				refreshOrDisplayError(msg.error, 'Unable to Drop Commit');
@@ -3400,7 +3400,7 @@ window.addEventListener('load', () => {
 				refreshOrDisplayError(msg.error, 'Unable to Save Changes to Remote', true);
 				break;
 			case 'editUserDetails':
-				finishOrDisplayErrors(msg.errors, 'Unable to Save Git User Details', () => gitGraph.requestLoadConfig(), true);
+				finishOrDisplayErrors(msg.errors, 'Unable to Save Git User Details', () => gitTree.requestLoadConfig(), true);
 				break;
 			case 'exportRepoConfig':
 				refreshOrDisplayError(msg.error, 'Unable to Export Repository Configuration');
@@ -3410,23 +3410,23 @@ window.addEventListener('load', () => {
 				break;
 			case 'fetchAvatar':
 				imageResizer.resize(msg.image, (resizedImage) => {
-					gitGraph.loadAvatar(msg.email, resizedImage);
+					gitTree.loadAvatar(msg.email, resizedImage);
 				});
 				break;
 			case 'fetchIntoLocalBranch':
 				refreshOrDisplayError(msg.error, 'Unable to Fetch into Local Branch');
 				break;
 			case 'loadCommits':
-				gitGraph.processLoadCommitsResponse(msg);
+				gitTree.processLoadCommitsResponse(msg);
 				break;
 			case 'loadConfig':
-				gitGraph.processLoadConfig(msg);
+				gitTree.processLoadConfig(msg);
 				break;
 			case 'loadRepoInfo':
-				gitGraph.processLoadRepoInfoResponse(msg);
+				gitTree.processLoadRepoInfoResponse(msg);
 				break;
 			case 'loadRepos':
-				gitGraph.loadRepos(msg.repos, msg.lastActiveRepo, msg.loadViewTo);
+				gitTree.loadRepos(msg.repos, msg.lastActiveRepo, msg.loadViewTo);
 				break;
 			case 'merge':
 				refreshOrDisplayError(msg.error, 'Unable to Merge ' + msg.actionOn);
@@ -3476,14 +3476,14 @@ window.addEventListener('load', () => {
 					if (msg.interactive) {
 						dialog.closeActionRunning();
 					} else {
-						gitGraph.refresh(false);
+						gitTree.refresh(false);
 					}
 				} else {
 					dialog.showError('Unable to Rebase current branch on ' + msg.actionOn, msg.error, null, null);
 				}
 				break;
 			case 'refresh':
-				gitGraph.refresh(false);
+				gitTree.refresh(false);
 				break;
 			case 'removeWorktree':
 				refreshOrDisplayError(msg.error, 'Unable to Remove Worktree');
@@ -3508,14 +3508,14 @@ window.addEventListener('load', () => {
 				break;
 			case 'startCodeReview':
 				if (msg.error === null) {
-					gitGraph.startCodeReview(msg.commitHash, msg.compareWithHash, msg.codeReview);
+					gitTree.startCodeReview(msg.commitHash, msg.compareWithHash, msg.codeReview);
 				} else {
 					dialog.showError('Unable to Start Code Review', msg.error, null, null);
 				}
 				break;
 			case 'tagDetails':
 				if (msg.details !== null) {
-					gitGraph.renderTagDetails(msg.tagName, msg.commitHash, msg.details);
+					gitTree.renderTagDetails(msg.tagName, msg.commitHash, msg.details);
 				} else {
 					dialog.showError('Unable to retrieve Tag Details', msg.error, null, null);
 				}
@@ -3576,7 +3576,7 @@ window.addEventListener('load', () => {
 
 	function refreshOrDisplayError(error: GG.ErrorInfo, errorMessage: string, configChanges: boolean = false) {
 		if (error === null) {
-			gitGraph.refresh(false, configChanges);
+			gitTree.refresh(false, configChanges);
 		} else {
 			dialog.showError(errorMessage, error, null, null);
 		}
@@ -3588,9 +3588,9 @@ window.addEventListener('load', () => {
 			dialog.showError(errorMessage, reducedErrors.error, null, null);
 		}
 		if (reducedErrors.partialOrCompleteSuccess) {
-			gitGraph.refresh(false, configChanges);
+			gitTree.refresh(false, configChanges);
 		} else if (configChanges) {
-			gitGraph.requestLoadConfig();
+			gitTree.requestLoadConfig();
 		}
 	}
 

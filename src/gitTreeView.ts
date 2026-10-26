@@ -7,15 +7,15 @@ import { ExtensionState } from './extensionState';
 import { Logger } from './logger';
 import { RepoFileWatcher } from './repoFileWatcher';
 import { RepoManager } from './repoManager';
-import { ErrorInfo, GitConfigLocation, GitGraphViewInitialState, GitPushBranchMode, GitRepoSet, LoadGitGraphViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
+import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewInitialState, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
 import { UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, getNonce, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
 
 /**
  * Manages the Git Tree View.
  */
-export class GitGraphView extends Disposable {
-	public static currentPanel: GitGraphView | undefined;
+export class GitTreeView extends Disposable {
+	public static currentPanel: GitTreeView | undefined;
 
 	private readonly panel: vscode.WebviewPanel;
 	private readonly extensionPath: string;
@@ -28,7 +28,7 @@ export class GitGraphView extends Disposable {
 	private isGraphViewLoaded: boolean = false;
 	private isPanelVisible: boolean = true;
 	private currentRepo: string | null = null;
-	private loadViewTo: LoadGitGraphViewTo = null; // Is used by the next call to getHtmlForWebview, and is then reset to null
+	private loadViewTo: LoadGitTreeViewTo = null; // Is used by the next call to getHtmlForWebview, and is then reset to null
 
 	private loadRepoInfoRefreshId: number = 0;
 	private loadCommitsRefreshId: number = 0;
@@ -43,24 +43,24 @@ export class GitGraphView extends Disposable {
 	 * @param logger The Git Tree Logger instance.
 	 * @param loadViewTo What to load the view to.
 	 */
-	public static createOrShow(extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger, loadViewTo: LoadGitGraphViewTo) {
+	public static createOrShow(extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger, loadViewTo: LoadGitTreeViewTo) {
 		const column = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined;
 
-		if (GitGraphView.currentPanel) {
+		if (GitTreeView.currentPanel) {
 			// If Git Tree panel already exists
-			if (GitGraphView.currentPanel.isPanelVisible) {
+			if (GitTreeView.currentPanel.isPanelVisible) {
 				// If the Git Tree panel is visible
 				if (loadViewTo !== null) {
-					GitGraphView.currentPanel.respondLoadRepos(repoManager.getRepos(), loadViewTo);
+					GitTreeView.currentPanel.respondLoadRepos(repoManager.getRepos(), loadViewTo);
 				}
 			} else {
 				// If the Git Tree panel is not visible
-				GitGraphView.currentPanel.loadViewTo = loadViewTo;
+				GitTreeView.currentPanel.loadViewTo = loadViewTo;
 			}
-			GitGraphView.currentPanel.panel.reveal(column);
+			GitTreeView.currentPanel.panel.reveal(column);
 		} else {
 			// If Git Tree panel doesn't already exist
-			GitGraphView.currentPanel = new GitGraphView(extensionPath, dataSource, extensionState, avatarManager, repoManager, logger, loadViewTo, column);
+			GitTreeView.currentPanel = new GitTreeView(extensionPath, dataSource, extensionState, avatarManager, repoManager, logger, loadViewTo, column);
 		}
 	}
 
@@ -75,7 +75,7 @@ export class GitGraphView extends Disposable {
 	 * @param loadViewTo What to load the view to.
 	 * @param column The column the view should be loaded in.
 	 */
-	private constructor(extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger, loadViewTo: LoadGitGraphViewTo, column: vscode.ViewColumn | undefined) {
+	private constructor(extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger, loadViewTo: LoadGitTreeViewTo, column: vscode.ViewColumn | undefined) {
 		super();
 		this.extensionPath = extensionPath;
 		this.avatarManager = avatarManager;
@@ -102,7 +102,7 @@ export class GitGraphView extends Disposable {
 		this.registerDisposables(
 			// Dispose Git Tree View resources when disposed
 			toDisposable(() => {
-				GitGraphView.currentPanel = undefined;
+				GitTreeView.currentPanel = undefined;
 				this.repoFileWatcher.stop();
 			}),
 
@@ -686,7 +686,7 @@ export class GitGraphView extends Disposable {
 	 */
 	private getHtmlForWebview() {
 		const config = getConfig(), nonce = getNonce();
-		const initialState: GitGraphViewInitialState = {
+		const initialState: GitTreeViewInitialState = {
 			config: {
 				commitDetailsView: config.commitDetailsView,
 				commitOrdering: config.commitOrder,
@@ -766,7 +766,7 @@ export class GitGraphView extends Disposable {
 			body = `<body class="unableToLoad">
 			<h2>Unable to load Git Tree</h2>
 			<p class="unableToLoadMessage">No Git repositories were found in the current workspace when it was last scanned by Git Tree.</p>
-			<p>If your repositories are in subfolders of the open workspace folder(s), make sure you have set the Git Tree Setting "git-tree.maxDepthOfRepoSearch" appropriately (read the <a href="https://github.com/mhutchie/vscode-git-graph/wiki/Extension-Settings#max-depth-of-repo-search" target="_blank">documentation</a> for more information).</p>
+			<p>If your repositories are in subfolders of the open workspace folder(s), make sure you have set the Git Tree Setting "git-tree.maxDepthOfRepoSearch" appropriately.</p>
 			<p><div id="rescanForReposBtn" class="roundedBtn">Re-scan the current workspace for repositories</div></p>
 			<script nonce="${nonce}">(function(){ var api = acquireVsCodeApi(); document.getElementById('rescanForReposBtn').addEventListener('click', function(){ api.postMessage({command: 'rescanForRepos'}); }); })();</script>
 			</body>`;
@@ -826,7 +826,7 @@ export class GitGraphView extends Disposable {
 	 * @param repos The set of known repositories.
 	 * @param loadViewTo What to load the view to.
 	 */
-	private respondLoadRepos(repos: GitRepoSet, loadViewTo: LoadGitGraphViewTo) {
+	private respondLoadRepos(repos: GitRepoSet, loadViewTo: LoadGitTreeViewTo) {
 		this.sendMessage({
 			command: 'loadRepos',
 			repos: repos,

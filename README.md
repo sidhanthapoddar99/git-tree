@@ -2,12 +2,12 @@
 
 Git Tree is a Visual Studio Code extension that shows a Git graph of your repository, with its worktrees, and lets you run Git actions from the graph.
 
-It is based on [Git Graph](https://github.com/mhutchie/vscode-git-graph) by Michael Hutchison, used with the author's permission. Git Tree keeps Git Graph's view, menus and settings, and adds:
+Its highlights:
 
 * **Worktrees in the graph.** A branch that is checked out in another worktree shows that worktree's name on its label. A worktree on a detached HEAD gets its own label on its commit.
 * **Worktree actions.** Create a worktree from a commit or a branch, open it in a new or the current window, remove it, or copy its path.
 * **Colours that follow your theme.** Rows, labels, inputs and the graph palette are tuned for light and dark themes.
-* **No telemetry.** Git Graph's install and update events are removed.
+* **No telemetry.** Git Tree sends no usage data.
 
 ## Worktrees
 
@@ -63,7 +63,7 @@ New worktrees go in the `.worktrees` folder of the main worktree by default, for
         * Configure "Issue Linking" - Converts issue numbers in commit messages into hyperlinks, that open the issue in your issue tracking system.
         * Configure "Pull Request Creation" - Automates the opening and pre-filling of a Pull Request form, directly from a branches context menu.
             * Support for the publicly hosted Bitbucket, GitHub and GitLab Pull Request providers is built-in.
-            * Custom Pull Request providers can be configured using the Extension Setting `git-tree.customPullRequestProviders` (e.g. for use with privately hosted Pull Request providers). Information on how to configure custom providers is available [here](https://github.com/mhutchie/vscode-git-graph/wiki/Configuring-a-custom-Pull-Request-Provider).
+            * Custom Pull Request providers can be configured using the Extension Setting `git-tree.customPullRequestProviders` (e.g. for use with privately hosted Pull Request providers).
         * Export your Git Tree Repository Configuration to a file that can be committed in the repository. It allows others working in the same repository to automatically use the same Git Tree configuration.
     * Keyboard Shortcuts (available in the Git Tree View):
         * `CTRL/CMD + F`: Open the Find Widget.
@@ -86,9 +86,9 @@ New worktrees go in the `.worktrees` folder of the main worktree by default, for
 
 ## Extension Settings
 
-Git Tree has the same settings as Git Graph, under the `git-tree.` prefix instead of `git-graph.`. [Git Graph's settings documentation](https://github.com/mhutchie/vscode-git-graph/wiki/Extension-Settings) describes them. A repository's shared configuration file is `.vscode/vscode-git-tree.json`.
+All settings start with `git-tree.`. Search for "Git Tree" in the Settings editor to see each one with its description. A repository's shared configuration file is `.vscode/vscode-git-tree.json`.
 
-Git Tree adds one setting:
+The worktree setting:
 
 * `git-tree.worktree.defaultLocation`: The folder new worktrees are created in, relative to the main worktree, or an absolute path. Default: `.worktrees`.
 
@@ -127,7 +127,7 @@ The release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits and License
 
-Git Tree is built on [Git Graph](https://github.com/mhutchie/vscode-git-graph), copyright (c) 2019-present Michael Hutchison, used with the author's permission. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the code Git Tree uses and its licenses.
+Git Tree is under the MIT License in [LICENSE](LICENSE). Some code and icons come from other projects, under the licenses in the [licenses](licenses) folder.
 
 Some of the icons are from the following sources:
 - [GitHub Octicons](https://octicons.github.com/) ([License](https://github.com/primer/octicons/blob/master/LICENSE))

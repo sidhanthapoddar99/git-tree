@@ -5,7 +5,7 @@ import { getConfig } from './config';
 import { DataSource } from './dataSource';
 import { DiffDocProvider, decodeDiffDocUri } from './diffDocProvider';
 import { CodeReviewData, CodeReviews, ExtensionState } from './extensionState';
-import { GitGraphView } from './gitGraphView';
+import { GitTreeView } from './gitTreeView';
 import { Logger } from './logger';
 import { RepoManager } from './repoManager';
 import { GitExecutable, UNABLE_TO_FIND_GIT_MSG, VsCodeVersionRequirement, abbrevCommit, abbrevText, copyToClipboard, doesVersionMeetRequirement, getExtensionVersion, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openFile, resolveToSymbolicPath, showErrorMessage, showInformationMessage } from './utils';
@@ -120,7 +120,7 @@ export class CommandManager extends Disposable {
 			loadRepo = this.repoManager.getRepoContainingFile(getPathFromUri(vscode.window.activeTextEditor.document.uri));
 		}
 
-		GitGraphView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, loadRepo !== null ? { repo: loadRepo } : null);
+		GitTreeView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, loadRepo !== null ? { repo: loadRepo } : null);
 	}
 
 	/**
@@ -221,7 +221,7 @@ export class CommandManager extends Disposable {
 				canPickMany: false
 			}).then((item) => {
 				if (item && item.description) {
-					GitGraphView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, {
+					GitTreeView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, {
 						repo: item.description,
 						runCommandOnLoad: 'fetch'
 					});
@@ -230,12 +230,12 @@ export class CommandManager extends Disposable {
 				showErrorMessage('An unexpected error occurred while running the command "Fetch from Remote(s)".');
 			});
 		} else if (repoPaths.length === 1) {
-			GitGraphView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, {
+			GitTreeView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, {
 				repo: repoPaths[0],
 				runCommandOnLoad: 'fetch'
 			});
 		} else {
-			GitGraphView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, null);
+			GitTreeView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, null);
 		}
 	}
 
@@ -291,7 +291,7 @@ export class CommandManager extends Disposable {
 		}).then((item) => {
 			if (item) {
 				const commitHashes = item.codeReviewId.split('-');
-				GitGraphView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, {
+				GitTreeView.createOrShow(this.context.extensionPath, this.dataSource, this.extensionState, this.avatarManager, this.repoManager, this.logger, {
 					repo: item.codeReviewRepo,
 					commitDetails: {
 						commitHash: commitHashes[commitHashes.length > 1 ? 1 : 0],
@@ -309,8 +309,8 @@ export class CommandManager extends Disposable {
 	 */
 	private async version() {
 		try {
-			const gitGraphVersion = await getExtensionVersion(this.context);
-			const information = 'Git Tree: ' + gitGraphVersion + '\nVisual Studio Code: ' + vscode.version + '\nOS: ' + os.type() + ' ' + os.arch() + ' ' + os.release() + '\nGit: ' + (this.gitExecutable !== null ? this.gitExecutable.version : '(none)');
+			const gitTreeVersion = await getExtensionVersion(this.context);
+			const information = 'Git Tree: ' + gitTreeVersion + '\nVisual Studio Code: ' + vscode.version + '\nOS: ' + os.type() + ' ' + os.arch() + ' ' + os.release() + '\nGit: ' + (this.gitExecutable !== null ? this.gitExecutable.version : '(none)');
 			vscode.window.showInformationMessage(information, { modal: true }, 'Copy').then((selectedItem) => {
 				if (selectedItem === 'Copy') {
 					copyToClipboard(information).then((result) => {

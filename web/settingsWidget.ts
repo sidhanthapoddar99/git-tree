@@ -7,7 +7,7 @@ interface SettingsWidgetState {
  * Implements the Git Tree View's Settings Widget.
  */
 class SettingsWidget {
-	private readonly view: GitGraphView;
+	private readonly view: GitTreeView;
 
 	private currentRepo: string | null = null;
 	private repo: Readonly<GG.GitRepoState> | null = null;
@@ -24,7 +24,7 @@ class SettingsWidget {
 	 * @param view The Git Tree View that the SettingsWidget is for.
 	 * @returns The SettingsWidget instance.
 	 */
-	constructor(view: GitGraphView) {
+	constructor(view: GitTreeView) {
 		this.view = view;
 
 		this.widgetElem = document.createElement('div');

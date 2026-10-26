@@ -11,7 +11,7 @@ interface FindWidgetState {
  * Implements the Git Tree View's Find Widget.
  */
 class FindWidget {
-	private readonly view: GitGraphView;
+	private readonly view: GitTreeView;
 	private text: string = '';
 	private matches: { hash: string, elem: HTMLElement }[] = [];
 	private position: number = -1;
@@ -30,7 +30,7 @@ class FindWidget {
 	 * @param view The Git Tree View that the FindWidget is for.
 	 * @returns The FindWidget instance.
 	 */
-	constructor(view: GitGraphView) {
+	constructor(view: GitTreeView) {
 		this.view = view;
 		this.widgetElem = document.createElement('div');
 		this.widgetElem.className = 'findWidget';
