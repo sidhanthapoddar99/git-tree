@@ -111,7 +111,7 @@ describe('AvatarManager', () => {
 			it('Should fetch a new avatar from GitHub (HTTPS Remote)', async () => {
 				// Setup
 				spyOnGetRemoteUrl.mockResolvedValueOnce('https://github.com/mhutchie/test-repo.git');
-				mockHttpsResponse(200, '{"author":{"avatar_url":"https://avatar-url"}}');
+				mockHttpsResponse(200, '{"author":{"avatar_url":"https://avatar-url/u/1?v=4"}}');
 				mockHttpsResponse(200, 'binary-image-data');
 				mockWriteFile(null);
 				mockReadFile('binary-image-data');
@@ -135,7 +135,7 @@ describe('AvatarManager', () => {
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
-					path: '/&size=162',
+					path: '/u/1?v=4&size=162',
 					headers: { 'User-Agent': 'vscode-git-graph' },
 					agent: false,
 					timeout: 15000
@@ -152,7 +152,7 @@ describe('AvatarManager', () => {
 			it('Should fetch a new avatar from GitHub (SSH Remote)', async () => {
 				// Setup
 				spyOnGetRemoteUrl.mockResolvedValueOnce('git@github.com:mhutchie/test-repo.git');
-				mockHttpsResponse(200, '{"author":{"avatar_url":"https://avatar-url"}}');
+				mockHttpsResponse(200, '{"author":{"avatar_url":"https://avatar-url/u/1?v=4"}}');
 				mockHttpsResponse(200, 'binary-image-data');
 				mockWriteFile(null);
 				mockReadFile('binary-image-data');
@@ -185,7 +185,7 @@ describe('AvatarManager', () => {
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
-					path: '/&size=162',
+					path: '/u/1?v=4&size=162',
 					headers: { 'User-Agent': 'vscode-git-graph' },
 					agent: false,
 					timeout: 15000
@@ -284,7 +284,7 @@ describe('AvatarManager', () => {
 			it('Should halt fetching the avatar when the GitHub avatar url request is unsuccessful', async () => {
 				// Setup
 				spyOnGetRemoteUrl.mockResolvedValueOnce('https://github.com/mhutchie/test-repo.git');
-				mockHttpsResponse(200, '{"author":{"avatar_url":"https://avatar-url"}}');
+				mockHttpsResponse(200, '{"author":{"avatar_url":"https://avatar-url/u/1?v=4"}}');
 				mockHttpsResponse(404, '');
 
 				// Run
@@ -304,7 +304,7 @@ describe('AvatarManager', () => {
 				}, expect.anything());
 				expect(spyOnHttpsGet).toHaveBeenCalledWith({
 					hostname: 'avatar-url',
-					path: '/&size=162',
+					path: '/u/1?v=4&size=162',
 					headers: { 'User-Agent': 'vscode-git-graph' },
 					agent: false,
 					timeout: 15000
