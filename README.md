@@ -19,7 +19,7 @@ Worktrees let you keep several branches checked out at once, each in its own fol
 - 🔎 **A worktree filter.** Show one worktree's history and changes, the main worktree's, or everything at once.
 - 🛠️ **Worktree actions.** Create a worktree from a commit or a branch, open it in a new window, remove it, or copy its path. Ctrl+click a worktree to open it.
 - 🗂️ **One tab per repository.** Keep several repositories open side by side.
-- ⚡ **Fast in large repositories.** Git Tree writes Git's commit-graph file when a repository has none, which makes the graph load up to four times faster.
+- ⚡ **Fast and light.** A Rust engine reads the repository without starting `git`, and the graph draws only the rows on screen. The view opens up to 3× faster than Git Graph, and drawing 5,000 commits takes 24 ms instead of 400.
 - 🎨 **Follows your theme.** Rows, labels, dialogs and the graph's colours are tuned for light and dark themes.
 - 🔒 **No telemetry.** Git Tree sends no usage data.
 
@@ -27,26 +27,38 @@ And everything you expect from a Git graph: branches, merges, tags, stashes and 
 
 ## Git Tree compared with Git Graph
 
-Git Tree started from [Git Graph](https://github.com/mhutchie/vscode-git-graph) 1.30.0, and keeps all of its features.
+Git Tree started from [Git Graph](https://github.com/mhutchie/vscode-git-graph) 1.30.0, and keeps all of its features. Git Tree 0.3 is written in TypeScript and reads the repository by running `git`, as Git Graph does. Git Tree 0.4 reads it with a Rust engine, and draws only the rows on screen.
 
 ### Performance
 
-Measured on Linux, on the same machine. *Loading the graph's data* is the time to run Git and parse its output for the first 300 commits, as the median of 11 runs. *Drawing* is the time the view takes to show the commits in headless Chromium, as the median of 5 runs; it varies by about 20% from one set of runs to the next.
+| | Git Graph 1.30.0 | Git Tree 0.3 (TypeScript) | Git Tree 0.4 (Rust) |
+| --- | --- | --- | --- |
+| Opening the view, 6,750 commits | 17.5 ms | 19.4 ms | **7.0 ms** (2.5× faster) |
+| Opening the view, 6,750 commits, no commit-graph file | 62.9 ms | 63.9 ms, then 19.4 ms once Git Tree writes the file | **45.3 ms**, then **7.0 ms** once Git Tree writes the file |
+| Opening the view, a small repository (63 commits) | 10.1 ms | 10.6 ms | **3.2 ms** (3× faster) |
+| `git` processes started to open the view | 5 | 6 | **0** |
+| `git status` for uncommitted changes | after `git log` | alongside `git log` | alongside the engine |
+| Coming back to a hidden tab | reloads the whole view | refreshes the data only | refreshes the data only |
+| Drawing 300 / 2,000 / 5,000 commits | as Git Tree 0.3 | 33 / 162 / about 400 ms | **24 / 22 / 24 ms** |
+| Elements on the page, 5,000 commits | as Git Tree 0.3 | about 48,000 | **about 1,600** |
+| View memory, 2,000 / 5,000 commits | as Git Tree 0.3 | 199 / 277 MB | **145 / 153 MB** |
+| Extension memory after 30 view loads | 31 MB | 33 MB | **28 MB** |
+| Download size | 346 KB | 336 KB | 1.2 MB |
 
-| | Git Graph 1.30.0 | Git Tree 0.3.2 |
-| --- | --- | --- |
-| Loading the graph's data, 16,000 commits, no commit-graph file | 113 ms | **25 ms** (4.5× faster) |
-| Loading the graph's data, 6,750 commits, no commit-graph file | 70 ms | **36 ms** (2× faster) |
-| Loading the graph's data, a repository that has a commit-graph file | about the same | about the same |
-| `git status` for uncommitted changes | after `git log` | **alongside `git log`** |
-| Coming back to a hidden tab | reloads the whole view | **refreshes the data only** |
-| Drawing 300 / 2,000 / 5,000 commits | about 60 / 240 / 520 ms | about the same |
+How these were measured, on Linux x64 with Git 2.55:
+
+- *Opening the view* is the time to read the repository's branches, remotes, stashes, worktrees and refs, and the first 300 commits, through each version's own code. It's the median of 25 runs, with the three versions taking turns. `git status` runs in all three and is left out. The 6,750-commit repository is a copy of a real project.
+- *Drawing* is the time from the commits reaching the view to the painted frame, in Chromium, as the median of several runs. Git Graph and Git Tree 0.3 share the same drawing code.
+- *View memory* is the memory of the view's page; an empty page takes about 135 MB. *Extension memory* is the extension's own memory, not counting the `git` processes it starts.
+- The download size is the Linux x64 package. Git Tree 0.4 ships one package per platform, because the Rust engine is native code.
+
+Starting a `git` process costs about 2 ms on Linux, and 40–70 ms on Windows. Git Tree 0.4 starts none to open the view, so it gains the most on Windows and macOS. Those gains haven't been measured yet.
 
 Git writes the commit-graph file during `git gc`, so many long-lived repositories already have one. Git Tree writes it for repositories that don't.
 
 ### Features
 
-| | Git Graph 1.30.0 | Git Tree 0.3.2 |
+| | Git Graph 1.30.0 | Git Tree |
 | --- | --- | --- |
 | Worktrees shown in the graph | — | ✅ A Worktree column |
 | Uncommitted changes | The open repository's only | ✅ Every worktree's, each in its own row |
