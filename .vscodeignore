@@ -18,3 +18,4 @@ docs/
 scripts/
 mise.toml
 CONTRIBUTING.md
+.worktrees/
