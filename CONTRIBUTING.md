@@ -4,7 +4,7 @@ This guide is for people working on Git Tree itself. How to use the extension, a
 
 ## Toolchain
 
-[mise](https://mise.jdx.dev) pins Node.js, and runs the project's tasks. npm installs the dependencies.
+[mise](https://mise.jdx.dev) pins Node.js, and runs the project's tasks. npm installs the dependencies. The engine (below) also needs Rust; `native/rust-toolchain.toml` pins its version, which rustup installs the first time cargo runs in `native/`.
 
 ```bash
 mise install        # installs the Node.js version in mise.toml
@@ -17,6 +17,9 @@ mise run setup      # npm ci, then builds the demo repository
 | `mise run build` | Lints, then builds the extension (`out/`) and the webview (`media/`). |
 | `mise run test` | Runs the Jest tests. |
 | `mise run gate` | What CI runs: lint, build and test. |
+| `mise run engine` | Builds the Rust engine in release mode, into `native/bin/`. |
+| `mise run test-engine` | Compares each engine read with the Git CLI read, on real repositories. Needs the engine built. |
+| `mise run bench-engine <repository>` | Times each read with the Git CLI and with the engine. |
 | `mise run demo` | Rebuilds the demo repository from scratch. |
 | `mise run package` | Packages `dist/git-tree-rs-<version>.vsix`. |
 | `mise run install` | Packages the extension and installs it in Visual Studio Code. |
@@ -34,6 +37,7 @@ Converting screenshots needs ImageMagick 7 (`magick`) built with WebP support.
 │   ├── extension.ts          # activation: commands, status bar item, the repository manager
 │   ├── gitTreeView.ts        # one Git Tree tab: answers the messages its webview sends
 │   ├── dataSource.ts         # runs Git and parses its output (log, refs, status, worktrees…)
+│   ├── engine.ts             # loads the Rust engine, if it's built for this platform
 │   ├── repoManager.ts        # finds the repositories in the workspace
 │   ├── repoFileWatcher.ts    # refreshes a tab when files in its repository or worktrees change
 │   ├── config.ts             # reads the git-tree.* settings
@@ -41,13 +45,21 @@ Converting screenshots needs ImageMagick 7 (`magick`) built with WebP support.
 ├── web/                      ← the webview: the graph, table, menus and dialogs
 │   ├── main.ts               # renders the view and handles its events
 │   ├── graph.ts              # lays out and draws the commit graph
+│   ├── virtualTable.ts       # keeps only the rows on screen in the table
 │   └── styles/               # CSS, built into media/out.min.css
+├── native/                   ← the engine: Rust that reads repositories in-process
+│   ├── core/                 # the reads, with gix (pure Rust)
+│   ├── node/                 # the Node-API module that src/engine.ts loads
+│   └── bin/                  # the built modules, git-tree-engine.<platform>.node (not committed)
 ├── tests/                    ← Jest tests, with mocks of the vscode API and of Git
+│   └── engine/               # the engine's differential tests, which run real Git
 ├── resources/                ← the logo and icons
 ├── dev-workspace/            ← what the Extension Development Host opens
 │   └── demo.code-workspace   # opens demo-repo/, which scripts/make-demo-repo.sh builds
 ├── scripts/
 │   ├── make-demo-repo.sh     # builds the demo repository
+│   ├── build-engine.js       # builds the engine into native/bin/
+│   ├── bench-engine.js       # times each read with the Git CLI and with the engine
 │   └── convert-screenshots.sh
 ├── docs/images/              ← README screenshots, as WebP
 ├── dist/                     ← packaged .vsix files (not committed)
@@ -65,6 +77,16 @@ Git Tree has two halves that talk through messages.
 - **The webview** (`web/`) runs in the tab's browser page. It asks for data with `sendMessage`, draws the graph and the table, and sends Git actions back.
 
 Every request names the folder Git runs in (`repo`). Repository-level state, such as saved column widths, code reviews and the repository's settings, is kept by repository. Git commands run in the worktree the view shows.
+
+### The engine
+
+The engine (`native/`) reads repositories in-process, so loading the view spawns no Git process. It answers the reads behind the view load: the branches, remotes, stashes and worktrees (`getRepoInfo`), the refs, and the page of commits. `src/engine.ts` loads it, if `native/bin/` has a module for the platform. Otherwise, or if it fails to load, Git Tree reads everything with Git, and says why once in the Git Tree output channel.
+
+Each engine read returns the records that the Git command prints, and `DataSource` interprets them with the same code as Git's output, so the two paths can't drift apart. When the engine can't be certain that its answer is the one Git would give, it answers `unsupported` with a reason, and `DataSource` runs the Git command instead. Examples are SHA-256 and shallow repositories, replacement objects, grafts, commits in another encoding, a mailmap, and settings it doesn't model, such as `branch.sort`. The Git commands stay the reference: git status, and every action that changes the repository, always run Git.
+
+Build it with `mise run engine` (`npm run build-engine`). Cargo runs at most four jobs, unless `CARGO_BUILD_JOBS` says otherwise. `npm run build-engine -- --debug` builds without optimisations, which is quicker while you work on it. The Rust tests run with `cargo test` in `native/`.
+
+### The build
 
 The build has two steps. `tsc -p ./src` compiles the extension into `out/`. `tsc -p ./web` compiles the webview, and `.vscode/package-web.js` joins it into `media/out.min.js` and `media/out.min.css`. The webview's compile reads the message types from `out/`, so build `src` first. `npm run compile` does both, in that order.
 
@@ -100,6 +122,21 @@ Rebuild it with `mise run demo`, or the **Rebuild Demo Repository** task, after 
 ```bash
 npx jest                          # everything
 npx jest tests/dataSource.test.ts # one file
+```
+
+`npx jest` leaves out `tests/engine/`. Those tests run real Git, so they have their own configuration (`jest.engine.config.js`):
+
+```bash
+mise run engine        # build the engine first
+mise run test-engine   # npm run test-engine
+```
+
+They read the demo repository (built in a temporary folder), this repository, and repositories built for edge cases, with each ordering and option the view uses. A Git Tree without the engine and one with it must return the same results, and the engine must answer each read itself, apart from the repositories it hands to Git on purpose. Without a built engine, the tests are skipped.
+
+The benchmark times each read, and the view load, as the median of several runs:
+
+```bash
+mise run bench-engine /path/to/repository   # or: npm run bench-engine -- /path/to/repository --runs 30
 ```
 
 The tests mock the `vscode` API (`tests/mocks/vscode.ts`) and Git's process (`tests/mocks/spawn.ts`). `mockGitSuccessOnce` and `mockGitThrowingErrorOnce` are used up in the order Git is spawned, so a test that adds a Git call has to add its mock in the same place. Jest uses its legacy fake timers (`jest.config.js`), which the debounce tests rely on.
@@ -140,7 +177,7 @@ mise run package            # dist/git-tree-rs-<version>.vsix
 npx --yes @vscode/vsce ls   # what the package would contain
 ```
 
-The package holds `out/`, `media/`, `resources/`, the README, the changelog and the licenses. `.vscodeignore` leaves out the sources, tests, the dev workspace, the screenshots and the scripts. The Marketplace shows the README's images from the GitHub repository, so they need to be pushed, and the repository public, before a release.
+The package holds `out/`, `media/`, `resources/`, the engine modules in `native/bin/`, the README, the changelog and the licenses. `.vscodeignore` leaves out the sources (including the engine's Rust sources and `native/target/`), tests, the dev workspace, the screenshots and the scripts. The Marketplace shows the README's images from the GitHub repository, so they need to be pushed, and the repository public, before a release.
 
 ## Releasing
 

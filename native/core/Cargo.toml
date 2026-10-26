@@ -1,0 +1,12 @@
+[package]
+name = "git-tree-engine"
+description = "Reads Git repositories in-process for the Git Tree extension"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gix.workspace = true
+serde.workspace = true

@@ -10,3 +10,6 @@ dev-workspace/demo-origin.git/
 dev-workspace/demo-hotfix/
 docs/images/raw/
 .mise.local.toml
+# The engine's build output (scripts/build-engine.js)
+native/target/
+native/bin/

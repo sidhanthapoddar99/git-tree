@@ -13,6 +13,18 @@ run = "npm run compile"
 description = "Run the Jest tests."
 run = "npx jest"
 
+[tasks.engine]
+description = "Build the Rust engine in release mode, into native/bin/."
+run = "npm run build-engine"
+
+[tasks.test-engine]
+description = "Compare each engine read with the Git CLI read, on real repositories (needs the engine built)."
+run = "npm run test-engine"
+
+[tasks.bench-engine]
+description = "Time each read with the Git CLI and with the engine: mise run bench-engine <repository>."
+run = "npm run bench-engine --"
+
 [tasks.gate]
 description = "What CI runs: lint, build and test."
 depends = ["build"]

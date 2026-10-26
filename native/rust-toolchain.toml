@@ -1,0 +1,4 @@
+# The Rust version the engine is built and tested with. rustup reads this file when cargo runs in native/.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"

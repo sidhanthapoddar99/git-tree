@@ -18,3 +18,6 @@ docs/
 scripts/
 mise.toml
 CONTRIBUTING.md
+native/**
+!native/bin/*.node
+jest.engine.config.js

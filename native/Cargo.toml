@@ -1,0 +1,29 @@
+# The Git Tree engine: reads Git repositories in-process for the extension.
+#   core/  pure Rust, on gitoxide (gix); knows nothing about Node.js or VS Code
+#   node/  the Node-API module the extension loads (a cdylib)
+# Build it with `npm run build-engine`, which places the module in native/bin/.
+
+[workspace]
+resolver = "2"
+members = ["core", "node"]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+# Exact versions: the differential tests vouch for this combination only.
+gix = { version = "=0.90.0", default-features = false, features = ["sha1", "max-performance"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+
+[profile.release]
+# Speed first. `unwind` lets napi turn a panic into a JavaScript error instead of ending the extension host.
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "unwind"

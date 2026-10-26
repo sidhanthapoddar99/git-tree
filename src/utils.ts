@@ -789,6 +789,7 @@ export async function getGitExecutableFromPaths(paths: string[]): Promise<GitExe
 
 export const enum GitVersionRequirement {
 	CommitGraph = '2.24.0',
+	Engine = '2.31.0', // The Git behaviour the engine reproduces: from 2.31.0, `git worktree list --porcelain` reports locked and prunable worktrees
 	FetchAndPruneTags = '2.17.0',
 	GpgInfo = '2.4.0',
 	PushStash = '2.13.2',

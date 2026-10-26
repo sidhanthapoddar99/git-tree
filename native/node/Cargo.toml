@@ -1,0 +1,21 @@
+[package]
+name = "git-tree-engine-node"
+description = "The Node-API module of the Git Tree engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+git-tree-engine = { path = "../core" }
+napi = { version = "=3.15.0", default-features = false, features = ["napi4"] }
+napi-derive = "=3.6.13"
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build = "=2.6.0"

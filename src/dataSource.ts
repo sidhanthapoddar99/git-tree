@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
 import { getConfig } from './config';
+import { BranchListEntry, Engine, EngineAnswer, EngineFormat, LogEntry, ShowRefEntry, StashListEntry, WorktreeListEntry } from './engine';
 import { Logger } from './logger';
 import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, GitVersionRequirement, UNABLE_TO_FIND_GIT_MSG, UNCOMMITTED, abbrevCommit, constructIncompatibleGitVersionMessage, doesVersionMeetRequirement, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
@@ -48,6 +49,9 @@ export class DataSource extends Disposable {
 	private gitFormatCommitDetails!: string;
 	private gitFormatLog!: string;
 	private gitFormatStash!: string;
+	private engineFormat!: EngineFormat;
+	private gitExecutableSupportsEngine!: boolean;
+	private readonly engine: Engine | null;
 	private readonly commitGraphChecked = new Set<string>(); // The repositories whose commit-graph has been checked in this session
 
 	/**
@@ -55,10 +59,12 @@ export class DataSource extends Disposable {
 	 * @param gitExecutable The Git executable available to Git Tree at startup.
 	 * @param onDidChangeGitExecutable The Event emitting the Git executable for Git Tree to use.
 	 * @param logger The Git Tree Logger instance.
+	 * @param engine The Git Tree engine, which reads repositories in-process. NULL => all reads use the Git CLI.
 	 */
-	constructor(gitExecutable: GitExecutable | null, onDidChangeConfiguration: Event<vscode.ConfigurationChangeEvent>, onDidChangeGitExecutable: Event<GitExecutable>, logger: Logger) {
+	constructor(gitExecutable: GitExecutable | null, onDidChangeConfiguration: Event<vscode.ConfigurationChangeEvent>, onDidChangeGitExecutable: Event<GitExecutable>, logger: Logger, engine: Engine | null = null) {
 		super();
 		this.logger = logger;
+		this.engine = engine;
 		this.setGitExecutable(gitExecutable);
 
 		const askpassManager = new AskpassManager();
@@ -96,6 +102,7 @@ export class DataSource extends Disposable {
 	private setGitExecutable(gitExecutable: GitExecutable | null) {
 		this.gitExecutable = gitExecutable;
 		this.gitExecutableSupportsGpgInfo = gitExecutable !== null && doesVersionMeetRequirement(gitExecutable.version, GitVersionRequirement.GpgInfo);
+		this.gitExecutableSupportsEngine = gitExecutable !== null && doesVersionMeetRequirement(gitExecutable.version, GitVersionRequirement.Engine);
 		this.generateGitCommandFormats();
 	}
 
@@ -125,6 +132,9 @@ export class DataSource extends Disposable {
 			useMailmap ? '%aN' : '%an', useMailmap ? '%aE' : '%ae', dateType, // Author / Commit Information
 			'%s' // Subject
 		].join(GIT_LOG_SEPARATOR);
+
+		// The same fields, for the engine's log and stash reads
+		this.engineFormat = { mailmap: useMailmap, authorDate: config.dateType === DateType.Author };
 	}
 
 
@@ -1507,16 +1517,22 @@ export class DataSource extends Disposable {
 		const hideRemotePatterns = hideRemotes.map((remote) => 'remotes/' + remote + '/');
 		const showRemoteHeads = getConfig().showRemoteHeads;
 
-		return this.spawnGit(args, repo, (stdout) => {
-			let branchData: GitBranchData = { branches: [], head: null, error: null };
+		return this.readWithEngine('branches', (engine) => engine.branches(repo, showRemoteBranches), () => this.spawnGit(args, repo, (stdout) => {
+			let entries: BranchListEntry[] = [];
 			let lines = stdout.split(EOL_REGEX);
 			for (let i = 0; i < lines.length - 1; i++) {
-				let name = lines[i].substring(2).split(' -> ')[0];
+				entries.push({ name: lines[i].substring(2).split(' -> ')[0], current: lines[i][0] === '*' });
+			}
+			return entries;
+		})).then((entries) => {
+			let branchData: GitBranchData = { branches: [], head: null, error: null };
+			for (let i = 0; i < entries.length; i++) {
+				let name = entries[i].name;
 				if (INVALID_BRANCH_REGEXP.test(name) || hideRemotePatterns.some((pattern) => name.startsWith(pattern)) || (!showRemoteHeads && REMOTE_HEAD_BRANCH_REGEXP.test(name))) {
 					continue;
 				}
 
-				if (lines[i][0] === '*') {
+				if (entries[i].current) {
 					branchData.head = name;
 					branchData.branches.unshift(name);
 				} else {
@@ -1668,47 +1684,51 @@ export class DataSource extends Disposable {
 	 * @returns An array of commits.
 	 */
 	private getLog(repo: string, branches: ReadonlyArray<string> | null, num: number, includeTags: boolean, includeRemotes: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, order: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>) {
-		const args = ['-c', 'log.showSignature=false', 'log', '--max-count=' + num, '--format=' + this.gitFormatLog, '--' + order + '-order'];
-		if (onlyFollowFirstParent) {
-			args.push('--first-parent');
-		}
+		// The revisions the log starts from, which the Git CLI and the engine both read
+		const revisions: string[] = [];
 		if (branches !== null) {
 			for (let i = 0; i < branches.length; i++) {
-				args.push(branches[i]);
+				revisions.push(branches[i]);
 			}
 		} else {
 			// Show All
-			args.push('--branches');
-			if (includeTags) args.push('--tags');
-			if (includeCommitsMentionedByReflogs) args.push('--reflog');
+			revisions.push('--branches');
+			if (includeTags) revisions.push('--tags');
+			if (includeCommitsMentionedByReflogs) revisions.push('--reflog');
 			if (includeRemotes) {
 				if (hideRemotes.length === 0) {
-					args.push('--remotes');
+					revisions.push('--remotes');
 				} else {
 					remotes.filter((remote) => !hideRemotes.includes(remote)).forEach((remote) => {
-						args.push('--glob=refs/remotes/' + remote);
+						revisions.push('--glob=refs/remotes/' + remote);
 					});
 				}
 			}
 
 			// Add the unique list of base hashes of stashes, so that commits only referenced by stashes are displayed
 			const stashBaseHashes = stashes.map((stash) => stash.baseHash);
-			stashBaseHashes.filter((hash, index) => stashBaseHashes.indexOf(hash) === index).forEach((hash) => args.push(hash));
+			stashBaseHashes.filter((hash, index) => stashBaseHashes.indexOf(hash) === index).forEach((hash) => revisions.push(hash));
 
-			args.push('HEAD');
+			revisions.push('HEAD');
 		}
-		args.push('--');
 
-		return this.spawnGit(args, repo, (stdout) => {
+		const args = ['-c', 'log.showSignature=false', 'log', '--max-count=' + num, '--format=' + this.gitFormatLog, '--' + order + '-order'];
+		if (onlyFollowFirstParent) {
+			args.push('--first-parent');
+		}
+		args.push(...revisions, '--');
+
+		const request = { revisions: revisions, maxCount: num, order: order, firstParent: onlyFollowFirstParent, format: this.engineFormat };
+		return this.readWithEngine('log', (engine) => engine.log(repo, request), () => this.spawnGit(args, repo, (stdout) => {
 			let lines = stdout.split(RECORD_EOL_REGEX);
-			let commits: GitCommitRecord[] = [];
+			let commits: LogEntry[] = [];
 			for (let i = 0; i < lines.length - 1; i++) {
 				let line = lines[i].split(GIT_LOG_SEPARATOR);
 				if (line.length !== 6) break;
 				commits.push({ hash: line[0], parents: line[1] !== '' ? line[1].split(' ') : [], author: line[2], email: line[3], date: parseInt(line[4]), message: line[5] });
 			}
 			return commits;
-		});
+		})).then((commits): GitCommitRecord[] => commits);
 	}
 
 	/**
@@ -1726,15 +1746,21 @@ export class DataSource extends Disposable {
 
 		const hideRemotePatterns = hideRemotes.map((remote) => 'refs/remotes/' + remote + '/');
 
-		return this.spawnGit(args, repo, (stdout) => {
-			let refData: GitRefData = { head: null, heads: [], tags: [], remotes: [] };
+		return this.readWithEngine('refs', (engine) => engine.refs(repo, showRemoteBranches), () => this.spawnGit(args, repo, (stdout) => {
+			let entries: ShowRefEntry[] = [];
 			let lines = stdout.split(EOL_REGEX);
 			for (let i = 0; i < lines.length - 1; i++) {
 				let line = lines[i].split(' ');
 				if (line.length < 2) continue;
 
 				let hash = line.shift()!;
-				let ref = line.join(' ');
+				entries.push({ hash: hash, ref: line.join(' ') });
+			}
+			return entries;
+		})).then((entries) => {
+			let refData: GitRefData = { head: null, heads: [], tags: [], remotes: [] };
+			for (let i = 0; i < entries.length; i++) {
+				let hash = entries[i].hash, ref = entries[i].ref;
 
 				if (ref.startsWith('refs/heads/')) {
 					refData.heads.push({ hash: hash, name: ref.substring(11) });
@@ -1782,22 +1808,29 @@ export class DataSource extends Disposable {
 	 * @returns An array of stashes.
 	 */
 	private getStashes(repo: string) {
-		return this.spawnGit(['reflog', '--format=' + this.gitFormatStash, 'refs/stash', '--'], repo, (stdout) => {
+		return this.readWithEngine('stashes', (engine) => engine.stashes(repo, this.engineFormat), () => this.spawnGit(['reflog', '--format=' + this.gitFormatStash, 'refs/stash', '--'], repo, (stdout) => {
 			let lines = stdout.split(RECORD_EOL_REGEX);
-			let stashes: GitStash[] = [];
+			let entries: StashListEntry[] = [];
 			for (let i = 0; i < lines.length - 1; i++) {
 				let line = lines[i].split(GIT_LOG_SEPARATOR);
-				if (line.length !== 7 || line[1] === '') continue;
-				let parentHashes = line[1].split(' ');
+				if (line.length !== 7) continue;
+				entries.push({ hash: line[0], parents: line[1] !== '' ? line[1].split(' ') : [], selector: line[2], author: line[3], email: line[4], date: parseInt(line[5]), message: line[6] });
+			}
+			return entries;
+		})).then((entries) => {
+			let stashes: GitStash[] = [];
+			for (let i = 0; i < entries.length; i++) {
+				let parentHashes = entries[i].parents;
+				if (parentHashes.length === 0) continue;
 				stashes.push({
-					hash: line[0],
+					hash: entries[i].hash,
 					baseHash: parentHashes[0],
 					untrackedFilesHash: parentHashes.length === 3 ? parentHashes[2] : null,
-					selector: line[2],
-					author: line[3],
-					email: line[4],
-					date: parseInt(line[5]),
-					message: line[6]
+					selector: entries[i].selector,
+					author: entries[i].author,
+					email: entries[i].email,
+					date: entries[i].date,
+					message: entries[i].message
 				});
 			}
 			return stashes;
@@ -1810,11 +1843,11 @@ export class DataSource extends Disposable {
 	 * @returns An array of remote names.
 	 */
 	private getRemotes(repo: string) {
-		return this.spawnGit(['remote'], repo, (stdout) => {
+		return this.readWithEngine('remotes', (engine) => engine.remotes(repo), () => this.spawnGit(['remote'], repo, (stdout) => {
 			let lines = stdout.split(EOL_REGEX);
 			lines.pop();
 			return lines;
-		});
+		}));
 	}
 
 	/**
@@ -1886,9 +1919,9 @@ export class DataSource extends Disposable {
 			return Promise.resolve([]);
 		}
 		return Promise.all([
-			this.spawnGit(['worktree', 'list', '--porcelain'], repo, (stdout) => stdout),
+			this.readWithEngine('worktrees', (engine) => engine.worktrees(repo), () => this.spawnGit(['worktree', 'list', '--porcelain'], repo, parseWorktreeList)),
 			realpath(repo)
-		]).then((results) => parseWorktreeList(results[0], [repo, results[1]]));
+		]).then((results) => getWorktreesFromList(results[0], [repo, results[1]]));
 	}
 
 	/**
@@ -1972,6 +2005,36 @@ export class DataSource extends Disposable {
 			let lines = stdout.split('\0');
 			if (fromHash === toHash) lines.shift();
 			return lines;
+		});
+	}
+
+	/**
+	 * Run a read with the engine, or with the Git CLI when there's no engine, or when the engine can't answer with certainty.
+	 * The two reads return the same records, which the caller then interprets.
+	 * @param name The name of the read, for the log.
+	 * @param engineRead Runs the read with the engine.
+	 * @param gitRead Runs the read with the Git CLI.
+	 * @returns The records.
+	 */
+	private readWithEngine<T>(name: string, engineRead: (engine: Engine) => Promise<EngineAnswer<T>>, gitRead: () => Promise<T>): Promise<T> {
+		const engine = this.engine;
+		if (engine === null || !this.gitExecutableSupportsEngine) {
+			return gitRead();
+		}
+
+		this.logger.log('> engine ' + name);
+		return engineRead(engine).then((answer) => {
+			if ('ok' in answer) {
+				return answer.ok;
+			} else if ('unsupported' in answer) {
+				this.logger.log('The engine can\'t read ' + name + ' with certainty (' + answer.unsupported + '), so Git reads it.');
+			} else {
+				this.logger.logError('The engine failed to read ' + name + ' (' + answer.failed + '), so Git reads it.');
+			}
+			return gitRead();
+		}, (error) => {
+			this.logger.logError('The engine failed to read ' + name + ' (' + (error instanceof Error ? error.message : String(error)) + '), so Git reads it.');
+			return gitRead();
 		});
 	}
 
@@ -2085,11 +2148,10 @@ export function resolveWorktreePath(worktreePath: string, mainWorktreePath: stri
 /**
  * Parse the output of `git worktree list --porcelain`.
  * @param stdout The output of the command.
- * @param viewedRepoPaths The paths of the repository being viewed, used to mark its worktree as the current worktree.
- * @returns An array of the worktrees, with the main worktree first. A bare main repository has no worktree, so it is left out.
+ * @returns An array of the records, with the main worktree first.
  */
-function parseWorktreeList(stdout: string, viewedRepoPaths: ReadonlyArray<string>) {
-	const worktrees: GitWorktree[] = [];
+function parseWorktreeList(stdout: string) {
+	const entries: WorktreeListEntry[] = [];
 	const records = stdout.split(/\r?\n\r?\n/);
 	for (let i = 0; i < records.length; i++) {
 		let worktreePath: string | null = null, head: string | null = null, branch: string | null = null;
@@ -2098,11 +2160,11 @@ function parseWorktreeList(stdout: string, viewedRepoPaths: ReadonlyArray<string
 		for (let j = 0; j < lines.length; j++) {
 			const line = lines[j];
 			if (line.startsWith('worktree ')) {
-				worktreePath = getPathFromUri(vscode.Uri.file(path.normalize(line.substring(9))));
+				worktreePath = line.substring(9);
 			} else if (line.startsWith('HEAD ')) {
-				head = /^0+$/.test(line.substring(5)) ? null : line.substring(5);
+				head = line.substring(5);
 			} else if (line.startsWith('branch ')) {
-				branch = line.substring(7).replace(/^refs\/heads\//, '');
+				branch = line.substring(7);
 			} else if (line === 'bare') {
 				bare = true;
 			} else if (line === 'locked' || line.startsWith('locked ')) {
@@ -2111,17 +2173,33 @@ function parseWorktreeList(stdout: string, viewedRepoPaths: ReadonlyArray<string
 				prunable = true;
 			}
 		}
-		if (worktreePath === null || bare) continue;
+		entries.push({ path: worktreePath, head: head, branch: branch, bare: bare, locked: locked, prunable: prunable });
+	}
+	return entries;
+}
 
+/**
+ * Get the worktrees from the records of `git worktree list --porcelain`.
+ * @param entries The records, with the main worktree first.
+ * @param viewedRepoPaths The paths of the repository being viewed, used to mark its worktree as the current worktree.
+ * @returns An array of the worktrees, with the main worktree first. A bare main repository has no worktree, so it is left out.
+ */
+function getWorktreesFromList(entries: ReadonlyArray<WorktreeListEntry>, viewedRepoPaths: ReadonlyArray<string>) {
+	const worktrees: GitWorktree[] = [];
+	for (let i = 0; i < entries.length; i++) {
+		const entry = entries[i];
+		if (entry.path === null || entry.bare) continue;
+
+		const worktreePath = getPathFromUri(vscode.Uri.file(path.normalize(entry.path)));
 		worktrees.push({
 			path: worktreePath,
 			name: path.basename(worktreePath),
-			head: head,
-			branch: branch,
+			head: entry.head === null || /^0+$/.test(entry.head) ? null : entry.head,
+			branch: entry.branch === null ? null : entry.branch.replace(/^refs\/heads\//, ''),
 			isMain: i === 0,
 			isCurrent: viewedRepoPaths.includes(worktreePath),
-			locked: locked,
-			prunable: prunable
+			locked: entry.locked,
+			prunable: entry.prunable
 		});
 	}
 	return worktrees;
