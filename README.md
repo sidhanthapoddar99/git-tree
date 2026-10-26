@@ -6,6 +6,8 @@ Its highlights:
 
 * **Worktrees in the graph.** A branch that is checked out in another worktree shows that worktree's name on its label. A worktree on a detached HEAD gets its own label on its commit.
 * **Worktree actions.** Create a worktree from a commit or a branch, open it in a new or the current window, remove it, or copy its path.
+* **One tab per repository.** Keep several repositories open in their own tabs, side by side.
+* **Fast in large repositories.** Git Tree writes Git's commit-graph file when a repository has none, which makes the graph load several times faster.
 * **Colours that follow your theme.** Rows, labels, inputs and the graph palette are tuned for light and dark themes.
 * **No telemetry.** Git Tree sends no usage data.
 
@@ -19,6 +21,10 @@ Right-click to use worktrees:
 * **A worktree label:** open the worktree in a new window or this one, remove it, or copy its path. Double-click a worktree label to open it in a new window.
 
 New worktrees go in the `.worktrees` folder of the main worktree by default, for example `.worktrees/feature-login`. You can type another folder in the dialog, or change the default with `git-tree.worktree.defaultLocation`. When the folder is inside the repository, Git Tree adds it to `.git/info/exclude`, so the worktrees don't show up as untracked files.
+
+## Tabs
+
+Each Git Tree tab shows one repository, and its title names it. Opening a repository, for example with the Git Tree button on a repository in the Source Control view, switches to the tab that already shows it. If no tab shows it, it opens in a new tab. To open another tab yourself, run *Git Tree: View Git Tree in New Tab...* or click the **+** button in a Git Tree tab's title bar. The *Repo* dropdown still switches the repository inside a tab.
 
 ## Features
 
@@ -88,9 +94,10 @@ New worktrees go in the `.worktrees` folder of the main worktree by default, for
 
 All settings start with `git-tree.`. Search for "Git Tree" in the Settings editor to see each one with its description. A repository's shared configuration file is `.vscode/vscode-git-tree.json`.
 
-The worktree setting:
+Settings that are new in Git Tree:
 
 * `git-tree.worktree.defaultLocation`: The folder new worktrees are created in, relative to the main worktree, or an absolute path. Default: `.worktrees`.
+* `git-tree.repository.writeCommitGraph`: When a repository has no [commit-graph](https://git-scm.com/docs/git-commit-graph) file, write one in the background. It is the file `git gc` writes, and it needs Git 2.24 or later. Default: on.
 
 If `git-tree.graph.colours` is not set, the graph uses a darker palette on light themes. Custom colours are used on every theme.
 
@@ -99,6 +106,7 @@ If `git-tree.graph.colours` is not set, the graph uses a darker palette on light
 This extension contributes the following commands:
 
 * `git-tree.view`: Git Tree: View Git Tree
+* `git-tree.viewInNewTab`: Git Tree: View Git Tree in New Tab... _(opens a repository in another tab)_
 * `git-tree.addGitRepository`: Git Tree: Add Git Repository... _(used to add sub-repos to Git Tree)_
 * `git-tree.clearAvatarCache`: Git Tree: Clear Avatar Cache
 * `git-tree.endAllWorkspaceCodeReviews`: Git Tree: End All Code Reviews in Workspace
