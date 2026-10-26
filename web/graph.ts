@@ -40,6 +40,8 @@ class Branch {
 	private end: number = 0;
 	private lines: Line[] = [];
 	private numUncommitted: number = 0;
+	private minY: number = Infinity; // The first row the branch's lines reach
+	private maxY: number = -Infinity; // The last row the branch's lines reach
 
 	constructor(colour: number) {
 		this.colour = colour;
@@ -47,6 +49,8 @@ class Branch {
 
 	public addLine(p1: Point, p2: Point, isCommitted: boolean, lockedFirst: boolean) {
 		this.lines.push({ p1: p1, p2: p2, lockedFirst: lockedFirst });
+		if (p1.y < this.minY) this.minY = p1.y;
+		if (p2.y > this.maxY) this.maxY = p2.y;
 		if (isCommitted) {
 			if (p2.x === 0 && p2.y < this.numUncommitted) this.numUncommitted = p2.y;
 		} else {
@@ -72,12 +76,22 @@ class Branch {
 
 	/* Rendering */
 
-	public draw(svg: SVGElement, config: GG.GraphConfig, expandAt: number) {
+	/**
+	 * Draw the parts of the branch that are on the rows from start to end.
+	 * @param svg The element to draw into.
+	 * @param config The graph's configuration.
+	 * @param expandAt The index of the row the Commit Details View is expanded below, or -1.
+	 * @param start The index of the first row to draw.
+	 * @param end The index after the last row to draw.
+	 */
+	public draw(svg: SVGElement, config: GG.GraphConfig, expandAt: number, start: number, end: number) {
+		if (this.maxY < start || this.minY >= end) return;
 		let colour = 'var(--git-tree-color' + (this.colour % config.colours.length) + ')', i, x1, y1, x2, y2, lines: PlacedLine[] = [], curPath = '', d = config.grid.y * (config.style === GG.GraphStyle.Angular ? 0.38 : 0.8), line, nextLine;
 
 		// Convert branch lines into pixel coordinates, respecting expanded commit extensions
 		for (i = 0; i < this.lines.length; i++) {
 			line = this.lines[i];
+			if (line.p2.y < start || line.p1.y >= end) continue; // The line isn't on any of the rows being drawn
 			x1 = line.p1.x * config.grid.x + config.grid.offsetX; y1 = line.p1.y * config.grid.y + config.grid.offsetY;
 			x2 = line.p2.x * config.grid.x + config.grid.offsetX; y2 = line.p2.y * config.grid.y + config.grid.offsetY;
 
@@ -342,6 +356,8 @@ class Graph {
 	private availableColours: number[] = [];
 	private maxWidth: number = -1;
 
+	private contentWidth: number = 0;
+
 	private commits: ReadonlyArray<GG.GitCommit> = [];
 	private commitHead: string | null = null;
 	private commitLookup: { [hash: string]: number } = {};
@@ -398,6 +414,7 @@ class Graph {
 		this.vertices = [];
 		this.branches = [];
 		this.availableColours = [];
+		this.contentWidth = this.calcContentWidth();
 		if (commits.length === 0) return;
 
 		const nullVertex = new Vertex(NULL_VERTEX_ID, false);
@@ -438,19 +455,29 @@ class Graph {
 				i++;
 			}
 		}
+		this.contentWidth = this.calcContentWidth();
 	}
 
-	public render(expandedCommit: ExpandedCommit | null) {
+	/**
+	 * Draw the graph on the rows from start to end, which are the rows rendered in the table. The SVG keeps the height of the whole graph,
+	 * so every row is drawn where it is in the table.
+	 * @param expandedCommit The commit the Commit Details View is expanded below, or NULL.
+	 * @param start The index of the first row to draw.
+	 * @param end The index after the last row to draw.
+	 */
+	public render(expandedCommit: ExpandedCommit | null, start: number, end: number) {
 		this.expandedCommitIndex = expandedCommit !== null ? expandedCommit.index : -1;
-		let group = document.createElementNS(SVG_NAMESPACE, 'g'), i, contentWidth = this.getContentWidth();
+		let group = document.createElementNS(SVG_NAMESPACE, 'g'), i, contentWidth = this.contentWidth;
 		group.setAttribute('mask', 'url(#GraphMask)');
+		start = Math.max(start, 0);
+		end = Math.min(end, this.vertices.length);
 
 		for (i = 0; i < this.branches.length; i++) {
-			this.branches[i].draw(group, this.config, this.expandedCommitIndex);
+			this.branches[i].draw(group, this.config, this.expandedCommitIndex, start, end);
 		}
 
 		const overListener = (e: MouseEvent) => this.vertexOver(e), outListener = (e: MouseEvent) => this.vertexOut(e);
-		for (i = 0; i < this.vertices.length; i++) {
+		for (i = start; i < end; i++) {
 			this.vertices[i].draw(group, this.config, expandedCommit !== null && i > expandedCommit.index, overListener, outListener);
 		}
 
@@ -466,6 +493,10 @@ class Graph {
 	/* Get */
 
 	public getContentWidth() {
+		return this.contentWidth;
+	}
+
+	private calcContentWidth() {
 		let x = 0, i, p;
 		for (i = 0; i < this.vertices.length; i++) {
 			p = this.vertices[i].getNextPoint();
@@ -478,20 +509,21 @@ class Graph {
 		return this.vertices.length * this.config.grid.y + this.config.grid.offsetY - this.config.grid.y / 2 + (expandedCommit !== null ? this.config.grid.expandY : 0);
 	}
 
-	public getVertexColours() {
-		let colours = [], i;
-		for (i = 0; i < this.vertices.length; i++) {
-			colours[i] = this.vertices[i].getColour() % this.config.colours.length;
-		}
-		return colours;
+	/**
+	 * Get the colour of the vertex of a row.
+	 * @param i The index of the row.
+	 * @returns The index of the colour in the graph's colours.
+	 */
+	public getVertexColour(i: number) {
+		return this.vertices[i].getColour() % this.config.colours.length;
 	}
 
-	public getWidthsAtVertices() {
-		let widths = [], i;
-		for (i = 0; i < this.vertices.length; i++) {
-			widths[i] = this.config.grid.offsetX + this.vertices[i].getNextPoint().x * this.config.grid.x - 2;
-		}
-		return widths;
+	/**
+	 * Get the width of the graph at the vertex of a row, up to the right of its rightmost line.
+	 * @param i The index of the row.
+	 */
+	public getWidthAtVertex(i: number) {
+		return this.config.grid.offsetX + this.vertices[i].getNextPoint().x * this.config.grid.x - 2;
 	}
 
 
@@ -681,7 +713,7 @@ class Graph {
 
 	public limitMaxWidth(maxWidth: number) {
 		this.maxWidth = maxWidth;
-		this.applyMaxWidth(this.getContentWidth());
+		this.applyMaxWidth(this.contentWidth);
 	}
 
 	private setDimensions(contentWidth: number, height: number) {

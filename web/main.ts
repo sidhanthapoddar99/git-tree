@@ -4,6 +4,17 @@ interface WorktreeLookup {
 	readonly byDetachedHead: Map<string, GG.GitWorktree[]>;
 }
 
+const CLASS_COLUMN_WIDTH_ROW = 'columnWidthRow';
+
+/** What the rows of the table are rendered with, worked out once each time the table is rendered. */
+interface TableRowContext {
+	readonly colVisibility: { readonly worktree: boolean, readonly date: boolean, readonly author: boolean, readonly commit: boolean };
+	readonly currentHash: string | null;
+	readonly mutedCommits: ReadonlyArray<boolean>;
+	readonly textFormatter: TextFormatter;
+	readonly worktreeLookup: WorktreeLookup;
+}
+
 class GitTreeView {
 	private gitRepos: GG.GitRepoSet;
 	private gitBranches: ReadonlyArray<string> = [];
@@ -36,6 +47,8 @@ class GitTreeView {
 	private loadViewTo: GG.LoadGitTreeViewTo = null;
 
 	private readonly graph: Graph;
+	private readonly virtualTable: VirtualTable;
+	private tableRowContext: TableRowContext | null = null;
 	private readonly config: Config;
 
 	private moreCommitsAvailable: boolean = false;
@@ -88,6 +101,12 @@ class GitTreeView {
 		viewElem.focus();
 
 		this.graph = new Graph('commitGraph', viewElem, this.config.graph, this.config.mute);
+		this.virtualTable = new VirtualTable(viewElem, this.config.graph.grid.y, {
+			getRowsHtml: (start, end) => this.getCommitRowsHtml(start, end),
+			getPinnedRows: () => this.getPinnedRows(),
+			onRowRendered: (elem, index) => this.findWidget.highlightRow(elem, index),
+			onWindowChanged: () => this.drawGraph()
+		});
 
 		this.repoDropdown = new Dropdown('repoDropdown', true, false, 'Repos', (values) => {
 			this.loadRepo(values[0]);
@@ -508,9 +527,8 @@ class GitTreeView {
 			if (this.loadViewTo.commitDetails && (this.expandedCommit === null || this.expandedCommit.commitHash !== this.loadViewTo.commitDetails.commitHash || this.expandedCommit.compareWithHash !== this.loadViewTo.commitDetails.compareWithHash)) {
 				const commitIndex = this.getCommitId(this.loadViewTo.commitDetails.commitHash);
 				const compareWithIndex = this.loadViewTo.commitDetails.compareWithHash !== null ? this.getCommitId(this.loadViewTo.commitDetails.compareWithHash) : null;
-				const commitElems = getCommitElems();
-				const commitElem = findCommitElemWithId(commitElems, commitIndex);
-				const compareWithElem = findCommitElemWithId(commitElems, compareWithIndex);
+				const commitElem = this.getCommitElem(commitIndex, true);
+				const compareWithElem = this.getCommitElem(compareWithIndex, true);
 
 				if (commitElem !== null && (this.loadViewTo.commitDetails.compareWithHash === null || compareWithElem !== null)) {
 					if (compareWithElem !== null) {
@@ -632,6 +650,24 @@ class GitTreeView {
 
 	public getCommitId(hash: string) {
 		return typeof this.commitLookup[hash] === 'number' ? this.commitLookup[hash] : null;
+	}
+
+	/**
+	 * Get the row of a commit in the table. Only the rows around the rows in view are rendered, so a row elsewhere has no element until it is rendered.
+	 * @param index The index of the commit.
+	 * @param render If the row isn't rendered, render it (wherever it is).
+	 * @returns The row's element, or NULL if it isn't rendered (or the commit doesn't exist).
+	 */
+	public getCommitElem(index: number | null, render: boolean) {
+		return index !== null ? this.virtualTable.getRow(index, render) : null;
+	}
+
+	/**
+	 * Call a function for each rendered row of the table.
+	 * @param callback The function, given the row's element and the index of its commit.
+	 */
+	public forEachCommitElem(callback: (elem: HTMLElement, index: number) => void) {
+		this.virtualTable.forEachRow(callback);
 	}
 
 	private getCommitOfElem(elem: HTMLElement) {
@@ -909,97 +945,59 @@ class GitTreeView {
 			return;
 		}
 
-		const colHeadersElem = document.getElementById('tableColHeaders');
-		const cdvHeight = this.gitRepos[this.currentRepo].cdvHeight;
-		const headerHeight = colHeadersElem !== null ? colHeadersElem.clientHeight + 1 : 0;
 		const expandedCommit = this.isCdvDocked() ? null : this.expandedCommit;
 		const expandedCommitElem = expandedCommit !== null ? document.getElementById('cdv') : null;
 
-		// Update the graphs grid dimensions
+		// Update the height of the expansion below the expanded commit, then render the rows around the rows in view, which it moves
 		this.config.graph.grid.expandY = expandedCommitElem !== null
 			? expandedCommitElem.getBoundingClientRect().height
-			: cdvHeight;
-		this.config.graph.grid.y = this.commits.length > 0 && this.tableElem.children.length > 0
-			? (this.tableElem.children[0].clientHeight - headerHeight - (expandedCommit !== null ? cdvHeight : 0)) / this.commits.length
-			: this.config.graph.grid.y;
-		this.config.graph.grid.offsetY = headerHeight + this.config.graph.grid.y / 2;
-
-		this.graph.render(expandedCommit);
+			: this.gitRepos[this.currentRepo].cdvHeight;
+		this.virtualTable.setExpansion(expandedCommit !== null && expandedCommitElem !== null ? expandedCommit.index : -1, this.config.graph.grid.expandY);
+		this.virtualTable.render();
+		this.virtualTable.measure();
+		this.drawGraph();
 	}
 
+	/**
+	 * Draw the graph for the rows that are rendered in the table, lined up with them.
+	 */
+	private drawGraph() {
+		const grid = this.config.graph.grid, rows = this.virtualTable.getWindow();
+		grid.y = this.virtualTable.getRowHeight();
+		grid.offsetY = this.virtualTable.getHeaderHeight() + grid.y / 2;
+		this.graph.render(this.isCdvDocked() ? null : this.expandedCommit, rows.start, rows.end);
+	}
+
+	/**
+	 * Render the table: its column headers, and the rows around the rows in view. VirtualTable renders the other rows as they come into view.
+	 */
 	private renderTable() {
 		const colVisibility = this.getColumnVisibility();
 		const currentHash = this.commits.length > 0 && this.commits[0].hash === UNCOMMITTED ? UNCOMMITTED : this.commitHead;
-		const vertexColours = this.graph.getVertexColours();
-		const widthsAtVertices = this.config.referenceLabels.branchLabelsAlignedToGraph ? this.graph.getWidthsAtVertices() : [];
-		const mutedCommits = this.graph.getMutedCommits(currentHash);
-		const textFormatter = new TextFormatter(this.commits, this.gitRepos[this.currentRepo].issueLinkingConfig, {
-			emoji: true,
-			issueLinking: true,
-			markdown: this.config.markdown
-		});
+		this.tableRowContext = {
+			colVisibility: colVisibility,
+			currentHash: currentHash,
+			mutedCommits: this.graph.getMutedCommits(currentHash),
+			textFormatter: new TextFormatter(this.commits, this.gitRepos[this.currentRepo].issueLinkingConfig, {
+				emoji: true,
+				issueLinking: true,
+				markdown: this.config.markdown
+			}),
+			worktreeLookup: this.getWorktreeLookup()
+		};
 
-		const worktreeLookup = this.getWorktreeLookup();
-
-		let html = '<tr id="tableColHeaders"><th id="tableHeaderGraphCol" class="tableColHeader" data-col="' + COLUMN_GRAPH + '">Graph</th><th class="tableColHeader" data-col="' + COLUMN_DESCRIPTION + '">Description</th>' +
+		const html = '<tr id="tableColHeaders"><th id="tableHeaderGraphCol" class="tableColHeader" data-col="' + COLUMN_GRAPH + '">Graph</th><th class="tableColHeader" data-col="' + COLUMN_DESCRIPTION + '">Description</th>' +
 			(colVisibility.worktree ? '<th class="tableColHeader worktreeCol" data-col="' + COLUMN_WORKTREE + '">Worktree</th>' : '') +
 			(colVisibility.date ? '<th class="tableColHeader dateCol" data-col="' + COLUMN_DATE + '">Date</th>' : '') +
 			(colVisibility.author ? '<th class="tableColHeader authorCol" data-col="' + COLUMN_AUTHOR + '">Author</th>' : '') +
 			(colVisibility.commit ? '<th class="tableColHeader" data-col="' + COLUMN_COMMIT + '">Commit</th>' : '') +
 			'</tr>';
 
-		for (let i = 0; i < this.commits.length; i++) {
-			let commit = this.commits[i];
-			let message = isUncommittedChanges(commit.hash)
-				? this.getUncommittedChangesHtml(commit)
-				: '<span class="text">' + textFormatter.format(commit.message) + '</span>';
-			let date = formatShortDate(commit.date);
-			let branchLabels = getBranchLabels(commit.heads, commit.remotes);
-			let refBranches = '', refTags = '', j, k, refName, remoteName, refActive, refHtml, branchCheckedOutAtCommit: string | null = null;
-
-			for (j = 0; j < branchLabels.heads.length; j++) {
-				refName = escapeHtml(branchLabels.heads[j].name);
-				refActive = branchLabels.heads[j].name === this.gitBranchHead;
-				refHtml = '<span class="gitRef head' + (refActive ? ' active' : '') + '" data-name="' + refName + '">' + SVG_ICONS.branch + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span>';
-				for (k = 0; k < branchLabels.heads[j].remotes.length; k++) {
-					remoteName = escapeHtml(branchLabels.heads[j].remotes[k]);
-					refHtml += '<span class="gitRefHeadRemote" data-remote="' + remoteName + '" data-fullref="' + escapeHtml(branchLabels.heads[j].remotes[k] + '/' + branchLabels.heads[j].name) + '">' + remoteName + '</span>';
-				}
-				refHtml += '</span>';
-				refBranches = refActive ? refHtml + refBranches : refBranches + refHtml;
-				if (refActive) branchCheckedOutAtCommit = this.gitBranchHead;
-			}
-			for (j = 0; j < branchLabels.remotes.length; j++) {
-				refName = escapeHtml(branchLabels.remotes[j].name);
-				refBranches += '<span class="gitRef remote" data-name="' + refName + '" data-remote="' + (branchLabels.remotes[j].remote !== null ? escapeHtml(branchLabels.remotes[j].remote!) : '') + '">' + SVG_ICONS.branch + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span></span>';
-			}
-
-			for (j = 0; j < commit.tags.length; j++) {
-				refName = escapeHtml(commit.tags[j].name);
-				refTags += '<span class="gitRef tag" data-name="' + refName + '" data-tagtype="' + (commit.tags[j].annotated ? 'annotated' : 'lightweight') + '">' + SVG_ICONS.tag + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span></span>';
-			}
-
-			if (commit.stash !== null) {
-				refName = escapeHtml(commit.stash.selector);
-				refBranches = '<span class="gitRef stash" data-name="' + refName + '">' + SVG_ICONS.stash + '<span class="gitRefName" data-fullref="' + refName + '">' + escapeHtml(commit.stash.selector.substring(5)) + '</span></span>' + refBranches;
-			}
-
-			const commitDot = commit.hash === this.commitHead
-				? '<span class="commitHeadDot" title="' + (branchCheckedOutAtCommit !== null
-					? 'The branch ' + escapeHtml('"' + branchCheckedOutAtCommit + '"') + ' is currently checked out at this commit'
-					: 'This commit is currently checked out'
-				) + '."></span>'
-				: '';
-
-			html += '<tr class="commit' + (commit.hash === currentHash ? ' current' : '') + (mutedCommits[i] ? ' mute' : '') + '"' + (commit.hash !== UNCOMMITTED ? '' : ' id="uncommittedChanges"') + ' data-id="' + i + '" data-color="' + vertexColours[i] + '">' +
-				(this.config.referenceLabels.branchLabelsAlignedToGraph ? '<td>' + (refBranches !== '' ? '<span style="margin-left:' + (widthsAtVertices[i] - 4) + 'px"' + refBranches.substring(5) : '') + '</td><td><span class="description">' + commitDot : '<td></td><td><span class="description">' + commitDot + refBranches) + (this.config.referenceLabels.tagLabelsOnRight ? message + refTags : refTags + message) + '</span></td>' +
-				(colVisibility.worktree ? this.getWorktreeCellHtml(commit, worktreeLookup) : '') +
-				(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
-				(colVisibility.author ? '<td class="authorCol text" title="' + escapeHtml(commit.author + ' <' + commit.email + '>') + '">' + (this.config.fetchAvatars ? '<span class="avatar" data-email="' + escapeHtml(commit.email) + '">' + (typeof this.avatars[commit.email] === 'string' ? '<img class="avatarImg" src="' + this.avatars[commit.email] + '">' : '') + '</span>' : '') + escapeHtml(commit.author) + '</td>' : '') +
-				(colVisibility.commit ? (isUncommittedChanges(commit.hash) ? '<td class="text" title="' + UNCOMMITTED + '">' + UNCOMMITTED + '</td>' : '<td class="text" title="' + escapeHtml(commit.hash) + '">' + abbrevCommit(commit.hash) + '</td>') : '') +
-				'</tr>';
-		}
-		this.tableElem.innerHTML = '<table>' + html + '</table>';
+		this.tableElem.innerHTML = '<table><tbody>' + html + '</tbody><tbody></tbody></table>';
+		const bodyElems = this.tableElem.getElementsByTagName('tbody');
+		this.virtualTable.attach(bodyElems[0], this.commits.length, this.getNumColumns());
+		this.virtualTable.render();
+		bodyElems[1].innerHTML = this.getColumnWidthRowsHtml(this.tableRowContext);
 		this.footerElem.innerHTML = this.moreCommitsAvailable ? '<div id="loadMoreCommitsBtn" class="roundedBtn">Load More Commits</div>' : '';
 		this.makeTableResizable();
 		this.findWidget.refresh();
@@ -1013,9 +1011,9 @@ class GitTreeView {
 		}
 
 		if (this.expandedCommit !== null) {
-			const expandedCommit = this.expandedCommit, elems = getCommitElems();
-			const commitElem = findCommitElemWithId(elems, this.getCommitId(expandedCommit.commitHash));
-			const compareWithElem = expandedCommit.compareWithHash !== null ? findCommitElemWithId(elems, this.getCommitId(expandedCommit.compareWithHash)) : null;
+			const expandedCommit = this.expandedCommit;
+			const commitElem = this.getCommitElem(this.getCommitId(expandedCommit.commitHash), true);
+			const compareWithElem = expandedCommit.compareWithHash !== null ? this.getCommitElem(this.getCommitId(expandedCommit.compareWithHash), true) : null;
 
 			if (commitElem === null || (expandedCommit.compareWithHash !== null && compareWithElem === null)) {
 				this.closeCommitDetails(false);
@@ -1050,10 +1048,171 @@ class GitTreeView {
 		}
 	}
 
+	/**
+	 * Get the HTML of consecutive rows of the table.
+	 * @param start The index of the first commit.
+	 * @param end The index after the last commit.
+	 * @returns The HTML: a `tr.commit` element for each commit.
+	 */
+	/**
+	 * Get the rows that keep the table's columns as wide as they would be with every row rendered. In the automatic layout, each column is as
+	 * wide as its widest cell, but only the rows around the rows in view are rendered. So the rows with the widest cells, picked by estimating
+	 * the width of their text, are also rendered, collapsed: they have no height, but count towards the widths of the columns.
+	 * @param context What the rows of the table are rendered with.
+	 * @returns The HTML of the collapsed rows.
+	 */
+	private getColumnWidthRowsHtml(context: TableRowContext) {
+		const cell = this.tableElem.querySelector('tr.commit > td.text');
+		if (this.getColumnWidths()[COLUMN_GRAPH] !== COLUMN_AUTO || cell === null) return ''; // A fixed layout takes its widths from the column headers
+
+		const estimator = new TextWidthEstimator(getComputedStyle(cell).font), colVisibility = context.colVisibility, candidates = new Set<number>();
+		const addWidest = (getWidth: (commit: GG.GitCommit) => number) => {
+			const widest: { index: number, width: number }[] = [];
+			for (let i = 0; i < this.commits.length; i++) {
+				const width = getWidth(this.commits[i]);
+				if (widest.length < 3 || width > widest[widest.length - 1].width) {
+					widest.push({ index: i, width: width });
+					widest.sort((a, b) => b.width - a.width);
+					if (widest.length > 3) widest.pop();
+				}
+			}
+			widest.forEach((candidate) => candidates.add(candidate.index));
+		};
+
+		if (colVisibility.date) {
+			addWidest((commit) => estimator.estimate(formatShortDate(commit.date).formatted));
+		}
+		if (colVisibility.author) {
+			const authorWidths = new Map<string, number>();
+			addWidest((commit) => {
+				let width = authorWidths.get(commit.author);
+				if (typeof width === 'undefined') {
+					width = estimator.estimate(commit.author);
+					authorWidths.set(commit.author, width);
+				}
+				return width;
+			});
+		}
+		if (colVisibility.commit) {
+			addWidest((commit) => estimator.estimate(isUncommittedChanges(commit.hash) ? UNCOMMITTED : abbrevCommit(commit.hash)));
+		}
+		if (colVisibility.worktree) {
+			// Few rows have a worktree's label, so all of them are measured
+			const lookup = context.worktreeLookup;
+			this.commits.forEach((commit, i) => {
+				if (isUncommittedChanges(commit.hash) || lookup.byDetachedHead.has(commit.hash) || commit.heads.some((branch) => lookup.byBranch.has(branch))) candidates.add(i);
+			});
+		}
+		if (this.config.referenceLabels.branchLabelsAlignedToGraph) {
+			// The branch labels are in the Graph column, after the graph: each label adds its icon, padding, border and margin to its text
+			addWidest((commit) => {
+				const labels = getBranchLabels(commit.heads, commit.remotes);
+				let width = 0;
+				labels.heads.forEach((head) => width += 33 + estimator.estimate(head.name) + head.remotes.reduce((sum, remote) => sum + 11 + estimator.estimate(remote), 0));
+				labels.remotes.forEach((remote) => width += 33 + estimator.estimate(remote.name));
+				if (commit.stash !== null) width += 33 + estimator.estimate(commit.stash.selector.substring(5));
+				return width > 0 ? width + this.graph.getWidthAtVertex(this.commitLookup[commit.hash]) : 0;
+			});
+		}
+
+		let html = '';
+		candidates.forEach((i) => html += this.getCommitRowHtml(i, context, true));
+		return html;
+	}
+
+	private getCommitRowsHtml(start: number, end: number) {
+		let html = '';
+		for (let i = start; i < end; i++) {
+			html += this.getCommitRowHtml(i, this.tableRowContext!);
+		}
+		return html;
+	}
+
+	/**
+	 * Get the HTML of a row of the table.
+	 * @param i The index of the commit.
+	 * @param context What the rows of the table are rendered with.
+	 * @param columnWidthRow Get a collapsed row, which only sets the widths of the columns (see getColumnWidthRowsHtml).
+	 * @returns The HTML.
+	 */
+	private getCommitRowHtml(i: number, context: TableRowContext, columnWidthRow: boolean = false) {
+		const colVisibility = context.colVisibility, currentHash = context.currentHash;
+		let commit = this.commits[i];
+		let message = isUncommittedChanges(commit.hash)
+			? this.getUncommittedChangesHtml(commit)
+			: '<span class="text">' + context.textFormatter.format(commit.message) + '</span>';
+		let date = formatShortDate(commit.date);
+		let branchLabels = getBranchLabels(commit.heads, commit.remotes);
+		let refBranches = '', refTags = '', j, k, refName, remoteName, refActive, refHtml, branchCheckedOutAtCommit: string | null = null;
+
+		for (j = 0; j < branchLabels.heads.length; j++) {
+			refName = escapeHtml(branchLabels.heads[j].name);
+			refActive = branchLabels.heads[j].name === this.gitBranchHead;
+			refHtml = '<span class="gitRef head' + (refActive ? ' active' : '') + '" data-name="' + refName + '">' + SVG_ICONS.branch + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span>';
+			for (k = 0; k < branchLabels.heads[j].remotes.length; k++) {
+				remoteName = escapeHtml(branchLabels.heads[j].remotes[k]);
+				refHtml += '<span class="gitRefHeadRemote" data-remote="' + remoteName + '" data-fullref="' + escapeHtml(branchLabels.heads[j].remotes[k] + '/' + branchLabels.heads[j].name) + '">' + remoteName + '</span>';
+			}
+			refHtml += '</span>';
+			refBranches = refActive ? refHtml + refBranches : refBranches + refHtml;
+			if (refActive) branchCheckedOutAtCommit = this.gitBranchHead;
+		}
+		for (j = 0; j < branchLabels.remotes.length; j++) {
+			refName = escapeHtml(branchLabels.remotes[j].name);
+			refBranches += '<span class="gitRef remote" data-name="' + refName + '" data-remote="' + (branchLabels.remotes[j].remote !== null ? escapeHtml(branchLabels.remotes[j].remote!) : '') + '">' + SVG_ICONS.branch + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span></span>';
+		}
+
+		for (j = 0; j < commit.tags.length; j++) {
+			refName = escapeHtml(commit.tags[j].name);
+			refTags += '<span class="gitRef tag" data-name="' + refName + '" data-tagtype="' + (commit.tags[j].annotated ? 'annotated' : 'lightweight') + '">' + SVG_ICONS.tag + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span></span>';
+		}
+
+		if (commit.stash !== null) {
+			refName = escapeHtml(commit.stash.selector);
+			refBranches = '<span class="gitRef stash" data-name="' + refName + '">' + SVG_ICONS.stash + '<span class="gitRefName" data-fullref="' + refName + '">' + escapeHtml(commit.stash.selector.substring(5)) + '</span></span>' + refBranches;
+		}
+
+		const commitDot = commit.hash === this.commitHead
+			? '<span class="commitHeadDot" title="' + (branchCheckedOutAtCommit !== null
+				? 'The branch ' + escapeHtml('"' + branchCheckedOutAtCommit + '"') + ' is currently checked out at this commit'
+				: 'This commit is currently checked out'
+			) + '."></span>'
+			: '';
+
+		return (columnWidthRow
+			? '<tr class="' + CLASS_COLUMN_WIDTH_ROW + '">'
+			: '<tr class="commit' + (commit.hash === currentHash ? ' current' : '') + (context.mutedCommits[i] ? ' mute' : '') + '"' + (commit.hash !== UNCOMMITTED ? '' : ' id="uncommittedChanges"') + ' data-id="' + i + '" data-color="' + this.graph.getVertexColour(i) + '">') +
+			(this.config.referenceLabels.branchLabelsAlignedToGraph ? '<td>' + (refBranches !== '' ? '<span style="margin-left:' + (this.graph.getWidthAtVertex(i) - 4) + 'px"' + refBranches.substring(5) : '') + '</td><td><span class="description">' + commitDot : '<td></td><td><span class="description">' + commitDot + refBranches) + (this.config.referenceLabels.tagLabelsOnRight ? message + refTags : refTags + message) + '</span></td>' +
+			(colVisibility.worktree ? this.getWorktreeCellHtml(commit, context.worktreeLookup) : '') +
+			(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
+			(colVisibility.author ? '<td class="authorCol text" title="' + escapeHtml(commit.author + ' <' + commit.email + '>') + '">' + (this.config.fetchAvatars ? '<span class="avatar" data-email="' + escapeHtml(commit.email) + '">' + (typeof this.avatars[commit.email] === 'string' ? '<img class="avatarImg" src="' + this.avatars[commit.email] + '">' : '') + '</span>' : '') + escapeHtml(commit.author) + '</td>' : '') +
+			(colVisibility.commit ? (isUncommittedChanges(commit.hash) ? '<td class="text" title="' + UNCOMMITTED + '">' + UNCOMMITTED + '</td>' : '<td class="text" title="' + escapeHtml(commit.hash) + '">' + abbrevCommit(commit.hash) + '</td>') : '') +
+			'</tr>';
+	}
+
+	/**
+	 * Get the rows that must stay rendered wherever they are: the rows of the open Commit Details View or Comparison, and the row the open context menu or dialog is for.
+	 * @returns The indexes of the rows.
+	 */
+	private getPinnedRows() {
+		const rows: number[] = [];
+		const pin = (hash: string | null) => {
+			if (hash !== null && typeof this.commitLookup[hash] === 'number') rows.push(this.commitLookup[hash]);
+		};
+		if (this.expandedCommit !== null) {
+			pin(this.expandedCommit.commitHash);
+			pin(this.expandedCommit.compareWithHash);
+		}
+		pin(contextMenu.getTargetHash());
+		pin(dialog.getTargetHash());
+		return rows;
+	}
+
 	private renderUncommittedChanges() {
-		const colVisibility = this.getColumnVisibility(), elems = getCommitElems(), worktreeLookup = this.getWorktreeLookup();
+		// Only the rendered rows are updated: the others are rendered from this.commits when they come into view
+		const colVisibility = this.getColumnVisibility(), worktreeLookup = this.getWorktreeLookup();
 		for (let i = 0; i < this.commits.length && isUncommittedChanges(this.commits[i].hash); i++) {
-			const elem = findCommitElemWithId(elems, i);
+			const elem = this.getCommitElem(i, false);
 			if (elem === null) continue;
 			const date = formatShortDate(this.commits[i].date);
 			elem.innerHTML = '<td></td><td><span class="description">' + this.getUncommittedChangesHtml(this.commits[i]) + '</span></td>' +
@@ -2231,15 +2390,17 @@ class GitTreeView {
 	 * @param flash Should the commit flash after it has been scrolled to.
 	 */
 	public scrollToCommit(hash: string, alwaysCenterCommit: boolean, flash: boolean = false) {
-		const elem = findCommitElemWithId(getCommitElems(), this.getCommitId(hash));
-		if (elem === null) return;
+		const index = this.getCommitId(hash);
+		if (index === null) return;
 
-		let elemTop = this.controlsElem.clientHeight + elem.offsetTop;
+		// The row may not be rendered, so its position comes from the table's geometry
+		let elemTop = this.controlsElem.clientHeight + this.virtualTable.getRowTop(index);
 		if (alwaysCenterCommit || elemTop - 8 < this.viewElem.scrollTop || elemTop + 32 - this.viewElem.clientHeight > this.viewElem.scrollTop) {
-			this.viewElem.scroll(0, this.controlsElem.clientHeight + elem.offsetTop + 12 - this.viewElem.clientHeight / 2);
+			this.viewElem.scroll(0, elemTop + 12 - this.viewElem.clientHeight / 2);
 		}
 
-		if (flash && !elem.classList.contains('flash')) {
+		const elem = flash ? this.getCommitElem(index, true) : null;
+		if (elem !== null && !elem.classList.contains('flash')) {
 			elem.classList.add('flash');
 			setTimeout(() => {
 				elem.classList.remove('flash');
@@ -2265,6 +2426,7 @@ class GitTreeView {
 			} else {
 				windowWidth = window.outerWidth;
 				windowHeight = window.outerHeight;
+				this.virtualTable.scrolled(); // The view's height may have changed, so render the rows that are now in view
 			}
 		});
 	}
@@ -2315,6 +2477,7 @@ class GitTreeView {
 		let active = this.viewElem.scrollTop > 0, timeout: NodeJS.Timeout | null = null;
 		this.scrollShadowElem.className = active ? CLASS_ACTIVE : '';
 		this.viewElem.addEventListener('scroll', () => {
+			this.virtualTable.scrolled();
 			const scrollTop = this.viewElem.scrollTop;
 			if (active !== scrollTop > 0) {
 				active = scrollTop > 0;
@@ -2386,7 +2549,7 @@ class GitTreeView {
 
 				if (newHashIndex > -1) {
 					handledEvent(e);
-					const elem = findCommitElemWithId(getCommitElems(), newHashIndex);
+					const elem = this.getCommitElem(newHashIndex, true);
 					if (elem !== null) this.loadCommitDetails(elem);
 				}
 			} else if (e.key && (e.ctrlKey || e.metaKey)) {
@@ -2434,7 +2597,7 @@ class GitTreeView {
 				switch ((<HTMLElement>e.target).dataset.type!) {
 					case 'commit':
 						if (typeof this.commitLookup[value] === 'number' && (this.expandedCommit === null || this.expandedCommit.commitHash !== value || this.expandedCommit.compareWithHash !== null)) {
-							const elem = findCommitElemWithId(getCommitElems(), this.commitLookup[value]);
+							const elem = this.getCommitElem(this.commitLookup[value], true);
 							if (elem !== null) this.loadCommitDetails(elem);
 						}
 						break;

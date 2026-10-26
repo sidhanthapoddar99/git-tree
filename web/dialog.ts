@@ -437,6 +437,14 @@ class Dialog {
 	}
 
 	/**
+	 * Get the commit the open dialog is for, whose row must stay rendered while it is open.
+	 * @returns The commit's hash, or NULL if no dialog is open, or it isn't for a commit.
+	 */
+	public getTargetHash() {
+		return this.target !== null && this.target.type !== TargetType.Repo ? this.target.hash : null;
+	}
+
+	/**
 	 * Is a dialog currently open in the Git Tree View.
 	 * @returns TRUE => A dialog is open, FALSE => No dialog is open
 	 */
