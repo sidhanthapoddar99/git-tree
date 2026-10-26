@@ -1,10 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
-<path fill="none" stroke="#424242" stroke-width="2.2" stroke-linecap="round" d="M12 15.5C12 11.5 4.5 12.5 4.5 8.5"/>
-<path fill="none" stroke="#424242" stroke-width="2.2" stroke-linecap="round" d="M12 13C12 9.5 19.5 10.5 19.5 6.5"/>
-<path fill="none" stroke="#424242" stroke-width="2.2" stroke-linecap="round" d="M12 12V4"/>
-<path fill="none" stroke="#424242" stroke-width="2.2" stroke-linecap="round" d="M12 20.5V12"/>
-<circle fill="#424242" cx="4.5" cy="7.5" r="2.6"/>
-<circle fill="#424242" cx="19.5" cy="5.5" r="2.6"/>
-<circle fill="#424242" cx="12" cy="3.5" r="2.6"/>
-<circle fill="#424242" cx="12" cy="20.5" r="2.6"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+<mask id="gap"><rect width="16" height="16" fill="#fff"/><g fill="#000"><circle cx="8" cy="13.25" r="2.22"/><circle cx="8" cy="2.75" r="2.22"/><circle cx="3.33" cy="5.083" r="2.22"/><circle cx="12.67" cy="5.083" r="2.22"/></g></mask>
+<g fill="none" stroke-width="1.458" mask="url(#gap)">
+<path stroke="#525252" d="M8 13.25V2.75"/>
+<path stroke="#424242" d="M8 13.25L4.672 10.459Q3.33 9.334 3.33 7.584V5.083"/>
+<path stroke="#656565" d="M8 13.25L11.328 10.459Q12.67 9.334 12.67 7.584V5.083"/>
+</g>
+<circle fill="#525252" cx="8" cy="13.25" r="1.75"/>
+<circle fill="#525252" cx="8" cy="2.75" r="1.75"/>
+<circle fill="#424242" cx="3.33" cy="5.083" r="1.75"/>
+<circle fill="#656565" cx="12.67" cy="5.083" r="1.75"/>
 </svg>

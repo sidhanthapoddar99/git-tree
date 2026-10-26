@@ -1,10 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<path fill="none" stroke="#5a5a5a" stroke-width="2.6" stroke-linecap="round" d="M12 15.5C12 11.5 4.5 12.5 4.5 8.5"/>
-<path fill="none" stroke="#5a5a5a" stroke-width="2.6" stroke-linecap="round" d="M12 13C12 9.5 19.5 10.5 19.5 6.5"/>
-<path fill="none" stroke="#7a7a7a" stroke-width="2.6" stroke-linecap="round" d="M12 12V4"/>
-<path fill="none" stroke="#424242" stroke-width="2.6" stroke-linecap="round" d="M12 20.5V12"/>
-<circle fill="#5a5a5a" cx="4.5" cy="7.5" r="2.8"/>
-<circle fill="#5a5a5a" cx="19.5" cy="5.5" r="2.8"/>
-<circle fill="#7a7a7a" cx="12" cy="3.5" r="2.8"/>
-<circle fill="#424242" cx="12" cy="20.5" r="2.8"/>
+<mask id="gap"><rect width="24" height="24" fill="#fff"/><g fill="#000"><circle cx="12" cy="21" r="3.8"/><circle cx="12" cy="3" r="3.8"/><circle cx="4" cy="7" r="3.8"/><circle cx="20" cy="7" r="3.8"/></g></mask>
+<g fill="none" stroke-width="2.5" mask="url(#gap)">
+<path stroke="#757575" d="M12 21V3"/>
+<path stroke="#656565" d="M12 21L6.298 16.216Q4 14.287 4 11.287V7"/>
+<path stroke="#858585" d="M12 21L17.702 16.216Q20 14.287 20 11.287V7"/>
+</g>
+<circle fill="#757575" cx="12" cy="21" r="3"/>
+<circle fill="#757575" cx="12" cy="3" r="3"/>
+<circle fill="#656565" cx="4" cy="7" r="3"/>
+<circle fill="#858585" cx="20" cy="7" r="3"/>
 </svg>
