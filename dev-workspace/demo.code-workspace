@@ -1,0 +1,15 @@
+{
+	// The workspace the "Run Extension (demo repo)" launch configuration opens.
+	// scripts/make-demo-repo.sh builds demo-repo/ next to this file; it isn't committed.
+	"folders": [
+		{
+			"name": "Skycast (demo repo)",
+			"path": "demo-repo"
+		}
+	],
+	"settings": {
+		"workbench.startupEditor": "none",
+		// The demo's worktree outside the repository is found through the repository, not as a folder
+		"git.openRepositoryInParentFolders": "never"
+	}
+}

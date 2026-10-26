@@ -1,0 +1,36 @@
+[tools]
+node = "24"
+
+[tasks.setup]
+description = "Install the npm dependencies, and build the demo repository."
+run = ["npm ci", "scripts/make-demo-repo.sh --if-missing"]
+
+[tasks.build]
+description = "Lint, then build the extension (out/) and the webview (media/)."
+run = "npm run compile"
+
+[tasks.test]
+description = "Run the Jest tests."
+run = "npx jest"
+
+[tasks.gate]
+description = "What CI runs: lint, build and test."
+depends = ["build"]
+run = "npx jest"
+
+[tasks.demo]
+description = "Rebuild the demo repository in dev-workspace/ from scratch."
+run = "scripts/make-demo-repo.sh --force"
+
+[tasks.package]
+description = "Package the extension into dist/git-tree-<version>.vsix."
+run = "npx --yes @vscode/vsce package --out dist/"
+
+[tasks.install]
+description = "Package the extension, and install it in Visual Studio Code."
+depends = ["package"]
+run = "code --install-extension dist/git-tree-$(node -p \"require('./package.json').version\").vsix --force"
+
+[tasks.screenshots]
+description = "Convert the PNG screenshots in docs/images/ to WebP."
+run = "scripts/convert-screenshots.sh"

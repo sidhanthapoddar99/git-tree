@@ -52,6 +52,30 @@
             "type": "npm",
             "script": "test-and-report-coverage",
             "label": "Run Unit Tests (Report Code Coverage)"
+        },
+        {
+            // An unminified build, so the webview can be debugged with Developer: Open Webview Developer Tools
+            "label": "Build (Debug)",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Compile (Back-End Only)", "Compile (Front-End Only) - Debug"],
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Demo Repository (If Missing)",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/make-demo-repo.sh --if-missing",
+            "problemMatcher": []
+        },
+        {
+            "label": "Rebuild Demo Repository",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/make-demo-repo.sh --force",
+            "problemMatcher": []
+        },
+        {
+            "label": "Prepare Dev Host",
+            "dependsOn": ["Build (Debug)", "Build Demo Repository (If Missing)"],
+            "problemMatcher": []
         }
     ]
 }

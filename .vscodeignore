@@ -12,3 +12,9 @@ web/
 .eslintrc.json
 .gitignore
 jest.config.js
+dev-workspace/
+dist/
+docs/
+scripts/
+mise.toml
+CONTRIBUTING.md

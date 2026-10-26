@@ -1,22 +1,174 @@
-# Contributing to Git Tree
+# Git Tree — Developer Guide
 
-Git Tree is a TypeScript extension for Visual Studio Code. Its layout:
+This guide is for people working on Git Tree itself. How to use the extension, and the Marketplace listing, are in [README.md](README.md).
 
-* `src/` holds the extension. `dataSource.ts` runs Git, and `gitTreeView.ts` answers the messages the view sends.
-* `web/` holds the view that runs in the webview. `main.ts` renders the graph, menus and dialogs.
-* `src/types.ts` defines the messages between the two.
-* `tests/` holds the Jest tests.
+## Toolchain
 
-## Building and testing
+[mise](https://mise.jdx.dev) pins Node.js, and runs the project's tasks. npm installs the dependencies.
 
-```sh
-npm install
-npm run compile   # lint, then build ./out and ./media
-npm test
+```bash
+mise install        # installs the Node.js version in mise.toml
+mise run setup      # npm ci, then builds the demo repository
 ```
 
-To run the extension, open this folder in Visual Studio Code and press F5. That starts an Extension Development Host with Git Tree loaded.
+| Task | What it does |
+| --- | --- |
+| `mise run setup` | Installs the npm dependencies and builds the demo repository. |
+| `mise run build` | Lints, then builds the extension (`out/`) and the webview (`media/`). |
+| `mise run test` | Runs the Jest tests. |
+| `mise run gate` | What CI runs: lint, build and test. |
+| `mise run demo` | Rebuilds the demo repository from scratch. |
+| `mise run package` | Packages `dist/git-tree-<version>.vsix`. |
+| `mise run install` | Packages the extension and installs it in Visual Studio Code. |
+| `mise run screenshots` | Converts the README screenshots to WebP. |
 
-## Line endings
+Without mise, use Node.js 24 and the npm scripts: `npm ci`, `npm run compile`, `npm test`.
 
-The source files use CRLF line endings, and the linter checks this. Keep them when you edit a file.
+Converting screenshots needs ImageMagick 7 (`magick`) built with WebP support.
+
+## Project layout
+
+```
+.
+├── src/                      ← the extension, which runs in VS Code's extension host
+│   ├── extension.ts          # activation: commands, status bar item, the repository manager
+│   ├── gitTreeView.ts        # one Git Tree tab: answers the messages its webview sends
+│   ├── dataSource.ts         # runs Git and parses its output (log, refs, status, worktrees…)
+│   ├── repoManager.ts        # finds the repositories in the workspace
+│   ├── repoFileWatcher.ts    # refreshes a tab when files in its repository or worktrees change
+│   ├── config.ts             # reads the git-tree.* settings
+│   └── types.ts              # the messages between the extension and the webview
+├── web/                      ← the webview: the graph, table, menus and dialogs
+│   ├── main.ts               # renders the view and handles its events
+│   ├── graph.ts              # lays out and draws the commit graph
+│   └── styles/               # CSS, built into media/out.min.css
+├── tests/                    ← Jest tests, with mocks of the vscode API and of Git
+├── resources/                ← the logo and icons
+├── dev-workspace/            ← what the Extension Development Host opens
+│   └── demo.code-workspace   # opens demo-repo/, which scripts/make-demo-repo.sh builds
+├── scripts/
+│   ├── make-demo-repo.sh     # builds the demo repository
+│   └── convert-screenshots.sh
+├── docs/images/              ← README screenshots, as WebP
+├── dist/                     ← packaged .vsix files (not committed)
+├── .vscode/                  # launch configurations, tasks, and the build scripts
+├── mise.toml
+├── CHANGELOG.md, README.md, LICENSE, licenses/
+└── package.json
+```
+
+## How the extension works
+
+Git Tree has two halves that talk through messages.
+
+- **The extension** (`src/`) runs in Node.js inside VS Code. `DataSource` spawns Git, and parses its output into the types in `src/types.ts`. Each Git Tree tab is a `GitTreeView`, which answers its webview's requests in `respondToMessage`: load the repository's branches and worktrees, load the commits, run an action.
+- **The webview** (`web/`) runs in the tab's browser page. It asks for data with `sendMessage`, draws the graph and the table, and sends Git actions back.
+
+Every request names the folder Git runs in (`repo`). Repository-level state, such as saved column widths, code reviews and the repository's settings, is kept by repository. Git commands run in the worktree the view shows.
+
+The build has two steps. `tsc -p ./src` compiles the extension into `out/`. `tsc -p ./web` compiles the webview, and `.vscode/package-web.js` joins it into `media/out.min.js` and `media/out.min.css`. The webview's compile reads the message types from `out/`, so build `src` first. `npm run compile` does both, in that order.
+
+## Running the extension locally (F5)
+
+Open this folder in VS Code and press F5. `.vscode/launch.json` has two configurations:
+
+| Configuration | Before it starts | Opens |
+| --- | --- | --- |
+| **Run Extension (demo repo)** | An unminified build, and the demo repository if it's missing | `dev-workspace/demo.code-workspace`, with other extensions disabled |
+| **Run Extension (empty window)** | An unminified build | An empty window, for a folder of your own |
+
+The Extension Development Host doesn't pick up a rebuild by itself. After you change code, run the build again (*Tasks: Run Task* → **Build (Debug)**), then run *Developer: Reload Window* in the host. To debug the webview, run *Developer: Open Webview Developer Tools* in the host.
+
+### The demo repository
+
+`scripts/make-demo-repo.sh` builds a small TypeScript project, Skycast, in `dev-workspace/`. It has what Git Tree needs to show:
+
+- about 65 commits over three months, from four authors
+- feature branches merged with merge commits, and two unmerged branches
+- a release branch, annotated tags (`v0.1.0`, `v1.0.0`) and a lightweight tag (`nightly`)
+- a remote, `origin` (`demo-origin.git`), with a branch that exists only there, and `main` two commits ahead of `origin/main`
+- a stash, and uncommitted changes on `main`
+- three linked worktrees:
+  - `.worktrees/alerts`, on `feature/alerts`, with uncommitted changes
+  - `.worktrees/review`, a detached HEAD at `v1.0.0`
+  - `../demo-hotfix`, outside the repository, on `fix/cache-crash`, with uncommitted changes
+
+Rebuild it with `mise run demo`, or the **Rebuild Demo Repository** task, after you've changed it while testing. The script only deletes its own folders in `dev-workspace/`.
+
+## Tests
+
+```bash
+npx jest                          # everything
+npx jest tests/dataSource.test.ts # one file
+```
+
+The tests mock the `vscode` API (`tests/mocks/vscode.ts`) and Git's process (`tests/mocks/spawn.ts`). `mockGitSuccessOnce` and `mockGitThrowingErrorOnce` are used up in the order Git is spawned, so a test that adds a Git call has to add its mock in the same place. Jest uses its legacy fake timers (`jest.config.js`), which the debounce tests rely on.
+
+## What to test by hand
+
+Before a release, go through these in the demo repository:
+
+- **The graph.** Branches, merges, tags, the stash and the remote branches draw correctly, in a dark and a light theme.
+- **Worktrees.** Each worktree's label is in the Worktree column. Picking a worktree in the Worktree filter shows its history and its uncommitted changes; *All* shows every worktree's changes. Ctrl+click (Cmd+click on macOS) on a worktree label opens it in a new window.
+- **Uncommitted changes.** Edit a file in `.worktrees/alerts` and in `../demo-hotfix`. Their rows update within a second or two.
+- **Create and remove a worktree.** Create one from a commit with a new branch, and from a branch. Try a folder with `~` and `{repo}`. Remove it again.
+- **Commit details.** Open a commit, view a diff, open a file, copy its paths, and copy its path in another worktree.
+- **Tabs.** *View Git Tree in New Tab...* opens a second tab, and each tab's title names its repository and worktree.
+- **A narrow view.** Make the tab narrow. The top bar stays on one row.
+
+## Screenshots for the README
+
+The README shows the screenshots in `docs/images/`, as WebP. Take them in the demo repository at about 1400 × 800, with the panel and sidebar closed. Save the PNGs in `docs/images/raw/` (not committed) with these names, then run `mise run screenshots`.
+
+| File | What it shows |
+| --- | --- |
+| `hero-dark.png` | The whole graph in a dark theme, with the Worktree column and the *All* filter |
+| `graph-light.png` | The same view in a light theme |
+| `worktree-filter.png` | The Worktree dropdown open, with *All*, *Root* and the linked worktrees |
+| `worktree-changes.png` | The *Uncommitted Changes* rows of several worktrees |
+| `create-worktree.png` | The Create Worktree dialog |
+| `commit-details.png` | A commit's details, with its file tree and a file's context menu |
+
+## Building and packaging
+
+```bash
+mise run build              # lint, then build out/ and media/
+mise run package            # dist/git-tree-<version>.vsix
+npx --yes @vscode/vsce ls   # what the package would contain
+```
+
+The package holds `out/`, `media/`, `resources/`, the README, the changelog and the licenses. `.vscodeignore` leaves out the sources, tests, the dev workspace, the screenshots and the scripts. The Marketplace shows the README's images from the GitHub repository, so they need to be pushed, and the repository public, before a release.
+
+## Releasing
+
+1. Move the *Unreleased* entries in `CHANGELOG.md` under a new version heading with today's date, and add its compare link at the bottom.
+2. Set the version: `npm version <version> --no-git-tag-version`.
+3. Run `mise run gate`, then go through *What to test by hand*.
+4. Commit the release as `Release <version>`, and tag it: `git tag -a v<version> -m "Git Tree <version>"`.
+5. Run `mise run package` and publish the `.vsix` (below).
+
+Versions follow [Semantic Versioning](https://semver.org): the patch number for fixes and small changes, the minor number for new features, and the major number for a change that breaks existing settings or workflows.
+
+## Publishing to the Marketplace
+
+**Option A — upload by hand.** Sign in to the [publisher management page](https://marketplace.visualstudio.com/manage), choose the publisher, then *New extension* → *Visual Studio Code*, or *Update* on an existing listing, and upload the `.vsix`.
+
+**Option B — the vsce command.** Create an Azure DevOps personal access token with the *Marketplace (Manage)* scope, then:
+
+```bash
+npx --yes @vscode/vsce login <publisher>
+npx --yes @vscode/vsce publish --packagePath dist/git-tree-<version>.vsix
+```
+
+Before either one, check:
+
+- `publisher` in `package.json` is the Marketplace publisher's ID.
+- The license allows publishing: see [License](README.md#license) in the README.
+- The GitHub repository is public and pushed, so the README's images load on the Marketplace.
+- The changelog's new section is complete.
+
+## Notes
+
+- **Line endings.** The TypeScript, CSS and build scripts use CRLF, and the linter checks it. Keep CRLF when you edit them.
+- **Message types.** A new message needs its request and response types in `src/types.ts`, a case in `GitTreeView.respondToMessage`, and a case in the webview's message handler.
+- **vsce** isn't a dependency; `npx --yes @vscode/vsce` fetches it when needed.

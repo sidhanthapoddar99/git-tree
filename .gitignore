@@ -3,3 +3,10 @@ media
 node_modules
 out
 *.vsix
+dist/*
+!dist/.gitkeep
+dev-workspace/demo-repo/
+dev-workspace/demo-origin.git/
+dev-workspace/demo-hotfix/
+docs/images/raw/
+.mise.local.toml
