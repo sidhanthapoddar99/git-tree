@@ -29,6 +29,40 @@ And everything you expect from a Git graph: branches, merges, tags, stashes and 
 
 <!-- ![The same repository in a light theme](docs/images/graph-light.webp) -->
 
+## Git Tree compared with Git Graph
+
+Git Tree started from [Git Graph](https://github.com/mhutchie/vscode-git-graph) 1.30.0, and keeps all of its features.
+
+### Performance
+
+Measured on Linux, on the same machine. *Loading the graph's data* is the time to run Git and parse its output for the first 300 commits, as the median of 11 runs. *Drawing* is the time the view takes to show the commits in headless Chromium, as the median of 5 runs; it varies by about 20% from one set of runs to the next.
+
+| | Git Graph 1.30.0 | Git Tree 0.3.2 |
+| --- | --- | --- |
+| Loading the graph's data, 16,000 commits, no commit-graph file | 113 ms | **25 ms** (4.5× faster) |
+| Loading the graph's data, 6,750 commits, no commit-graph file | 70 ms | **36 ms** (2× faster) |
+| Loading the graph's data, a repository that has a commit-graph file | about the same | about the same |
+| `git status` for uncommitted changes | after `git log` | **alongside `git log`** |
+| Coming back to a hidden tab | reloads the whole view | **refreshes the data only** |
+| Drawing 300 / 2,000 / 5,000 commits | about 60 / 240 / 520 ms | about the same |
+
+Git writes the commit-graph file during `git gc`, so many long-lived repositories already have one. Git Tree writes it for repositories that don't.
+
+### Features
+
+| | Git Graph 1.30.0 | Git Tree 0.3.2 |
+| --- | --- | --- |
+| Worktrees shown in the graph | — | ✅ A Worktree column |
+| Uncommitted changes | The open repository's only | ✅ Every worktree's, each in its own row |
+| Filter the graph by worktree | — | ✅ All, Root or one worktree |
+| Create, open and remove worktrees | — | ✅ From a commit or a branch |
+| Choose where new worktrees go | — | ✅ Relative, `~`, absolute or `{repo}` paths |
+| Open a worktree in a new window | — | ✅ Ctrl/Cmd+click |
+| Copy a file's path in another worktree | — | ✅ |
+| Several repositories side by side | One view for all repositories | ✅ One tab per repository |
+| Graph colours on light themes | The dark-theme palette | ✅ A darker palette for light themes |
+| Install, update and uninstall events | Sent to the author's server | ✅ None sent |
+
 ## Getting started
 
 1. Install Git Tree from the Extensions view (search for "Git Tree"), or install a `.vsix` with *Extensions: Install from VSIX...*.
