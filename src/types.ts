@@ -156,6 +156,25 @@ export interface GitWorktree {
 	readonly prunable: boolean; // The worktree's folder no longer exists
 }
 
+/**
+ * GitCommit rows in the compact form the extension posts to the webview: each (name, email) once, and each parent in the
+ * rows as its index. `encodeCommits` (src/compactCommits.ts) builds it, and `decodeCommits` (web/compactCommits.ts) reads it.
+ */
+export interface CompactCommits {
+	readonly people: ReadonlyArray<string>; // Pair k is people[2k] (name) and people[2k + 1] (email)
+	readonly rows: ReadonlyArray<CompactCommit>;
+}
+
+/**
+ * One GitCommit: [hash, parents, person, date, message, heads, tags, remotes, stash, worktree]. A parent in the rows is its
+ * index in them, and a parent outside them is its hash. The optional fields are left out from the end of the row while they
+ * are empty or NULL (or, for the worktree, missing), so most rows have only the first five.
+ */
+export type CompactCommit = readonly [string, ReadonlyArray<number | string>, number, number, string, ReadonlyArray<string>?, ReadonlyArray<CompactCommitTag>?, ReadonlyArray<CompactCommitRemote>?, (CompactCommitStash | null)?, string?];
+export type CompactCommitTag = readonly [string, 0 | 1]; // [name, annotated]
+export type CompactCommitRemote = readonly [string, string | null]; // [name, remote]
+export type CompactCommitStash = readonly [string, string, string | null]; // [selector, baseHash, untrackedFilesHash]
+
 
 /* Git Repo State */
 
@@ -939,15 +958,33 @@ export interface RequestLoadCommits extends RepoRequest {
 	readonly stashes: ReadonlyArray<GitStash>;
 	readonly worktrees: ReadonlyArray<GitWorktree>;
 	readonly onlyWorktreeHistory: boolean; // TRUE => only the history of the worktree that repo is: its HEAD joins branches as a start point, and no other worktree's uncommitted changes are read
+	readonly token: string | null; // The token of the commits the view shows, from the response that loaded them. NULL => it shows none, or must get the full page
 }
-export interface ResponseLoadCommits extends ResponseWithErrorInfo {
+/**
+ * The response to a RequestLoadCommits:
+ * - The page of commits, as two lists of rows: the leading rows of uncommitted changes, and the history after them.
+ * - `unchanged`: the request's token still describes the history, so only the rows of uncommitted changes are sent. The view keeps its history, head, tags, `moreCommitsAvailable` and `onlyFollowFirstParent`.
+ */
+export type ResponseLoadCommits = ResponseLoadCommitsPage | ResponseLoadCommitsUnchanged;
+export interface ResponseLoadCommitsPage extends ResponseWithErrorInfo {
 	readonly command: 'loadCommits';
 	readonly refreshId: number;
-	readonly commits: GitCommit[];
+	readonly unchanged: false;
+	readonly uncommitted: CompactCommits; // The leading rows of uncommitted changes
+	readonly commits: CompactCommits; // The rows after them
 	readonly head: string | null;
 	readonly tags: string[];
 	readonly moreCommitsAvailable: boolean;
 	readonly onlyFollowFirstParent: boolean;
+	readonly token: string | null; // Describes the history, head, tags, moreCommitsAvailable and onlyFollowFirstParent. NULL => the commits couldn't be loaded
+}
+export interface ResponseLoadCommitsUnchanged extends ResponseWithErrorInfo {
+	readonly command: 'loadCommits';
+	readonly refreshId: number;
+	readonly unchanged: true;
+	readonly uncommitted: CompactCommits; // The leading rows of uncommitted changes
+	readonly token: string; // The request's token
+	readonly error: null;
 }
 
 export interface RequestLoadConfig extends RepoRequest {

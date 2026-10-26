@@ -45,7 +45,7 @@ Git Tree started from [Git Graph](https://github.com/mhutchie/vscode-git-graph) 
 | Elements on the page, 5,000 commits | as Git Tree 0.3 | about 48,000 | **about 1,600** |
 | View memory, 2,000 / 5,000 commits | as Git Tree 0.3 | 199 / 277 MB | **145 / 153 MB** |
 | Extension memory after 30 view loads | 31 MB | 33 MB | **28 MB** |
-| Download size | 346 KB | 336 KB | 7.9 MB, with the engine for every platform |
+| Download size | 346 KB | 336 KB | 8.2 MB, with the engine for every platform |
 
 How these were measured, on Linux x64 with Git 2.55:
 

@@ -21,11 +21,18 @@
 //! | [`remote_url`] | `git config --get remote.<name>.url` |
 //! | [`tag_details`] | `git for-each-ref refs/tags/<name> --format=...` |
 //!
-//! Every read opens the repository afresh, as each git command does.
+//! Every read opens the repository afresh, as each git command does. A view load makes two reads, each
+//! of which opens it once and answers several of the reads above, each part as its own read would:
+//!
+//! | Read | The reads it answers |
+//! | --- | --- |
+//! | [`repo_info`] | [`branches`], [`remotes`], [`stashes`] (when asked for) and [`worktrees`] |
+//! | [`commits`] | [`show_refs`] and [`log`], with a token that skips the walk when nothing changed |
 
 mod attributes;
 mod blob;
 mod commit;
+mod commits;
 mod config;
 mod details;
 mod diff;
@@ -44,6 +51,7 @@ mod worktree;
 
 use std::path::Path;
 
+pub use commits::{Commits, CompactLog, Parent};
 pub use config::ConfigLocation;
 pub use details::{CommitDetailsRecord, DetailsFormat};
 pub use diff::DiffRecords;
@@ -119,6 +127,34 @@ pub fn remote_url(repo: impl AsRef<Path>, remote: &str) -> Result<Option<String>
 /// `git for-each-ref refs/tags/<name>` with the extension's tag details format.
 pub fn tag_details(repo: impl AsRef<Path>, name: &str) -> Result<TagRecord> {
     tag::tag_details(&Repo::open(repo)?, name)
+}
+
+/// The answers of the repository info reads, from one open. Each part is what its own read answers.
+#[derive(Debug)]
+pub struct RepoInfo {
+    pub branches: Result<Vec<BranchLine>>,
+    pub remotes: Result<Vec<String>>,
+    /// `None` when the stashes weren't asked for.
+    pub stashes: Option<Result<Vec<StashRecord>>>,
+    pub worktrees: Result<Vec<WorktreeRecord>>,
+}
+
+/// [`branches`], [`remotes`], [`stashes`] with `stashes` as the format, unless it's `None`, and
+/// [`worktrees`], with one open.
+pub fn repo_info(repo: impl AsRef<Path>, include_remotes: bool, stashes: Option<Format>) -> Result<RepoInfo> {
+    let repo = Repo::open(repo)?;
+    Ok(RepoInfo {
+        branches: refs::branches(&repo, include_remotes),
+        remotes: remotes::remotes(&repo),
+        stashes: stashes.map(|format| stash::stashes(&repo, format)),
+        worktrees: worktree::worktrees(&repo),
+    })
+}
+
+/// [`show_refs`] and [`log`], with one open, and the log as a [`CompactLog`]. When `token` is the
+/// token of an answer that the repository would still give, the answer is [`Commits::Unchanged`].
+pub fn commits(repo: impl AsRef<Path>, include_remotes: bool, request: &LogRequest, token: Option<&str>) -> Result<Commits> {
+    Ok(commits::commits(&Repo::open(repo)?, include_remotes, request, token))
 }
 
 /// The engine's version, which is the extension's.

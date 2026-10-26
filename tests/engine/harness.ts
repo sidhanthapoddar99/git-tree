@@ -101,15 +101,23 @@ export function createDataSource(engine: Engine | null) {
 }
 
 /**
- * Wrap the engine, recording each answer it gives. Every read takes the repository first.
+ * Wrap the engine, recording each answer it gives. Every read takes the repository first. The parts of the view
+ * load's reads (repoInfo and commits) are recorded too, as `<read>.<part>`, because each part is an answer of its own.
  */
 function recordAnswers(engine: Engine): Engine {
 	const recorded: { [read: string]: unknown } = { version: engine.version };
+	const describe = (value: EngineAnswer<unknown>) => 'ok' in value ? 'ok' : 'unsupported' in value ? 'unsupported: ' + value.unsupported : 'failed: ' + value.failed;
+	const isAnswer = (value: unknown): value is EngineAnswer<unknown> => typeof value === 'object' && value !== null && ('ok' in value || 'unsupported' in value || 'failed' in value);
 	for (const read of <(keyof Engine)[]>Object.keys(engine)) {
 		const run = engine[read];
 		if (typeof run !== 'function') continue;
 		recorded[read] = (repo: string, ...args: unknown[]) => (<(...args: unknown[]) => Promise<EngineAnswer<unknown>>>run)(repo, ...args).then((value) => {
-			harness.answers.push({ read: read, repo: repo, answer: 'ok' in value ? 'ok' : 'unsupported' in value ? 'unsupported: ' + value.unsupported : 'failed: ' + value.failed });
+			harness.answers.push({ read: read, repo: repo, answer: describe(value) });
+			if ((read === 'repoInfo' || read === 'commits') && 'ok' in value) {
+				for (const [part, answer] of Object.entries(<{ [part: string]: unknown }>value.ok)) {
+					if (isAnswer(answer)) harness.answers.push({ read: read + '.' + part, repo: repo, answer: describe(answer) });
+				}
+			}
 			return value;
 		});
 	}

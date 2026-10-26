@@ -101,6 +101,28 @@ export interface EngineLogRequest {
 	readonly format: EngineFormat;
 }
 
+/** The repository info reads in one crossing. Each part is the answer its own read gives. */
+export interface RepoInfoAnswer {
+	readonly branches: EngineAnswer<BranchListEntry[]>;
+	readonly remotes: EngineAnswer<string[]>;
+	readonly stashes: EngineAnswer<StashListEntry[]> | null; // NULL => stashes weren't asked for
+	readonly worktrees: EngineAnswer<WorktreeListEntry[]>;
+}
+
+/**
+ * The refs and a log page in one crossing:
+ * - `unchanged`: the token the read was given still describes the answer, so the engine didn't walk the log.
+ * - Otherwise each part is the answer its own read gives, and `token` describes them (NULL unless both are `ok`).
+ */
+export type CommitsAnswer = { readonly token: string, readonly unchanged: true }
+	| { readonly token: string | null, readonly refs: EngineAnswer<ShowRefEntry[]>, readonly log: EngineAnswer<LogEntry[]> };
+
+/** A log page as the engine sends it: each (name, email) once, and each parent in the page as its index. */
+interface CompactLog {
+	readonly people: string[]; // Pair k is people[2k] (name) and people[2k + 1] (email)
+	readonly commits: [string, (number | string)[], number, number, string][]; // [hash, parents, person, date, message]
+}
+
 /**
  * The engine's answer to a read:
  * - `ok`: the records.
@@ -127,6 +149,8 @@ export interface Engine {
 	readonly config: (repo: string, location: 'local' | 'global' | null) => Promise<EngineAnswer<string[]>>;
 	readonly remoteUrl: (repo: string, remote: string) => Promise<EngineAnswer<string | null>>;
 	readonly tagDetails: (repo: string, name: string) => Promise<EngineAnswer<TagDetailsEntry>>;
+	readonly repoInfo: (repo: string, includeRemotes: boolean, stashes: EngineFormat | null) => Promise<EngineAnswer<RepoInfoAnswer>>;
+	readonly commits: (repo: string, includeRemotes: boolean, request: EngineLogRequest, token: string | null) => Promise<EngineAnswer<CommitsAnswer>>;
 }
 
 /** The functions the native module exports (`native/node/src/lib.rs`). */
@@ -211,8 +235,36 @@ function createEngine(native: NativeModule): Engine {
 		commitFile: (repo, hash, path) => read({ read: 'commitFile', repo: repo, hash: hash, path: path }),
 		config: (repo, location) => read({ read: 'config', repo: repo, location: location }),
 		remoteUrl: (repo, remote) => read({ read: 'remoteUrl', repo: repo, remote: remote }),
-		tagDetails: (repo, name) => read({ read: 'tagDetails', repo: repo, name: name })
+		tagDetails: (repo, name) => read({ read: 'tagDetails', repo: repo, name: name }),
+		repoInfo: (repo, includeRemotes, stashes) => read({ read: 'repoInfo', repo: repo, includeRemotes: includeRemotes, stashes: stashes }),
+		commits: (repo, includeRemotes, request, token) => read<CommitsAnswer>({ read: 'commits', repo: repo, includeRemotes: includeRemotes, log: request, token: token }).then((answer) => {
+			if ('ok' in answer && 'log' in answer.ok && 'ok' in answer.ok.log) {
+				return { ok: { token: answer.ok.token, refs: answer.ok.refs, log: { ok: expandLog(<CompactLog><unknown>answer.ok.log.ok) } } };
+			}
+			return answer;
+		})
 	};
+}
+
+/**
+ * Expand a compact log page into the records the `log` read returns.
+ * @param log The compact log page.
+ * @returns The records.
+ */
+function expandLog(log: CompactLog): LogEntry[] {
+	const commits = log.commits, people = log.people, entries: LogEntry[] = new Array(commits.length);
+	for (let i = 0; i < commits.length; i++) {
+		const commit = commits[i], parents = commit[1], person = commit[2] * 2;
+		entries[i] = {
+			hash: commit[0],
+			parents: parents.map((parent) => typeof parent === 'number' ? commits[parent][0] : parent),
+			author: people[person],
+			email: people[person + 1],
+			date: commit[3],
+			message: commit[4]
+		};
+	}
+	return entries;
 }
 
 /**

@@ -4,6 +4,17 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-10-27
+
+### Changed
+
+- **A refresh where nothing changed costs about 1 ms.** The engine checks whether anything the commits depend on has changed, and if not, it skips the log walk: about 0.7 ms instead of 7 ms on a 6,750-commit repository. The view then gets only its *Uncommitted Changes* rows, in a message of about 160 bytes instead of 97 KB.
+- **Opening the view sends half the data.** The engine answers the view load in two calls instead of six, and the commits reach the view in a compact form: each author once, and each parent as a row number. 300 commits take 40 KB instead of 97 KB. Under Remote-SSH, where the extension runs on the server, this is the data that crosses the network.
+
+### Fixed
+
+- Changing `git-tree.date.type` or `git-tree.repository.useMailmap` updates the dates and names in the graph straight away. Before, they kept their old values until the next full refresh.
+
 ## [0.4.1] - 2026-10-27
 
 ### Added
@@ -146,6 +157,8 @@ The first version of Git Tree.
 - Telemetry. Git Tree sends no usage data.
 
 [Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[0.4.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.3...v0.3.4

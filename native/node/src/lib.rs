@@ -8,10 +8,18 @@
 //! - `{"ok": <records>}`
 //! - `{"unsupported": "<why>"}`: the extension runs the `git` CLI read instead
 //! - `{"failed": "<why>"}`: the read failed; the extension logs it and runs the `git` CLI read
+//!
+//! The view load's two reads answer several reads at once, each part in that same form:
+//! - `repoInfo`: `{"ok": {"branches": <answer>, "remotes": <answer>, "stashes": <answer> | null, "worktrees": <answer>}}`
+//! - `commits`: `{"ok": {"token": <token> | null, "refs": <answer>, "log": <answer>}}`, with the log in its
+//!   compact form, or `{"ok": {"token": <token>, "unchanged": true}}`
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use git_tree_engine::{ConfigLocation, DetailsFormat, Error, Format, LogRequest};
+use git_tree_engine::{
+    BranchLine, Commits, CompactLog, ConfigLocation, DetailsFormat, Error, Format, LogRequest, RepoInfo, ShowRefLine, StashRecord,
+    WorktreeRecord,
+};
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Task};
 use napi_derive::napi;
@@ -33,6 +41,8 @@ enum Request {
     Config { repo: String, location: Option<ConfigLocation> },
     RemoteUrl { repo: String, remote: String },
     TagDetails { repo: String, name: String },
+    RepoInfo { repo: String, include_remotes: bool, stashes: Option<Format> },
+    Commits { repo: String, include_remotes: bool, log: LogRequest, token: Option<String> },
 }
 
 #[derive(Serialize)]
@@ -43,13 +53,53 @@ enum Answer<T: Serialize> {
     Failed(String),
 }
 
+impl<T: Serialize> From<git_tree_engine::Result<T>> for Answer<T> {
+    fn from(result: git_tree_engine::Result<T>) -> Answer<T> {
+        match result {
+            Ok(records) => Answer::Ok(records),
+            Err(Error::Unsupported(why)) => Answer::Unsupported(why),
+            Err(Error::Failed(why)) => Answer::Failed(why),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct RepoInfoAnswer {
+    branches: Answer<Vec<BranchLine>>,
+    remotes: Answer<Vec<String>>,
+    stashes: Option<Answer<Vec<StashRecord>>>,
+    worktrees: Answer<Vec<WorktreeRecord>>,
+}
+
+impl From<RepoInfo> for RepoInfoAnswer {
+    fn from(info: RepoInfo) -> RepoInfoAnswer {
+        RepoInfoAnswer {
+            branches: info.branches.into(),
+            remotes: info.remotes.into(),
+            stashes: info.stashes.map(Answer::from),
+            worktrees: info.worktrees.into(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum CommitsAnswer {
+    Unchanged { token: String, unchanged: bool },
+    Read { token: Option<String>, refs: Answer<Vec<ShowRefLine>>, log: Answer<CompactLog> },
+}
+
+impl From<Commits> for CommitsAnswer {
+    fn from(commits: Commits) -> CommitsAnswer {
+        match commits {
+            Commits::Unchanged { token } => CommitsAnswer::Unchanged { token, unchanged: true },
+            Commits::Read { token, refs, log } => CommitsAnswer::Read { token, refs: refs.into(), log: log.into() },
+        }
+    }
+}
+
 fn answer<T: Serialize>(result: git_tree_engine::Result<T>) -> String {
-    let answer = match result {
-        Ok(records) => Answer::Ok(records),
-        Err(Error::Unsupported(why)) => Answer::Unsupported(why),
-        Err(Error::Failed(why)) => Answer::Failed(why),
-    };
-    serde_json::to_string(&answer).unwrap_or_else(|e| failed(&format!("Unable to write the answer: {e}")))
+    serde_json::to_string(&Answer::from(result)).unwrap_or_else(|e| failed(&format!("Unable to write the answer: {e}")))
 }
 
 fn failed(why: &str) -> String {
@@ -75,6 +125,12 @@ fn handle(request: &str) -> String {
         Request::Config { repo, location } => answer(git_tree_engine::config_list(repo, location)),
         Request::RemoteUrl { repo, remote } => answer(git_tree_engine::remote_url(repo, &remote)),
         Request::TagDetails { repo, name } => answer(git_tree_engine::tag_details(repo, &name)),
+        Request::RepoInfo { repo, include_remotes, stashes } => {
+            answer(git_tree_engine::repo_info(repo, include_remotes, stashes).map(RepoInfoAnswer::from))
+        }
+        Request::Commits { repo, include_remotes, log, token } => {
+            answer(git_tree_engine::commits(repo, include_remotes, &log, token.as_deref()).map(CommitsAnswer::from))
+        }
     }
 }
 

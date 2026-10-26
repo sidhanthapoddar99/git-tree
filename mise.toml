@@ -29,7 +29,7 @@ description = "Time each read with the Git CLI and with the engine: mise run ben
 run = "npm run bench-engine --"
 
 [tasks.gate]
-description = "What CI runs: lint, build and test."
+description = "Lint, build and test: run it before a release."
 depends = ["build"]
 run = "npx jest"
 
@@ -38,8 +38,8 @@ description = "Rebuild the demo repository in dev-workspace/ from scratch."
 run = "scripts/make-demo-repo.sh --force"
 
 [tasks.package]
-description = "Package the extension into dist/git-tree-rs-<version>.vsix."
-run = "npx --yes @vscode/vsce package --out dist/"
+description = "Build the engine for all eight platforms, and package the extension into dist/git-tree-rs-<version>.vsix."
+run = ["npx tsc -p ./src", "node scripts/build-engine.js --all", "npx --yes @vscode/vsce package --out dist/"]
 
 [tasks.install]
 description = "Package the extension, and install it in Visual Studio Code."

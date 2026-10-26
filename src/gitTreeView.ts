@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AvatarManager } from './avatarManager';
+import { createLoadCommitsResponse } from './compactCommits';
 import { getConfig } from './config';
 import { DataSource, GitConfigKey } from './dataSource';
 import { ExtensionState } from './extensionState';
@@ -467,12 +468,9 @@ export class GitTreeView extends Disposable {
 				break;
 			case 'loadCommits':
 				this.loadCommitsRefreshId = msg.refreshId;
-				this.sendMessage({
-					command: 'loadCommits',
-					refreshId: msg.refreshId,
-					onlyFollowFirstParent: msg.onlyFollowFirstParent,
-					...await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees, msg.onlyWorktreeHistory)
-				});
+				this.sendMessage(createLoadCommitsResponse(msg.refreshId, msg.onlyFollowFirstParent, msg.token,
+					await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees, msg.onlyWorktreeHistory)
+				));
 				break;
 			case 'loadConfig':
 				this.sendMessage({

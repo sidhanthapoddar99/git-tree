@@ -172,7 +172,9 @@ describe('DataSource', () => {
 			commitFile: jest.fn(),
 			config: jest.fn(),
 			remoteUrl: jest.fn(),
-			tagDetails: jest.fn()
+			tagDetails: jest.fn(),
+			repoInfo: jest.fn(),
+			commits: jest.fn()
 		};
 		beforeEach(() => {
 			dataSource.dispose();
@@ -190,6 +192,7 @@ describe('DataSource', () => {
 			expect(engine.remotes).not.toHaveBeenCalled();
 			expect(engine.stashes).not.toHaveBeenCalled();
 			expect(engine.worktrees).not.toHaveBeenCalled();
+			expect(engine.repoInfo).not.toHaveBeenCalled();
 		});
 
 		it('Should return the incompatible version message when getting the commits, without running Git or the engine', async () => {
@@ -201,6 +204,7 @@ describe('DataSource', () => {
 			expect(spyOnSpawn).not.toHaveBeenCalled();
 			expect(engine.refs).not.toHaveBeenCalled();
 			expect(engine.log).not.toHaveBeenCalled();
+			expect(engine.commits).not.toHaveBeenCalled();
 		});
 
 		it('Should return the incompatible version message when running an action, without running Git', async () => {
@@ -252,7 +256,9 @@ describe('DataSource', () => {
 			commitFile: jest.fn(),
 			config: jest.fn(),
 			remoteUrl: jest.fn(),
-			tagDetails: jest.fn()
+			tagDetails: jest.fn(),
+			repoInfo: jest.fn(),
+			commits: jest.fn()
 		};
 		beforeEach(() => {
 			dataSource.dispose();
@@ -405,6 +411,306 @@ describe('DataSource', () => {
 			expect(engine.config).toHaveBeenCalledWith('/path/to/repo', null);
 			expect(engine.config).toHaveBeenCalledWith('/path/to/repo', 'local');
 			expect(engine.config).toHaveBeenCalledWith('/path/to/repo', 'global');
+		});
+	});
+
+	describe('View load reads with the engine', () => {
+		const HASH1 = '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', HASH2 = '2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c';
+		const engine = {
+			version: '0.4.2',
+			branches: jest.fn(),
+			remotes: jest.fn(),
+			stashes: jest.fn(),
+			worktrees: jest.fn(),
+			refs: jest.fn(),
+			log: jest.fn(),
+			commitDetails: jest.fn(),
+			commitSubject: jest.fn(),
+			diff: jest.fn(),
+			commitFile: jest.fn(),
+			config: jest.fn(),
+			remoteUrl: jest.fn(),
+			tagDetails: jest.fn(),
+			repoInfo: jest.fn(),
+			commits: jest.fn()
+		};
+		const branches = { ok: [{ name: 'develop', current: true }, { name: 'master', current: false }] };
+		const remotes = { ok: ['origin'] };
+		const stashes = { ok: [{ hash: '98adab72e57a098a45cc36e43a6c0fda95c44f8b', parents: [HASH1, HASH2], selector: 'refs/stash@{0}', author: 'Test Author', email: 'test@example.com', date: 1592306634, message: 'WIP on develop: 1a2b3c4 y' }] };
+		const worktrees = { ok: [{ path: '/path/to/repo', head: HASH1, branch: 'refs/heads/develop', bare: false, locked: false, prunable: false }] };
+		const repoInfo = {
+			branches: ['develop', 'master'],
+			head: 'develop',
+			remotes: ['origin'],
+			stashes: [{ hash: '98adab72e57a098a45cc36e43a6c0fda95c44f8b', baseHash: HASH1, untrackedFilesHash: null, selector: 'refs/stash@{0}', author: 'Test Author', email: 'test@example.com', date: 1592306634, message: 'WIP on develop: 1a2b3c4 y' }],
+			worktrees: [{ path: '/path/to/repo', name: 'repo', head: HASH1, branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+			error: null
+		};
+		const log = () => ({ ok: [{ hash: HASH1, parents: [HASH2], author: 'Test Name', email: 'test@example.com', date: 1587559258, message: 'Commit Message 2' }, { hash: HASH2, parents: [], author: 'Test Name', email: 'test@example.com', date: 1587559257, message: 'Commit Message 1' }] });
+		const refs = () => ({ ok: [{ hash: HASH1, ref: 'HEAD' }, { hash: HASH1, ref: 'refs/heads/master' }, { hash: HASH2, ref: 'refs/tags/v1' }] });
+		const commitsResult = (moreCommitsAvailable: boolean) => ({
+			commits: [
+				{ hash: HASH1, parents: [HASH2], author: 'Test Name', email: 'test@example.com', date: 1587559258, message: 'Commit Message 2', heads: ['master'], tags: [], remotes: [], stash: null },
+				...(moreCommitsAvailable ? [] : [{ hash: HASH2, parents: [], author: 'Test Name', email: 'test@example.com', date: 1587559257, message: 'Commit Message 1', heads: [], tags: [{ name: 'v1', annotated: false }], remotes: [], stash: null }])
+			],
+			head: HASH1,
+			tags: ['v1'],
+			moreCommitsAvailable: moreCommitsAvailable,
+			error: null
+		});
+		const mockGitLog = () => mockGitSuccessOnce(
+			HASH1 + 'XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb' + HASH2 + 'XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest NameXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest@example.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1587559258XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbCommit Message 2\n' +
+			HASH2 + 'XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest NameXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest@example.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1587559257XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbCommit Message 1\n'
+		);
+		const mockGitRefs = () => mockGitSuccessOnce(HASH1 + ' HEAD\n' + HASH1 + ' refs/heads/master\n' + HASH2 + ' refs/tags/v1\n');
+		const getCommits = (maxCommits: number = 300) => dataSource.getCommits('/path/to/repo', null, maxCommits, true, false, false, false, CommitOrdering.Date, [], [], [], []);
+
+		beforeEach(() => {
+			dataSource.dispose();
+			dataSource = new DataSource({ path: '/path/to/git', version: '2.31.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger, engine);
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', false);
+		});
+
+		it('Should read the repository info in one engine crossing', async () => {
+			// Setup
+			engine.repoInfo.mockResolvedValueOnce({ ok: { branches: branches, remotes: remotes, stashes: stashes, worktrees: worktrees } });
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', true, true, []);
+
+			// Assert
+			expect(result).toStrictEqual(repoInfo);
+			expect(engine.repoInfo).toHaveBeenCalledTimes(1);
+			expect(engine.repoInfo).toHaveBeenCalledWith('/path/to/repo', true, { mailmap: false, authorDate: true });
+			expect(engine.branches).not.toHaveBeenCalled();
+			expect(engine.remotes).not.toHaveBeenCalled();
+			expect(engine.stashes).not.toHaveBeenCalled();
+			expect(engine.worktrees).not.toHaveBeenCalled();
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should ask for no stashes when they aren\'t shown', async () => {
+			// Setup
+			engine.repoInfo.mockResolvedValueOnce({ ok: { branches: branches, remotes: remotes, stashes: null, worktrees: worktrees } });
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, []);
+
+			// Assert
+			expect(result).toStrictEqual({ ...repoInfo, stashes: [] });
+			expect(engine.repoInfo).toHaveBeenCalledWith('/path/to/repo', false, null);
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should read only the part the engine can\'t answer with certainty with Git', async () => {
+			// Setup
+			engine.repoInfo.mockResolvedValueOnce({ ok: { branches: branches, remotes: remotes, stashes: { unsupported: 'the stash reflog has an entry it can\'t read' }, worktrees: worktrees } });
+			mockGitSuccessOnce('98adab72e57a098a45cc36e43a6c0fda95c44f8bXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb' + HASH1 + ' ' + HASH2 + 'XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbrefs/stash@{0}XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbTest AuthorXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbtest@example.comXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb1592306634XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPbWIP on develop: 1a2b3c4 y\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', true, true, []);
+
+			// Assert
+			expect(result).toStrictEqual(repoInfo);
+			expect(spyOnLog).toHaveBeenCalledWith('The engine can\'t read stashes with certainty (the stash reflog has an entry it can\'t read), so Git reads it.');
+			expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['reflog', '--format=%HXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%PXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%gDXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%anXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%aeXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%atXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%s', 'refs/stash', '--'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should read the stashes with Git when the engine\'s answer has none', async () => {
+			// Setup
+			engine.repoInfo.mockResolvedValueOnce({ ok: { branches: branches, remotes: remotes, stashes: null, worktrees: worktrees } });
+			mockGitSuccessOnce('\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', true, true, []);
+
+			// Assert
+			expect(result).toStrictEqual({ ...repoInfo, stashes: [] });
+			expect(spyOnLogError).toHaveBeenCalledWith('The engine failed to read stashes (the answer has no stashes), so Git reads it.');
+			expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+		});
+
+		it('Should read every part of the repository info with Git when the engine fails to read it', async () => {
+			// Setup
+			engine.repoInfo.mockResolvedValueOnce({ failed: 'malformed request' });
+			mockGitSuccessOnce('* develop\n  master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + HASH1 + '\nbranch refs/heads/develop\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', true, true, []);
+
+			// Assert
+			expect(result).toStrictEqual({ ...repoInfo, stashes: [] });
+			expect(engine.repoInfo).toHaveBeenCalledTimes(1);
+			['branches', 'remotes', 'stashes', 'worktrees'].forEach((name) => {
+				expect(spyOnLogError).toHaveBeenCalledWith('The engine failed to read ' + name + ' (malformed request), so Git reads it.');
+			});
+			expect(spyOnSpawn).toHaveBeenCalledTimes(4);
+		});
+
+		it('Should read every part of the repository info with Git when the engine throws', async () => {
+			// Setup
+			engine.repoInfo.mockRejectedValueOnce(new Error('engine crashed'));
+			mockGitSuccessOnce('* develop\n  master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + HASH1 + '\nbranch refs/heads/develop\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, []);
+
+			// Assert
+			expect(result).toStrictEqual({ ...repoInfo, stashes: [] });
+			expect(spyOnLogError).toHaveBeenCalledWith('The engine failed to read worktrees (engine crashed), so Git reads it.');
+			expect(spyOnSpawn).toHaveBeenCalledTimes(3);
+		});
+
+		it('Should read the refs and the log page in one engine crossing, without a token the first time', async () => {
+			// Setup
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token1', refs: refs(), log: log() } });
+
+			// Run
+			const result = await getCommits();
+
+			// Assert
+			expect(result).toStrictEqual(commitsResult(false));
+			expect(engine.commits).toHaveBeenCalledTimes(1);
+			expect(engine.commits).toHaveBeenCalledWith('/path/to/repo', false, { revisions: ['--branches', '--tags', 'HEAD'], maxCount: 301, order: CommitOrdering.Date, firstParent: false, format: { mailmap: false, authorDate: true } }, null);
+			expect(engine.refs).not.toHaveBeenCalled();
+			expect(engine.log).not.toHaveBeenCalled();
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should reuse the records of the last answer when the engine answers that its token is unchanged', async () => {
+			// Setup
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token1', refs: refs(), log: log() } });
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token1', unchanged: true } });
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token1', unchanged: true } });
+
+			// Run
+			const result1 = await getCommits(1);
+			const result2 = await getCommits(1);
+			const result3 = await getCommits(1);
+
+			// Assert
+			expect(result1).toStrictEqual(commitsResult(true));
+			expect(result2).toStrictEqual(commitsResult(true));
+			expect(result3).toStrictEqual(commitsResult(true));
+			expect(engine.commits.mock.calls[1][2]).toStrictEqual(engine.commits.mock.calls[0][2]);
+			expect(engine.commits.mock.calls[1][3]).toBe('token1');
+			expect(engine.commits.mock.calls[2][3]).toBe('token1');
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should keep the last answer of each request, so a different request sends its own token', async () => {
+			// Setup
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token300', refs: refs(), log: log() } });
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token1', refs: refs(), log: log() } });
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token300', unchanged: true } });
+
+			// Run
+			await getCommits(300);
+			await getCommits(1);
+			const result = await getCommits(300);
+
+			// Assert
+			expect(result).toStrictEqual(commitsResult(false));
+			expect(engine.commits.mock.calls.map((call) => call[3])).toStrictEqual([null, null, 'token300']);
+		});
+
+		it('Should keep at most 8 answers, and drop the least recently used', async () => {
+			// Setup
+			for (let i = 1; i <= 9; i++) {
+				engine.commits.mockResolvedValueOnce({ ok: { token: 'token' + i, refs: refs(), log: log() } });
+			}
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token9', unchanged: true } });
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token1', refs: refs(), log: log() } });
+
+			// Run
+			for (let i = 1; i <= 9; i++) {
+				await getCommits(i);
+			}
+			await getCommits(9);
+			await getCommits(1);
+
+			// Assert
+			expect(engine.commits.mock.calls[9][3]).toBe('token9');
+			expect(engine.commits.mock.calls[10][3]).toBe(null);
+			expect(dataSource['commitsCache'].size).toBe(8);
+		});
+
+		it('Should read the refs and the log page with Git when the engine answers unchanged to a token it wasn\'t given', async () => {
+			// Setup
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token1', unchanged: true } });
+			mockGitLog();
+			mockGitRefs();
+
+			// Run
+			const result = await getCommits();
+
+			// Assert
+			expect(result).toStrictEqual(commitsResult(false));
+			expect(spyOnLogError).toHaveBeenCalledWith('The engine failed to read log (the engine answered unchanged to a token it wasn\'t given), so Git reads it.');
+			expect(spyOnLogError).toHaveBeenCalledWith('The engine failed to read refs (the engine answered unchanged to a token it wasn\'t given), so Git reads it.');
+			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
+		});
+
+		it('Should read the log page with Git, and keep no token, when the engine can\'t read it with certainty', async () => {
+			// Setup
+			engine.commits.mockResolvedValueOnce({ ok: { token: null, refs: refs(), log: { unsupported: 'the repository has a mailmap' } } });
+			engine.commits.mockResolvedValueOnce({ ok: { token: null, refs: refs(), log: { unsupported: 'the repository has a mailmap' } } });
+			mockGitLog();
+			mockGitLog();
+
+			// Run
+			const result1 = await getCommits();
+			const result2 = await getCommits();
+
+			// Assert
+			expect(result1).toStrictEqual(commitsResult(false));
+			expect(result2).toStrictEqual(commitsResult(false));
+			expect(spyOnLog).toHaveBeenCalledWith('The engine can\'t read log with certainty (the repository has a mailmap), so Git reads it.');
+			expect(engine.commits.mock.calls.map((call) => call[3])).toStrictEqual([null, null]);
+			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', '--format=%HXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%PXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%anXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%aeXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%atXX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb%s', '--date-order', '--branches', '--tags', 'HEAD', '--'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should read the refs with Git when the engine fails to read them, and drop the answer it kept', async () => {
+			// Setup
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token1', refs: refs(), log: log() } });
+			engine.commits.mockResolvedValueOnce({ ok: { token: null, refs: { failed: 'unable to read a ref' }, log: log() } });
+			engine.commits.mockResolvedValueOnce({ ok: { token: 'token2', refs: refs(), log: log() } });
+			mockGitRefs();
+
+			// Run
+			await getCommits();
+			const result = await getCommits();
+			await getCommits();
+
+			// Assert
+			expect(result).toStrictEqual(commitsResult(false));
+			expect(spyOnLogError).toHaveBeenCalledWith('The engine failed to read refs (unable to read a ref), so Git reads it.');
+			expect(engine.commits.mock.calls.map((call) => call[3])).toStrictEqual([null, 'token1', null]);
+			expect(spyOnSpawn).toHaveBeenCalledTimes(1);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['show-ref', '--heads', '--tags', '-d', '--head'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should read the refs and the log page with Git when the engine fails to read them', async () => {
+			// Setup
+			engine.commits.mockResolvedValueOnce({ failed: 'malformed request' });
+			mockGitLog();
+			mockGitRefs();
+
+			// Run
+			const result = await getCommits();
+
+			// Assert
+			expect(result).toStrictEqual(commitsResult(false));
+			expect(spyOnLogError).toHaveBeenCalledWith('The engine failed to read log (malformed request), so Git reads it.');
+			expect(spyOnLogError).toHaveBeenCalledWith('The engine failed to read refs (malformed request), so Git reads it.');
+			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
 		});
 	});
 

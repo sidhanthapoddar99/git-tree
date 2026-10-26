@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
 import { getConfig } from './config';
-import { BranchListEntry, CommitDetailsEntry, DiffOutput, Engine, EngineAnswer, EngineDetailsFormat, EngineFormat, LogEntry, ShowRefEntry, StashListEntry, TagDetailsEntry, WorktreeListEntry } from './engine';
+import { BranchListEntry, CommitDetailsEntry, DiffOutput, Engine, EngineAnswer, EngineDetailsFormat, EngineFormat, EngineLogRequest, LogEntry, ShowRefEntry, StashListEntry, TagDetailsEntry, WorktreeListEntry } from './engine';
 import { Logger } from './logger';
 import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, UNCOMMITTED, abbrevCommit, getGitExecutableError, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
@@ -20,6 +20,7 @@ const RECORD_EOL_REGEX = /\r?\n/g;
 const INVALID_BRANCH_REGEXP = /^\(.* .*\)$/;
 const REMOTE_HEAD_BRANCH_REGEXP = /^remotes\/.*\/HEAD$/;
 const GIT_LOG_SEPARATOR = 'XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb';
+const COMMITS_CACHE_SIZE = 8; // The most `commits` engine answers DataSource keeps, over all repositories and requests
 
 export const enum GitConfigKey {
 	DiffGuiTool = 'diff.guitool',
@@ -53,6 +54,7 @@ export class DataSource extends Disposable {
 	private engineFormat!: EngineFormat;
 	private engineDetailsFormat!: EngineDetailsFormat;
 	private readonly engine: Engine | null;
+	private readonly commitsCache = new Map<string, CommitsCacheEntry>(); // The last `commits` engine answer for each repository and request, least recently used first
 	private readonly commitGraphChecked = new Set<string>(); // The repositories whose commit-graph has been checked in this session
 
 	/**
@@ -152,11 +154,13 @@ export class DataSource extends Disposable {
 	 * @returns The repositories information.
 	 */
 	public getRepoInfo(repo: string, showRemoteBranches: boolean, showStashes: boolean, hideRemotes: ReadonlyArray<string>): Promise<GitRepoInfo> {
+		// One engine crossing reads the four parts, and each part keeps its own Git CLI fallback
+		const repoInfoPart = shareEngineRead((engine) => engine.repoInfo(repo, showRemoteBranches, showStashes ? this.engineFormat : null));
 		return Promise.all([
-			this.getBranches(repo, showRemoteBranches, hideRemotes),
-			this.getRemotes(repo),
-			showStashes ? this.getStashes(repo) : Promise.resolve([]),
-			this.getWorktrees(repo)
+			this.getBranches(repo, showRemoteBranches, hideRemotes, repoInfoPart((answer) => answer.branches)),
+			this.getRemotes(repo, repoInfoPart((answer) => answer.remotes)),
+			showStashes ? this.getStashes(repo, repoInfoPart((answer) => answer.stashes !== null ? answer.stashes : { failed: 'the answer has no stashes' })) : Promise.resolve([]),
+			this.getWorktrees(repo, repoInfoPart((answer) => answer.worktrees))
 		]).then((results) => {
 			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], worktrees: results[3], error: null };
 		}).catch((errorMessage) => {
@@ -185,8 +189,11 @@ export class DataSource extends Disposable {
 		const config = getConfig();
 		// The log runs in the worktree, so HEAD is the worktree's own HEAD, whether it is on a branch or detached
 		const startPoints = onlyWorktreeHistory ? (branches !== null ? branches : []).concat('HEAD') : branches;
-		const log = this.getLog(repo, startPoints, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes);
-		const refs = this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage);
+		const logRead = this.getLogRead(startPoints, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes);
+		// One engine crossing reads the log page and the refs, and each keeps its own Git CLI fallback
+		const commitsPart = shareEngineRead((engine) => this.readCommitsWithEngine(engine, repo, showRemoteBranches, logRead.request));
+		const log = this.getLog(repo, logRead, commitsPart((answer) => answer.log));
+		const refs = this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes, commitsPart((answer) => answer.refs)).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage);
 		// Git status is often the slowest command in a large repository, so it runs alongside the log instead of after it
 		const uncommittedChanges = config.showUncommittedChanges ? this.getUncommittedChanges(repo) : null;
 		if (uncommittedChanges !== null) {
@@ -1483,9 +1490,10 @@ export class DataSource extends Disposable {
 	 * @param repo The path of the repository.
 	 * @param showRemoteBranches Are remote branches shown.
 	 * @param hideRemotes An array of hidden remotes.
+	 * @param engineRead Reads the branch records with the engine (default: the engine's `branches` read).
 	 * @returns The branch data.
 	 */
-	private getBranches(repo: string, showRemoteBranches: boolean, hideRemotes: ReadonlyArray<string>) {
+	private getBranches(repo: string, showRemoteBranches: boolean, hideRemotes: ReadonlyArray<string>, engineRead: EngineRead<BranchListEntry[]> = (engine) => engine.branches(repo, showRemoteBranches)) {
 		let args = ['branch'];
 		if (showRemoteBranches) args.push('-a');
 		// --no-column keeps one branch per line when the user sets column.ui
@@ -1494,7 +1502,7 @@ export class DataSource extends Disposable {
 		const hideRemotePatterns = hideRemotes.map((remote) => 'remotes/' + remote + '/');
 		const showRemoteHeads = getConfig().showRemoteHeads;
 
-		return this.readWithEngine('branches', (engine) => engine.branches(repo, showRemoteBranches), () => this.spawnGit(args, repo, (stdout) => {
+		return this.readWithEngine('branches', engineRead, () => this.spawnGit(args, repo, (stdout) => {
 			let entries: BranchListEntry[] = [];
 			let lines = stdout.split(EOL_REGEX);
 			for (let i = 0; i < lines.length - 1; i++) {
@@ -1641,8 +1649,7 @@ export class DataSource extends Disposable {
 	}
 
 	/**
-	 * Get the raw commits in a repository.
-	 * @param repo The path of the repository.
+	 * Get the `git log` read of a page of commits, as the Git CLI's arguments and as the engine's request.
 	 * @param branches The list of branch heads to display, or NULL (show all).
 	 * @param num The maximum number of commits to return.
 	 * @param includeTags Include commits only referenced by tags.
@@ -1653,9 +1660,9 @@ export class DataSource extends Disposable {
 	 * @param remotes An array of the known remotes.
 	 * @param hideRemotes An array of hidden remotes.
 	 * @param stashes An array of all stashes in the repository.
-	 * @returns An array of commits.
+	 * @returns The read.
 	 */
-	private getLog(repo: string, branches: ReadonlyArray<string> | null, num: number, includeTags: boolean, includeRemotes: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, order: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>) {
+	private getLogRead(branches: ReadonlyArray<string> | null, num: number, includeTags: boolean, includeRemotes: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, order: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>): LogRead {
 		// The revisions the log starts from, which the Git CLI and the engine both read
 		const revisions: string[] = [];
 		if (branches !== null) {
@@ -1690,8 +1697,18 @@ export class DataSource extends Disposable {
 		}
 		args.push(...revisions, '--');
 
-		const request = { revisions: revisions, maxCount: num, order: order, firstParent: onlyFollowFirstParent, format: this.engineFormat };
-		return this.readWithEngine('log', (engine) => engine.log(repo, request), () => this.spawnGit(args, repo, (stdout) => {
+		return { args: args, request: { revisions: revisions, maxCount: num, order: order, firstParent: onlyFollowFirstParent, format: this.engineFormat } };
+	}
+
+	/**
+	 * Get the raw commits in a repository.
+	 * @param repo The path of the repository.
+	 * @param read The read, from `getLogRead`.
+	 * @param engineRead Reads the log records with the engine.
+	 * @returns An array of commits.
+	 */
+	private getLog(repo: string, read: LogRead, engineRead: EngineRead<LogEntry[]>) {
+		return this.readWithEngine('log', engineRead, () => this.spawnGit(read.args, repo, (stdout) => {
 			let lines = stdout.split(RECORD_EOL_REGEX);
 			let commits: LogEntry[] = [];
 			for (let i = 0; i < lines.length - 1; i++) {
@@ -1709,16 +1726,17 @@ export class DataSource extends Disposable {
 	 * @param showRemoteBranches Are remote branches shown.
 	 * @param showRemoteHeads Are remote heads shown.
 	 * @param hideRemotes An array of hidden remotes.
+	 * @param engineRead Reads the ref records with the engine.
 	 * @returns The references data.
 	 */
-	private getRefs(repo: string, showRemoteBranches: boolean, showRemoteHeads: boolean, hideRemotes: ReadonlyArray<string>) {
+	private getRefs(repo: string, showRemoteBranches: boolean, showRemoteHeads: boolean, hideRemotes: ReadonlyArray<string>, engineRead: EngineRead<ShowRefEntry[]>) {
 		let args = ['show-ref'];
 		if (!showRemoteBranches) args.push('--heads', '--tags');
 		args.push('-d', '--head');
 
 		const hideRemotePatterns = hideRemotes.map((remote) => 'refs/remotes/' + remote + '/');
 
-		return this.readWithEngine('refs', (engine) => engine.refs(repo, showRemoteBranches), () => this.spawnGit(args, repo, (stdout) => {
+		return this.readWithEngine('refs', engineRead, () => this.spawnGit(args, repo, (stdout) => {
 			let entries: ShowRefEntry[] = [];
 			let lines = stdout.split(EOL_REGEX);
 			for (let i = 0; i < lines.length - 1; i++) {
@@ -1777,10 +1795,11 @@ export class DataSource extends Disposable {
 	/**
 	 * Get the stashes in a repository.
 	 * @param repo The path of the repository.
+	 * @param engineRead Reads the stash records with the engine (default: the engine's `stashes` read).
 	 * @returns An array of stashes.
 	 */
-	private getStashes(repo: string) {
-		return this.readWithEngine('stashes', (engine) => engine.stashes(repo, this.engineFormat), () => this.spawnGit(['reflog', '--format=' + this.gitFormatStash, 'refs/stash', '--'], repo, (stdout) => {
+	private getStashes(repo: string, engineRead: EngineRead<StashListEntry[]> = (engine) => engine.stashes(repo, this.engineFormat)) {
+		return this.readWithEngine('stashes', engineRead, () => this.spawnGit(['reflog', '--format=' + this.gitFormatStash, 'refs/stash', '--'], repo, (stdout) => {
 			let lines = stdout.split(RECORD_EOL_REGEX);
 			let entries: StashListEntry[] = [];
 			for (let i = 0; i < lines.length - 1; i++) {
@@ -1812,10 +1831,11 @@ export class DataSource extends Disposable {
 	/**
 	 * Get the names of the remotes of a repository.
 	 * @param repo The path of the repository.
+	 * @param engineRead Reads the remote names with the engine (default: the engine's `remotes` read).
 	 * @returns An array of remote names.
 	 */
-	private getRemotes(repo: string) {
-		return this.readWithEngine('remotes', (engine) => engine.remotes(repo), () => this.spawnGit(['remote'], repo, (stdout) => {
+	private getRemotes(repo: string, engineRead: EngineRead<string[]> = (engine) => engine.remotes(repo)) {
+		return this.readWithEngine('remotes', engineRead, () => this.spawnGit(['remote'], repo, (stdout) => {
 			let lines = stdout.split(EOL_REGEX);
 			lines.pop();
 			return lines;
@@ -1883,11 +1903,12 @@ export class DataSource extends Disposable {
 	/**
 	 * Get the worktrees of a repository.
 	 * @param repo The path of the repository.
+	 * @param engineRead Reads the worktree records with the engine (default: the engine's `worktrees` read).
 	 * @returns An array of the worktrees, with the main worktree first.
 	 */
-	private getWorktrees(repo: string): Promise<GitWorktree[]> {
+	private getWorktrees(repo: string, engineRead: EngineRead<WorktreeListEntry[]> = (engine) => engine.worktrees(repo)): Promise<GitWorktree[]> {
 		return Promise.all([
-			this.readWithEngine('worktrees', (engine) => engine.worktrees(repo), () => this.spawnGit(['worktree', 'list', '--porcelain'], repo, parseWorktreeList)),
+			this.readWithEngine('worktrees', engineRead, () => this.spawnGit(['worktree', 'list', '--porcelain'], repo, parseWorktreeList)),
 			realpath(repo)
 		]).then((results) => getWorktreesFromList(results[0], [repo, results[1]]));
 	}
@@ -1973,6 +1994,44 @@ export class DataSource extends Disposable {
 			let lines = stdout.split('\0');
 			if (fromHash === toHash) lines.shift();
 			return lines;
+		});
+	}
+
+	/**
+	 * Read the refs and a log page with the engine, in one crossing. The engine is given the token of its last answer to the
+	 * same read, and when it answers that the token still describes the refs and the log, the records of that answer are used again.
+	 * @param engine The engine.
+	 * @param repo The path of the repository.
+	 * @param includeRemotes Include the remote-tracking refs.
+	 * @param request The log request.
+	 * @returns The answer of each part.
+	 */
+	private readCommitsWithEngine(engine: Engine, repo: string, includeRemotes: boolean, request: EngineLogRequest): Promise<EngineAnswer<CommitsParts>> {
+		const key = JSON.stringify([repo, includeRemotes, request]), cached = this.commitsCache.get(key);
+		return engine.commits(repo, includeRemotes, request, cached !== undefined ? cached.token : null).then((answer): EngineAnswer<CommitsParts> => {
+			// The entry is set again below when it is still right, which also makes it the most recently used
+			this.commitsCache.delete(key);
+			if (!('ok' in answer)) return answer;
+
+			const commits = answer.ok;
+			if ('unchanged' in commits) {
+				if (cached === undefined || commits.token !== cached.token) {
+					// The engine didn't say which records are unchanged, so neither part is known
+					return { failed: 'the engine answered unchanged to a token it wasn\'t given' };
+				}
+				this.commitsCache.set(key, cached);
+				return { ok: { refs: { ok: cached.refs.slice() }, log: { ok: cached.log.slice() } } };
+			}
+
+			if (commits.token !== null && 'ok' in commits.refs && 'ok' in commits.log) {
+				// getCommits changes the arrays it is given, so the cache keeps its own
+				this.commitsCache.set(key, { token: commits.token, refs: commits.refs.ok.slice(), log: commits.log.ok.slice() });
+				if (this.commitsCache.size > COMMITS_CACHE_SIZE) {
+					const oldest = this.commitsCache.keys().next();
+					if (!oldest.done) this.commitsCache.delete(oldest.value);
+				}
+			}
+			return { ok: { refs: commits.refs, log: commits.log } };
 		});
 	}
 
@@ -2267,6 +2326,20 @@ function removeTrailingBlankLines(lines: string[]) {
 }
 
 /**
+ * Share one engine crossing between the reads of its parts, so that each part keeps its own Git CLI fallback. The crossing
+ * starts when the first part's read runs. When the crossing doesn't answer `ok`, each part gets that answer.
+ * @param read Runs the crossing.
+ * @returns A function that makes the engine read of a part, given how to pick the part from the crossing's records.
+ */
+function shareEngineRead<A>(read: EngineRead<A>) {
+	let answer: Promise<EngineAnswer<A>> | null = null;
+	return <T>(pick: (records: A) => EngineAnswer<T>): EngineRead<T> => (engine) => {
+		if (answer === null) answer = read(engine);
+		return answer.then((answer) => 'ok' in answer ? pick(answer.ok) : answer);
+	};
+}
+
+/**
  * Get all the unique strings from an array of strings.
  * @param items The array of strings with duplicates.
  * @returns An array of unique strings.
@@ -2280,6 +2353,17 @@ function unique(items: ReadonlyArray<string>) {
 
 /* Types */
 
+interface CommitsCacheEntry {
+	readonly token: string; // The engine's token for the refs and the log
+	readonly refs: ReadonlyArray<ShowRefEntry>;
+	readonly log: ReadonlyArray<LogEntry>;
+}
+
+interface CommitsParts {
+	readonly refs: EngineAnswer<ShowRefEntry[]>;
+	readonly log: EngineAnswer<LogEntry[]>;
+}
+
 interface DiffNameStatusRecord {
 	type: GitFileStatus;
 	oldFilePath: string;
@@ -2291,6 +2375,8 @@ interface DiffNumStatRecord {
 	additions: number;
 	deletions: number;
 }
+
+type EngineRead<T> = (engine: Engine) => Promise<EngineAnswer<T>>;
 
 interface GitBranchData {
 	branches: string[];
@@ -2308,7 +2394,7 @@ interface GitCommitRecord {
 	worktree?: string;
 }
 
-interface GitCommitData {
+export interface GitCommitData {
 	commits: GitCommit[];
 	head: string | null;
 	tags: string[];
@@ -2368,4 +2454,9 @@ interface GitTagDetailsData {
 interface GpgStatusCodeParsingDetails {
 	readonly status: GitSignatureStatus,
 	readonly uid: boolean
+}
+
+interface LogRead {
+	readonly args: string[]; // The Git CLI's arguments
+	readonly request: EngineLogRequest; // The engine's request
 }

@@ -25,6 +25,7 @@ class GitTreeView {
 	private gitTags: ReadonlyArray<string> = [];
 	private gitWorktrees: ReadonlyArray<GG.GitWorktree> = [];
 	private commits: GG.GitCommit[] = [];
+	private commitsToken: { readonly token: string, readonly commits: GG.GitCommit[], readonly tags: ReadonlyArray<string> } | null = null; // The token of the commits shown, with the arrays it describes
 	private commitHead: string | null = null;
 	private commitLookup: { [hash: string]: number } = {};
 	private onlyFollowFirstParent: boolean = false;
@@ -162,7 +163,7 @@ class GitTreeView {
 			this.avatars = prevState.avatars;
 			this.gitConfig = prevState.gitConfig;
 			this.loadRepoInfo(prevState.gitBranches, prevState.gitBranchHead, prevState.gitRemotes, prevState.gitStashes, prevState.gitWorktrees, true);
-			this.loadCommits(prevState.commits, prevState.commitHead, prevState.gitTags, prevState.moreCommitsAvailable, prevState.onlyFollowFirstParent);
+			this.loadCommits(prevState.commits, prevState.commitHead, prevState.gitTags, prevState.moreCommitsAvailable, prevState.onlyFollowFirstParent, typeof prevState.commitsToken === 'string' ? prevState.commitsToken : null);
 			this.findWidget.restoreState(prevState.findWidget);
 			this.settingsWidget.restoreState(prevState.settingsWidget);
 			this.showRemoteBranchesElem.checked = getShowRemoteBranches(this.gitRepos[prevState.currentRepo].showRemoteBranchesV2);
@@ -408,12 +409,24 @@ class GitTreeView {
 		}
 	}
 
-	private loadCommits(commits: GG.GitCommit[], commitHead: string | null, tags: ReadonlyArray<string>, moreAvailable: boolean, onlyFollowFirstParent: boolean) {
+	/**
+	 * Show a page of commits.
+	 * @param commits The commits.
+	 * @param commitHead The commit HEAD points to.
+	 * @param tags The names of the tags in the repository.
+	 * @param moreAvailable Are there more commits after the page.
+	 * @param onlyFollowFirstParent Was the page read following only the first parent of commits.
+	 * @param token The token that describes the page, from the response it came in. NULL => none does.
+	 */
+	private loadCommits(commits: GG.GitCommit[], commitHead: string | null, tags: ReadonlyArray<string>, moreAvailable: boolean, onlyFollowFirstParent: boolean, token: string | null) {
 		// This list of tags is just used to provide additional information in the dialogs. Tag information included in commits is used for all other purposes (e.g. rendering, context menus)
 		const tagsChanged = !arraysStrictlyEqual(this.gitTags, tags);
 		this.gitTags = tags;
 
 		if (!this.currentRepoLoading && !this.currentRepoRefreshState.hard && this.moreCommitsAvailable === moreAvailable && this.onlyFollowFirstParent === onlyFollowFirstParent && this.commitHead === commitHead && commits.length > 0 && arraysEqual(this.commits, commits, (a, b) =>
+			// A commit's own fields change when a setting does (the date type, the mailmap), so history rows must be identical.
+			// A row of uncommitted changes is dated when it is read, so it is compared without its date, and updated in place below.
+			(isUncommittedChanges(a.hash) || isCommitIdentical(a, b)) &&
 			a.hash === b.hash &&
 			arraysStrictlyEqual(a.heads, b.heads) &&
 			arraysEqual(a.tags, b.tags, (a, b) => a.name === b.name && a.annotated === b.annotated) &&
@@ -427,6 +440,7 @@ class GitTreeView {
 				for (let i = 0; i < commits.length && isUncommittedChanges(commits[i].hash); i++) {
 					this.commits[i] = commits[i];
 				}
+				this.setCommitsToken(token, commits);
 				this.saveState();
 				this.renderUncommittedChanges();
 				if (this.expandedCommit !== null && this.expandedCommit.commitElem !== null) {
@@ -442,8 +456,10 @@ class GitTreeView {
 						}
 					}
 				}
-			} else if (tagsChanged) {
-				this.saveState();
+			} else {
+				const previousToken = this.getCommitsToken();
+				this.setCommitsToken(token, commits);
+				if (tagsChanged || this.getCommitsToken() !== previousToken) this.saveState();
 			}
 			this.finaliseLoadCommits();
 			return;
@@ -454,6 +470,7 @@ class GitTreeView {
 		this.moreCommitsAvailable = moreAvailable;
 		this.onlyFollowFirstParent = onlyFollowFirstParent;
 		this.commits = commits;
+		this.commitsToken = token !== null ? { token: token, commits: commits, tags: tags } : null;
 		this.commitHead = commitHead;
 		this.commitLookup = {};
 
@@ -492,6 +509,26 @@ class GitTreeView {
 
 		this.finaliseLoadCommits();
 		this.requestAvatars(avatarsNeeded);
+	}
+
+	/**
+	 * Keep the token of a page whose history equals the history shown, so the view kept its own rows. The token describes
+	 * every field of the page's rows, so it is kept only when the rows shown are identical to them.
+	 * @param token The token of the page.
+	 * @param commits The page's commits.
+	 */
+	private setCommitsToken(token: string | null, commits: ReadonlyArray<GG.GitCommit>) {
+		this.commitsToken = token !== null && areCommitsIdentical(this.commits, commits) ? { token: token, commits: this.commits, tags: this.gitTags } : null;
+	}
+
+	/**
+	 * Get the token of the commits the view shows.
+	 * @returns The token, or NULL if no token describes them.
+	 */
+	private getCommitsToken() {
+		const commitsToken = this.commitsToken;
+		// The arrays are compared too, so a change to the commits or the tags made anywhere without a token drops it
+		return commitsToken !== null && commitsToken.commits === this.commits && commitsToken.tags === this.gitTags ? commitsToken.token : null;
 	}
 
 	private finaliseLoadCommits() {
@@ -558,6 +595,7 @@ class GitTreeView {
 		closeDialogAndContextMenu();
 		this.moreCommitsAvailable = false;
 		this.commits = [];
+		this.commitsToken = null;
 		this.commitHead = null;
 		this.commitLookup = {};
 		this.renderedGitBranchHead = null;
@@ -585,7 +623,18 @@ class GitTreeView {
 		if (msg.error === null) {
 			const refreshState = this.currentRepoRefreshState;
 			if (refreshState.inProgress && refreshState.loadCommitsRefreshId === msg.refreshId) {
-				this.loadCommits(msg.commits, msg.head, msg.tags, msg.moreCommitsAvailable, msg.onlyFollowFirstParent);
+				const uncommitted = decodeCommits(msg.uncommitted);
+				if (!msg.unchanged) {
+					this.loadCommits(uncommitted.concat(decodeCommits(msg.commits)), msg.head, msg.tags, msg.moreCommitsAvailable, msg.onlyFollowFirstParent, msg.token);
+				} else if (msg.token === this.getCommitsToken()) {
+					// The history shown is still right, so only the rows of uncommitted changes are new
+					let historyStart = 0;
+					while (historyStart < this.commits.length && isUncommittedChanges(this.commits[historyStart].hash)) historyStart++;
+					this.loadCommits(uncommitted.concat(this.commits.slice(historyStart)), this.commitHead, this.gitTags, this.moreCommitsAvailable, this.onlyFollowFirstParent, msg.token);
+				} else {
+					// The commits shown changed after the request, so the token no longer describes them. Ask again.
+					this.requestLoadCommits();
+				}
 			}
 		} else {
 			const error = this.gitBranches.length === 0 && msg.error.indexOf('bad revision \'HEAD\'') > -1
@@ -748,7 +797,9 @@ class GitTreeView {
 			hideRemotes: repoState.hideRemotes,
 			stashes: this.gitStashes,
 			worktrees: this.gitWorktrees,
-			onlyWorktreeHistory: this.isOnlyWorktreeHistory()
+			onlyWorktreeHistory: this.isOnlyWorktreeHistory(),
+			// A hard refresh, and a repository that is loading, get the full page whatever the extension finds
+			token: !this.currentRepoRefreshState.hard && !this.currentRepoLoading ? this.getCommitsToken() : null
 		});
 	}
 
@@ -852,6 +903,7 @@ class GitTreeView {
 			gitTags: this.gitTags,
 			gitWorktrees: this.gitWorktrees,
 			commits: this.commits,
+			commitsToken: this.getCommitsToken(),
 			commitHead: this.commitHead,
 			avatars: this.avatars,
 			currentBranches: this.currentBranches,
@@ -2411,6 +2463,8 @@ class GitTreeView {
 	private loadMoreCommits() {
 		this.footerElem.innerHTML = '<h2 id="loadingHeader">' + SVG_ICONS.loading + 'Loading ...</h2>';
 		this.maxCommits += this.config.loadMoreCommits;
+		// The answer has more rows than the token describes, so the request doesn't send it
+		this.commitsToken = null;
 		this.saveState();
 		this.requestLoadRepoInfoAndCommits(false, true);
 	}

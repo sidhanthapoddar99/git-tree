@@ -76,21 +76,81 @@ pub struct LogRequest {
 }
 
 /// A commit the log starts from.
-struct Start {
+pub(crate) struct Start {
     id: ObjectId,
     /// Git lists the reflogs' commits in an order the engine doesn't reproduce, which only matters
     /// when two of them tie.
     from_reflog: bool,
 }
 
+/// What a log read finds before it walks: everything its answer depends on apart from the commits,
+/// which can't change for a given ID. The `commits` read's token describes it.
+pub(crate) enum Plan {
+    /// The log is empty: `--max-count=0`, or the revisions name no commits.
+    Empty,
+    Walk {
+        starts: Vec<Start>,
+        /// Boxed, because gix's graph is large.
+        graph: Option<Box<CommitGraph>>,
+    },
+}
+
+/// The commit-graph the walk reads.
+pub(crate) struct CommitGraph {
+    graph: gix::commitgraph::Graph,
+    /// Does git order its walk by the generation numbers in it?
+    generations: bool,
+    /// The files git reads: the checksum of the single file, or the chain's list of layers (each named
+    /// by its checksum) and the checksum of its newest layer.
+    files: Vec<u8>,
+}
+
 pub fn log(repo: &Repo, request: &LogRequest) -> Result<Vec<CommitRecord>> {
+    let plan = plan(repo, request)?;
+    walk(repo, request, plan)
+}
+
+/// The reads before the walk, in the order the log read makes them.
+pub(crate) fn plan(repo: &Repo, request: &LogRequest) -> Result<Plan> {
     repo.check_format(request.format)?;
     let starts = start_points(repo, &request.revisions)?;
     if request.max_count == 0 || starts.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Plan::Empty);
     }
+    Ok(Plan::Walk { starts, graph: commit_graph(repo)?.map(Box::new) })
+}
 
-    let mut walk = Walk::new(repo, request)?;
+impl Plan {
+    /// Add what the log's answer depends on to a token: the start points and the commit-graph.
+    pub(crate) fn describe(&self, token: &mut crate::commits::Token) {
+        match self {
+            Plan::Empty => token.field(b"empty"),
+            Plan::Walk { starts, graph } => {
+                token.field(b"starts");
+                token.count(starts.len());
+                for start in starts {
+                    token.field(start.id.as_bytes());
+                    token.flag(start.from_reflog);
+                }
+                match graph {
+                    None => token.field(b"no commit-graph"),
+                    Some(graph) => {
+                        token.field(b"commit-graph");
+                        token.flag(graph.generations);
+                        token.field(&graph.files);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The log page a plan leads to.
+pub(crate) fn walk(repo: &Repo, request: &LogRequest, plan: Plan) -> Result<Vec<CommitRecord>> {
+    let Plan::Walk { starts, graph } = plan else {
+        return Ok(Vec::new());
+    };
+    let mut walk = Walk::new(repo, request, graph);
     let shown = walk.run(&starts)?;
 
     let mut records = Vec::with_capacity(shown.len());
@@ -241,7 +301,7 @@ fn list_files(dir: &Path, prefix: &str, files: &mut Vec<String>) -> Result<()> {
 
 /// The commit-graph git reads, if it reads one, and whether git orders its walk by the generation
 /// numbers in it (`generation_numbers_enabled`).
-fn commit_graph(repo: &Repo) -> Result<Option<(gix::commitgraph::Graph, bool)>> {
+fn commit_graph(repo: &Repo) -> Result<Option<CommitGraph>> {
     if repo.config_bool("core.commitGraph")? == Some(false) {
         return Ok(None);
     }
@@ -252,11 +312,13 @@ fn commit_graph(repo: &Repo) -> Result<Option<(gix::commitgraph::Graph, bool)>> 
     }
     let single = info.join("commit-graph");
     let chain = info.join("commit-graphs").join("commit-graph-chain");
+    let mut files = Vec::new();
     // Git reads the single file first, and the chain's newest layer holds the commit it checks
     let newest = if single.exists() {
         single
     } else if chain.exists() {
         let text = std::fs::read_to_string(&chain).context("Unable to read the commit-graph chain")?;
+        files.extend_from_slice(text.as_bytes());
         match text.lines().last() {
             Some(hash) => info.join("commit-graphs").join(format!("graph-{hash}.graph")),
             None => return Ok(None),
@@ -268,7 +330,8 @@ fn commit_graph(repo: &Repo) -> Result<Option<(gix::commitgraph::Graph, bool)>> 
     let graph = gix::commitgraph::Graph::from_info_dir(&info, gix::hash::Kind::Sha1).map_err(unreadable)?;
     let file = gix::commitgraph::File::at(&newest).map_err(unreadable)?;
     let generations = file.num_commits() > 0 && file.commit_at(gix::commitgraph::file::Position(0)).generation() != 0;
-    Ok(Some((graph, generations)))
+    files.extend_from_slice(file.checksum().as_bytes());
+    Ok(Some(CommitGraph { graph, generations, files }))
 }
 
 /// Git's walk for the three orderings, over the commits it reaches (see the module documentation).
@@ -322,12 +385,15 @@ enum Ready {
 }
 
 impl<'r> Walk<'r> {
-    fn new(repo: &'r Repo, request: &LogRequest) -> Result<Walk<'r>> {
-        let (graph, generations) = match commit_graph(repo)? {
-            Some((graph, generations)) => (Some(graph), generations),
+    fn new(repo: &'r Repo, request: &LogRequest, graph: Option<Box<CommitGraph>>) -> Walk<'r> {
+        let (graph, generations) = match graph {
+            Some(graph) => {
+                let CommitGraph { graph, generations, .. } = *graph;
+                (Some(graph), generations)
+            }
             None => (None, false),
         };
-        Ok(Walk {
+        Walk {
             repo,
             graph,
             generations,
@@ -339,7 +405,7 @@ impl<'r> Walk<'r> {
             uncounted: BinaryHeap::new(),
             queued: 0,
             kept: 0,
-        })
+        }
     }
 
     fn intern(&mut self, id: ObjectId, position: Option<gix::commitgraph::Position>) -> usize {

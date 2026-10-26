@@ -150,7 +150,10 @@ describeWithEngine('The engine reads what Git reads', () => {
 					for (const start of starts) {
 						for (const maxCount of PAGES) {
 							const label = Object.assign({ ordering: ordering, firstParent: firstParent, maxCount: maxCount }, start);
-							const [expected, actual] = await readTwice((dataSource) => dataSource['getLog'](repo, start.branches, maxCount, start.showTags, true, start.reflogs, firstParent, ordering, info.remotes, [], info.stashes));
+							const [expected, actual] = await readTwice((dataSource) => {
+								const read = dataSource['getLogRead'](start.branches, maxCount, start.showTags, true, start.reflogs, firstParent, ordering, info.remotes, [], info.stashes);
+								return dataSource['getLog'](repo, read, (engine) => engine.log(repo, read.request));
+							});
 							expect({ label: label, result: actual }).toStrictEqual({ label: label, result: expected });
 						}
 					}

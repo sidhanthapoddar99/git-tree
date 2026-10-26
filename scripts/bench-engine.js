@@ -10,7 +10,10 @@
 //
 // The view load is what opening the view reads: the repository info (branches, remotes, stashes and
 // worktrees), then the refs and the first 300 commits. git status, which stays on the CLI, is left out
-// (repository.showUncommittedChanges is off), so the times compare only the reads the engine replaces.
+// (repository.showUncommittedChanges is off), so the times compare only the reads the engine replaces. With the
+// engine, a view load is two reads (repoInfo and commits). DataSource gives the commits read the token of its last
+// answer, so a refresh where nothing changed doesn't walk the log: the view load row forgets that answer before each
+// run, and the refresh row keeps it.
 //
 // The details reads are what the Commit Details View reads: a commit's details with its diff, for a small
 // commit, the merge with the largest diff from its first parent and the commit with the most changed lines
@@ -69,23 +72,33 @@ async function main() {
 	// The inputs that the view passes from the repository info to the commits
 	const info = await cli.getRepoInfo(repo, true, true, []);
 	if (info.error !== null) throw new Error('Unable to read the repository: ' + info.error);
-	const log = (order) => (dataSource) => dataSource.getLog(repo, null, 301, true, true, false, false, order, info.remotes, [], info.stashes);
+	// The single log read, which Commit Details and the differential tests still use
+	const readLog = (dataSource, maxCount, order) => {
+		const read = dataSource.getLogRead(null, maxCount, true, true, false, false, order, info.remotes, [], info.stashes);
+		return dataSource.getLog(repo, read, (engine) => engine.log(repo, read.request));
+	};
+	const log = (order) => (dataSource) => readLog(dataSource, 301, order);
+	const viewLoad = async (dataSource) => {
+		const repoInfo = await dataSource.getRepoInfo(repo, true, true, []);
+		return dataSource.getCommits(repo, null, 300, true, true, false, false, ORDER.date, repoInfo.remotes, [], repoInfo.stashes, repoInfo.worktrees);
+	};
 
 	const reads = [
 		['branches (git branch -a)', (dataSource) => dataSource.getBranches(repo, true, [])],
 		['remotes (git remote)', (dataSource) => dataSource.getRemotes(repo)],
 		['stashes (git reflog refs/stash)', (dataSource) => dataSource.getStashes(repo)],
 		['worktrees (git worktree list)', (dataSource) => dataSource.getWorktrees(repo)],
-		['refs (git show-ref)', (dataSource) => dataSource.getRefs(repo, true, true, [])],
+		['refs (git show-ref)', (dataSource) => dataSource.getRefs(repo, true, true, [], (engine) => engine.refs(repo, true))],
 		['log, 301 commits, date order', log(ORDER.date)],
 		['log, 301 commits, author-date order', log(ORDER.authorDate)],
 		['log, 301 commits, topo order', log(ORDER.topo)],
-		['log, all commits, date order', (dataSource) => dataSource.getLog(repo, null, 1000000, true, true, false, false, ORDER.date, info.remotes, [], info.stashes)],
+		['log, all commits, date order', (dataSource) => readLog(dataSource, 1000000, ORDER.date)],
 		['repository info', (dataSource) => dataSource.getRepoInfo(repo, true, true, [])],
-		['view load: repository info, refs and 300 commits', async (dataSource) => {
-			const repoInfo = await dataSource.getRepoInfo(repo, true, true, []);
-			return dataSource.getCommits(repo, null, 300, true, true, false, false, ORDER.date, repoInfo.remotes, [], repoInfo.stashes, repoInfo.worktrees);
+		['view load: repository info, refs and 300 commits', (dataSource) => {
+			dataSource.commitsCache.clear();
+			return viewLoad(dataSource);
 		}],
+		['refresh where nothing changed', viewLoad],
 		...await detailsReads(repo, info, loaded.engine)
 	];
 

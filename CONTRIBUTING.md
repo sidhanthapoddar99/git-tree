@@ -37,7 +37,8 @@ Converting screenshots needs ImageMagick 7 (`magick`) built with WebP support.
 │   ├── extension.ts          # activation: commands, status bar item, the repository manager
 │   ├── gitTreeView.ts        # one Git Tree tab: answers the messages its webview sends
 │   ├── dataSource.ts         # runs Git and parses its output (log, refs, status, worktrees…)
-│   ├── engine.ts             # loads the Rust engine, if it's built for this platform
+│   ├── engine.ts             # loads the Rust engine for this platform
+│   ├── compactCommits.ts     # encodes the commits for the webview, and their token
 │   ├── repoManager.ts        # finds the repositories in the workspace
 │   ├── repoFileWatcher.ts    # refreshes a tab when files in its repository or worktrees change
 │   ├── config.ts             # reads the git-tree.* settings
@@ -46,6 +47,7 @@ Converting screenshots needs ImageMagick 7 (`magick`) built with WebP support.
 │   ├── main.ts               # renders the view and handles its events
 │   ├── graph.ts              # lays out and draws the commit graph
 │   ├── virtualTable.ts       # keeps only the rows on screen in the table
+│   ├── compactCommits.ts     # decodes the commits the extension sends
 │   └── styles/               # CSS, built into media/out.min.css
 ├── native/                   ← the engine: Rust that reads repositories in-process
 │   ├── core/                 # the reads, with gix (pure Rust)
@@ -80,7 +82,9 @@ Every request names the folder Git runs in (`repo`). Repository-level state, suc
 
 ### The engine
 
-The engine (`native/`) reads repositories in-process, so loading the view spawns no Git process. It answers the reads behind the view load: the branches, remotes, stashes and worktrees (`getRepoInfo`), the refs, and the page of commits. It also answers the Commit Details View's reads between commits: a commit's or a stash's details and its changed files (`--name-status` and `--numstat`), a comparison of two commits, a file at a commit, a commit's subject, a remote's URL, an annotated tag's details and the configuration lists. Diffs with the working tree, which need `git status`, stay with Git. `src/engine.ts` loads it, if `native/bin/` has a module for the platform. Otherwise, or if it fails to load, Git Tree reads everything with Git, and says why once in the Git Tree output channel.
+The engine (`native/`) reads repositories in-process, so loading the view spawns no Git process. It answers the reads behind the view load: the branches, remotes, stashes and worktrees (`getRepoInfo`), the refs, and the page of commits. It also answers the Commit Details View's reads between commits: a commit's or a stash's details and its changed files (`--name-status` and `--numstat`), a comparison of two commits, a file at a commit, a commit's subject, a remote's URL, an annotated tag's details and the configuration lists. Diffs with the working tree, which need `git status`, stay with Git. `src/engine.ts` loads the module for the platform from `native/bin/`. Git Tree needs it: if it's missing or fails to load, Git Tree shows an error that says why, as it does for a Git older than 2.31.
+
+A view load is two engine calls. `repoInfo` answers the branches, remotes, stashes and worktrees, and `commits` answers the refs and the page of commits, each with one repository open. Each part of an answer is the answer its single read would give, so each keeps its own Git fallback. `commits` also returns a token, a SHA-1 of everything its answer depends on; given the same token, it answers `unchanged` without walking the log, and `DataSource` reuses the answer it kept. The view gets the commits in a compact form (`src/compactCommits.ts`), with a token of its own, the SHA-1 of what it was sent. When a refresh finds the same token, the view gets only its rows of uncommitted changes.
 
 Each engine read returns the records that the Git command prints, and `DataSource` interprets them with the same code as Git's output, so the two paths can't drift apart. When the engine can't be certain that its answer is the one Git would give, it answers `unsupported` with a reason, and `DataSource` runs the Git command instead. Examples are SHA-256 and shallow repositories, replacement objects, grafts, commits in another encoding, a mailmap, and settings it doesn't model, such as `branch.sort`. For the details reads they include a diff where Git could find a rename of a file that changed (the engine pairs only identical files), a diff it can't count lines for exactly (more than 500 changed lines in one file, after Git's own trimming), a submodule, attributes that can change a diff (`diff`, `binary`, macros), `diff.algorithm` other than Myers, `diff.context=0`, `core.bigFileThreshold`, a signed commit when the signature status is shown, a tag that may be signed, a lightweight tag, an include section with more than one entry, and both `~/.gitconfig` and the XDG configuration file existing. The Git commands stay the reference: git status, and every action that changes the repository, always run Git.
 
@@ -131,7 +135,7 @@ mise run engine        # build the engine first
 mise run test-engine   # npm run test-engine
 ```
 
-They read the demo repository (built in a temporary folder), this repository, and repositories built for edge cases, with each ordering and option the view uses. `tests/engine/differential.test.ts` covers the view load, and `tests/engine/details.test.ts` reads every commit's details, diff, subject and changed files, comparisons, stashes, tags, remote URLs and the configuration. `tests/engine/harness.ts` holds what they share. A Git Tree without the engine and one with it must return the same results, and the engine must answer each read itself, apart from the reads it hands to Git on purpose. Without a built engine, the tests are skipped.
+They read the demo repository (built in a temporary folder), this repository, and repositories built for edge cases, with each ordering and option the view uses. `tests/engine/differential.test.ts` covers the view load, `tests/engine/viewLoad.test.ts` the combined `repoInfo` and `commits` reads and when the token changes, and `tests/engine/details.test.ts` reads every commit's details, diff, subject and changed files, comparisons, stashes, tags, remote URLs and the configuration. `tests/engine/harness.ts` holds what they share. A Git Tree without the engine and one with it must return the same results, and the engine must answer each read itself, apart from the reads it hands to Git on purpose. Without a built engine, the tests are skipped.
 
 The tests give Git and the engine an empty home folder, which `tests/engine/home-setup.js` makes before Jest starts its workers. It can't be set in a test file: the engine reads the process's environment, and Jest gives each test file its own copy of `process.env`, which only Git sees.
 
@@ -185,9 +189,10 @@ The package holds `out/`, `media/`, `resources/`, the engine modules in `native/
 
 1. Move the *Unreleased* entries in `CHANGELOG.md` under a new version heading with today's date, and add its compare link at the bottom.
 2. Set the version: `npm version <version> --no-git-tag-version`.
-3. Run `mise run gate`, then go through *What to test by hand*.
+   Set the same version in `native/Cargo.toml`, and run `cargo update -w` in `native/`, so `Cargo.lock` matches.
+3. Run `mise run gate` and `mise run test-engine`, then go through *What to test by hand*.
 4. Commit the release as `Release <version>`, and tag it: `git tag -a v<version> -m "Git Tree <version>"`.
-5. Run `mise run package` and publish the `.vsix` (below).
+5. Run `mise run package`, which builds the engine for all eight platforms first, and publish the `.vsix` (below).
 
 Versions follow [Semantic Versioning](https://semver.org): the patch number for fixes and small changes, the minor number for new features, and the major number for a change that breaks existing settings or workflows.
 

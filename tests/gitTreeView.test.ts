@@ -9,6 +9,7 @@ jest.mock('../src/repoManager');
 import * as path from 'path';
 import { ConfigurationChangeEvent } from 'vscode';
 import { AvatarEvent, AvatarManager } from '../src/avatarManager';
+import { encodeCommits, getCommitsToken } from '../src/compactCommits';
 import { DataSource } from '../src/dataSource';
 import { ExtensionState } from '../src/extensionState';
 import { GitTreeView, standardiseCspSource } from '../src/gitTreeView';
@@ -2384,6 +2385,7 @@ describe('GitTreeView', () => {
 				moreCommitsAvailable: false,
 				error: null
 			};
+			const getPageToken = (onlyFollowFirstParent: boolean) => getCommitsToken(encodeCommits(getCommitsResolvedValue.commits), getCommitsResolvedValue.head, getCommitsResolvedValue.tags, false, onlyFollowFirstParent);
 
 			it('Should get commits (show tags)', async () => {
 				// Setup
@@ -2406,7 +2408,8 @@ describe('GitTreeView', () => {
 					hideRemotes: ['upstream'],
 					stashes: [],
 					worktrees: [],
-					onlyWorktreeHistory: false
+					onlyWorktreeHistory: false,
+					token: null
 				});
 
 				// Assert
@@ -2416,11 +2419,14 @@ describe('GitTreeView', () => {
 						{
 							command: 'loadCommits',
 							refreshId: 2,
-							commits: getCommitsResolvedValue.commits,
+							unchanged: false,
+							uncommitted: { people: [], rows: [] },
+							commits: { people: ['Test Name', 'test@example.com'], rows: [['1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', [], 0, 1587559258, 'Commit Message 3', ['master'], [], [['origin/master', 'origin']]]] },
 							head: getCommitsResolvedValue.head,
 							tags: getCommitsResolvedValue.tags,
 							moreCommitsAvailable: getCommitsResolvedValue.moreCommitsAvailable,
 							onlyFollowFirstParent: false,
+							token: getPageToken(false),
 							error: getCommitsResolvedValue.error
 						}
 					]);
@@ -2449,7 +2455,8 @@ describe('GitTreeView', () => {
 					hideRemotes: ['upstream'],
 					stashes: [],
 					worktrees: [],
-					onlyWorktreeHistory: false
+					onlyWorktreeHistory: false,
+					token: null
 				});
 
 				// Assert
@@ -2459,11 +2466,14 @@ describe('GitTreeView', () => {
 						{
 							command: 'loadCommits',
 							refreshId: 2,
-							commits: getCommitsResolvedValue.commits,
+							unchanged: false,
+							uncommitted: { people: [], rows: [] },
+							commits: { people: ['Test Name', 'test@example.com'], rows: [['1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', [], 0, 1587559258, 'Commit Message 3', ['master'], [], [['origin/master', 'origin']]]] },
 							head: getCommitsResolvedValue.head,
 							tags: getCommitsResolvedValue.tags,
 							moreCommitsAvailable: getCommitsResolvedValue.moreCommitsAvailable,
 							onlyFollowFirstParent: false,
+							token: getPageToken(false),
 							error: getCommitsResolvedValue.error
 						}
 					]);
@@ -2492,7 +2502,8 @@ describe('GitTreeView', () => {
 					hideRemotes: ['upstream'],
 					stashes: [],
 					worktrees: [],
-					onlyWorktreeHistory: false
+					onlyWorktreeHistory: false,
+					token: null
 				});
 
 				// Assert
@@ -2502,11 +2513,14 @@ describe('GitTreeView', () => {
 						{
 							command: 'loadCommits',
 							refreshId: 2,
-							commits: getCommitsResolvedValue.commits,
+							unchanged: false,
+							uncommitted: { people: [], rows: [] },
+							commits: { people: ['Test Name', 'test@example.com'], rows: [['1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', [], 0, 1587559258, 'Commit Message 3', ['master'], [], [['origin/master', 'origin']]]] },
 							head: getCommitsResolvedValue.head,
 							tags: getCommitsResolvedValue.tags,
 							moreCommitsAvailable: getCommitsResolvedValue.moreCommitsAvailable,
 							onlyFollowFirstParent: false,
+							token: getPageToken(false),
 							error: getCommitsResolvedValue.error
 						}
 					]);
@@ -2535,7 +2549,8 @@ describe('GitTreeView', () => {
 					hideRemotes: ['upstream'],
 					stashes: [],
 					worktrees: [],
-					onlyWorktreeHistory: false
+					onlyWorktreeHistory: false,
+					token: null
 				});
 
 				// Assert
@@ -2545,11 +2560,14 @@ describe('GitTreeView', () => {
 						{
 							command: 'loadCommits',
 							refreshId: 2,
-							commits: getCommitsResolvedValue.commits,
+							unchanged: false,
+							uncommitted: { people: [], rows: [] },
+							commits: { people: ['Test Name', 'test@example.com'], rows: [['1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', [], 0, 1587559258, 'Commit Message 3', ['master'], [], [['origin/master', 'origin']]]] },
 							head: getCommitsResolvedValue.head,
 							tags: getCommitsResolvedValue.tags,
 							moreCommitsAvailable: getCommitsResolvedValue.moreCommitsAvailable,
 							onlyFollowFirstParent: true,
+							token: getPageToken(true),
 							error: getCommitsResolvedValue.error
 						}
 					]);
@@ -2582,7 +2600,8 @@ describe('GitTreeView', () => {
 					hideRemotes: [],
 					stashes: [],
 					worktrees: worktrees,
-					onlyWorktreeHistory: true
+					onlyWorktreeHistory: true,
+					token: null
 				});
 
 				// Assert
@@ -2592,14 +2611,118 @@ describe('GitTreeView', () => {
 						{
 							command: 'loadCommits',
 							refreshId: 2,
-							commits: getCommitsResolvedValue.commits,
+							unchanged: false,
+							uncommitted: { people: [], rows: [] },
+							commits: { people: ['Test Name', 'test@example.com'], rows: [['1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', [], 0, 1587559258, 'Commit Message 3', ['master'], [], [['origin/master', 'origin']]]] },
 							head: getCommitsResolvedValue.head,
 							tags: getCommitsResolvedValue.tags,
 							moreCommitsAvailable: getCommitsResolvedValue.moreCommitsAvailable,
 							onlyFollowFirstParent: false,
+							token: getPageToken(false),
 							error: getCommitsResolvedValue.error
 						}
 					]);
+				});
+			});
+
+			describe('The token of the commits the view shows', () => {
+				const HASH = '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b';
+				const uncommittedRow = { hash: '*', parents: [HASH], author: '*', email: '', date: 1587559259, message: 'Uncommitted Changes (2)', heads: [], tags: [], remotes: [], stash: null };
+				const page = { ...getCommitsResolvedValue, commits: [uncommittedRow, ...getCommitsResolvedValue.commits] };
+				const request = (token: string | null): RequestMessage => ({
+					command: 'loadCommits',
+					repo: '/path/to/repo',
+					refreshId: 3,
+					branches: null,
+					maxCommits: 300,
+					showTags: true,
+					showRemoteBranches: true,
+					includeCommitsMentionedByReflogs: false,
+					onlyFollowFirstParent: false,
+					commitOrdering: CommitOrdering.Date,
+					remotes: ['origin'],
+					hideRemotes: [],
+					stashes: [],
+					worktrees: [],
+					onlyWorktreeHistory: false,
+					token: token
+				});
+
+				it('Should send only the rows of uncommitted changes when the request\'s token describes the history', async () => {
+					// Setup
+					jest.spyOn(dataSource, 'getCommits').mockResolvedValueOnce(page);
+
+					// Run
+					onDidReceiveMessage(request(getPageToken(false)));
+
+					// Assert
+					await waitForExpect(() => {
+						expect(messages).toStrictEqual([
+							{
+								command: 'loadCommits',
+								refreshId: 3,
+								unchanged: true,
+								uncommitted: { people: ['*', ''], rows: [['*', [HASH], 0, 1587559259, 'Uncommitted Changes (2)']] },
+								token: getPageToken(false),
+								error: null
+							}
+						]);
+					});
+				});
+
+				it('Should send the full page when the request\'s token describes other commits', async () => {
+					// Setup
+					jest.spyOn(dataSource, 'getCommits').mockResolvedValueOnce(page);
+
+					// Run
+					onDidReceiveMessage(request(getPageToken(true)));
+
+					// Assert
+					await waitForExpect(() => {
+						expect(messages).toStrictEqual([
+							{
+								command: 'loadCommits',
+								refreshId: 3,
+								unchanged: false,
+								uncommitted: { people: ['*', ''], rows: [['*', [HASH], 0, 1587559259, 'Uncommitted Changes (2)']] },
+								commits: encodeCommits(getCommitsResolvedValue.commits),
+								head: HASH,
+								tags: ['tag1', 'tag2'],
+								moreCommitsAvailable: false,
+								onlyFollowFirstParent: false,
+								token: getPageToken(false),
+								error: null
+							}
+						]);
+					});
+				});
+
+				it('Should send the full page, with no token, when the commits can\'t be loaded', async () => {
+					// Setup
+					const failed = { commits: [], head: null, tags: [], moreCommitsAvailable: false, error: 'error message' };
+					jest.spyOn(dataSource, 'getCommits').mockResolvedValueOnce(failed);
+
+					// Run
+					onDidReceiveMessage(request(getCommitsToken(encodeCommits([]), null, [], false, false)));
+
+					// Assert
+					await waitForExpect(() => {
+						expect(messages).toStrictEqual([
+							{
+								command: 'loadCommits',
+								refreshId: 3,
+								unchanged: false,
+								uncommitted: { people: [], rows: [] },
+								commits: { people: [], rows: [] },
+								head: null,
+								tags: [],
+								moreCommitsAvailable: false,
+								onlyFollowFirstParent: false,
+								token: null,
+								error: 'error message'
+							}
+						]);
+					});
 				});
 			});
 		});

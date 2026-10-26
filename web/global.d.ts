@@ -57,6 +57,7 @@ declare global {
 		readonly gitTags: ReadonlyArray<string>;
 		readonly gitWorktrees: ReadonlyArray<GG.GitWorktree>;
 		readonly commits: GG.GitCommit[];
+		readonly commitsToken?: string | null; // The token of the commits. Missing in state saved by older versions
 		readonly commitHead: string | null;
 		readonly avatars: AvatarImageCollection;
 		readonly currentBranches: string[] | null;
