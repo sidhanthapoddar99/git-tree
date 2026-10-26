@@ -37,6 +37,8 @@ export class GitTreeView extends Disposable {
 	private isPanelVisible: boolean = true;
 	private currentRepo: string | null = null; // The repository the file watcher follows. It is reset to null while the view is hidden.
 	private shownRepo: string | null = null; // The repository this view shows. It is kept while the view is hidden.
+	private shownWorktree: string | null = null; // Where the view runs Git: the repository, or one of its linked worktrees
+	private watchedWorktrees: string = ''; // The worktree paths the file watcher follows, joined by NUL
 	private loadViewTo: LoadGitTreeViewTo = null; // Is used by the next call to getHtmlForWebview, and is then reset to null
 	private readonly retainContextWhenHidden: boolean;
 	private renderedConfig: string | null = null; // The configuration the loaded HTML was built with, or NULL if the HTML must be rebuilt when next shown
@@ -469,7 +471,7 @@ export class GitTreeView extends Disposable {
 					command: 'loadCommits',
 					refreshId: msg.refreshId,
 					onlyFollowFirstParent: msg.onlyFollowFirstParent,
-					...await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes)
+					...await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees)
 				});
 				break;
 			case 'loadConfig':
@@ -481,10 +483,10 @@ export class GitTreeView extends Disposable {
 				break;
 			case 'loadRepoInfo':
 				this.loadRepoInfoRefreshId = msg.refreshId;
-				let repoInfo = await this.dataSource.getRepoInfo(msg.repo, msg.showRemoteBranches, msg.showStashes, msg.hideRemotes), isRepo = true;
+				let repoInfo = await this.dataSource.getRepoInfo(msg.worktree, msg.showRemoteBranches, msg.showStashes, msg.hideRemotes), isRepo = true;
 				if (repoInfo.error) {
-					// If an error occurred, check to make sure the repo still exists
-					isRepo = (await this.dataSource.repoRoot(msg.repo)) !== null;
+					// If an error occurred, check to make sure the repo (or the worktree being viewed) still exists
+					isRepo = (await this.dataSource.repoRoot(msg.worktree)) !== null;
 					if (!isRepo) repoInfo.error = null; // If the error is caused by the repo no longer existing, clear the error message
 				}
 				this.sendMessage({
@@ -493,12 +495,11 @@ export class GitTreeView extends Disposable {
 					...repoInfo,
 					isRepo: isRepo
 				});
-				if (msg.repo !== this.currentRepo) {
+				const repoChanged = msg.repo !== this.currentRepo;
+				if (repoChanged) {
 					this.currentRepo = msg.repo;
 					this.shownRepo = msg.repo;
 					this.extensionState.setLastActiveRepo(msg.repo);
-					this.repoFileWatcher.start(msg.repo);
-					this.updateTitle();
 					if (repoInfo.error === null && getConfig().writeCommitGraph) {
 						// In the background, because the file only speeds up later loads
 						const repo = msg.repo;
@@ -506,6 +507,16 @@ export class GitTreeView extends Disposable {
 							if (errorInfo !== null) this.logger.logError('Unable to write the commit-graph of ' + repo + ': ' + errorInfo);
 						});
 					}
+				}
+				// Watch the repository and every worktree of it, so changes in any worktree refresh the view
+				const watchedWorktrees = repoInfo.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
+				if (repoChanged || watchedWorktrees.join('\0') !== this.watchedWorktrees) {
+					this.repoFileWatcher.start(msg.repo, watchedWorktrees);
+					this.watchedWorktrees = watchedWorktrees.join('\0');
+				}
+				if (repoChanged || msg.worktree !== this.shownWorktree) {
+					this.shownWorktree = msg.worktree;
+					this.updateTitle();
 				}
 				break;
 			case 'loadRepos':
@@ -755,11 +766,16 @@ export class GitTreeView extends Disposable {
 	}
 
 	/**
-	 * Set the title of the panel's tab to the name of the repository it shows, so tabs of different repositories can be told apart.
+	 * Set the title of the panel's tab to the name of the repository it shows, and of the worktree when it shows a linked worktree, so tabs can be told apart.
 	 */
 	private updateTitle() {
 		const repo = this.shownRepo !== null ? this.repoManager.getRepos()[this.shownRepo] : undefined;
-		this.panel.title = repo && this.shownRepo !== null ? 'Git Tree: ' + (repo.name || getRepoName(this.shownRepo)) : 'Git Tree';
+		if (!repo || this.shownRepo === null) {
+			this.panel.title = 'Git Tree';
+			return;
+		}
+		const worktree = this.shownWorktree !== null && this.shownWorktree !== this.shownRepo ? ' (' + getRepoName(this.shownWorktree) + ')' : '';
+		this.panel.title = 'Git Tree: ' + (repo.name || getRepoName(this.shownRepo)) + worktree;
 	}
 
 	/**
@@ -844,6 +860,7 @@ export class GitTreeView extends Disposable {
 				<div id="controls">
 					<span id="repoControl"><span class="unselectable">Repo: </span><div id="repoDropdown" class="dropdown"></div></span>
 					<span id="branchControl"><span class="unselectable">Branches: </span><div id="branchDropdown" class="dropdown"></div></span>
+					<span id="worktreeControl"><span class="unselectable">Worktree: </span><div id="worktreeDropdown" class="dropdown"></div></span>
 					<label id="showRemoteBranchesControl"><input type="checkbox" id="showRemoteBranchesCheckbox" tabindex="-1"><span class="customCheckbox"></span>Show Remote Branches</label>
 					<div id="findBtn" title="Find"></div>
 					<div id="terminalBtn" title="Open a Terminal for this Repository"></div>

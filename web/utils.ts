@@ -65,6 +65,15 @@ const HTML_UNESCAPER_REGEX = /&lt;|&gt;|&amp;|&quot;|&#x27;|&#x2F;/g;
 const ELLIPSIS = '&#8230;';
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const UNCOMMITTED = '*';
+
+/**
+ * Is a commit hash a row of uncommitted changes: the viewed worktree's (UNCOMMITTED), or another worktree's (UNCOMMITTED followed by the index of the worktree).
+ * @param hash The commit hash.
+ * @returns TRUE => uncommitted changes, FALSE => a commit.
+ */
+function isUncommittedChanges(hash: string) {
+	return hash.startsWith(UNCOMMITTED);
+}
 const SHOW_ALL_BRANCHES = '';
 
 const COLUMN_HIDDEN = -100;

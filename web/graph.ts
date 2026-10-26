@@ -419,8 +419,9 @@ class Graph {
 			}
 		}
 
-		if (commits[0].hash === UNCOMMITTED) {
-			this.vertices[0].setNotCommitted();
+		// The rows of uncommitted changes (the viewed worktree's, then the other worktrees') are at the top
+		for (i = 0; i < commits.length && isUncommittedChanges(commits[i].hash); i++) {
+			this.vertices[i].setNotCommitted();
 		}
 
 		if (commits[0].hash === UNCOMMITTED && this.config.uncommittedChanges === GG.GraphUncommittedChangesStyle.OpenCircleAtTheUncommittedChanges) {
@@ -789,7 +790,7 @@ class Graph {
 		const commitElem = findCommitElemWithId(getCommitElems(), id);
 		if (commitElem !== null) commitElem.classList.add(CLASS_GRAPH_VERTEX_ACTIVE);
 
-		if (id < this.commits.length && this.commits[id].hash !== UNCOMMITTED) { // Only show tooltip for commits (not the uncommitted changes)
+		if (id < this.commits.length && !isUncommittedChanges(this.commits[id].hash)) { // Only show tooltip for commits (not the uncommitted changes)
 			this.tooltipTimeout = setTimeout(() => {
 				this.tooltipTimeout = null;
 				let vertexScreenY = vertexElem.getBoundingClientRect().top + 4; // Get center of the circle

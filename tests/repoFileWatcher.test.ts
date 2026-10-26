@@ -27,12 +27,14 @@ describe('RepoFileWatcher', () => {
 		repoFileWatcher = new RepoFileWatcher(logger, callback);
 	});
 
+	const watcher = (index: number) => repoFileWatcher['fsWatchers'][index].watcher;
+
 	it('Should start and receive file events', () => {
 		// Setup
 		repoFileWatcher.start('/path/to/repo');
-		const onDidCreate = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidCreate).mock.calls[0][0];
-		const onDidChange = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidChange).mock.calls[0][0];
-		const onDidDelete = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidDelete).mock.calls[0][0];
+		const onDidCreate = (<jest.Mock<any, any>>watcher(0).onDidCreate).mock.calls[0][0];
+		const onDidChange = (<jest.Mock<any, any>>watcher(0).onDidChange).mock.calls[0][0];
+		const onDidDelete = (<jest.Mock<any, any>>watcher(0).onDidDelete).mock.calls[0][0];
 
 		// Run
 		onDidCreate(vscode.Uri.file('/path/to/repo/file'));
@@ -48,8 +50,8 @@ describe('RepoFileWatcher', () => {
 	it('Should stop a previous active File System Watcher before creating a new one', () => {
 		// Setup
 		repoFileWatcher.start('/path/to/repo1');
-		const watcher = repoFileWatcher['fsWatcher']!;
-		const onDidCreate = (<jest.Mock<any, any>>watcher.onDidCreate).mock.calls[0][0];
+		const firstWatcher = watcher(0);
+		const onDidCreate = (<jest.Mock<any, any>>firstWatcher.onDidCreate).mock.calls[0][0];
 
 		// Run
 		onDidCreate(vscode.Uri.file('/path/to/repo1/file'));
@@ -57,7 +59,7 @@ describe('RepoFileWatcher', () => {
 		jest.runOnlyPendingTimers();
 
 		// Assert
-		expect(<jest.Mock<any, any>>watcher.dispose).toHaveBeenCalledTimes(1);
+		expect(<jest.Mock<any, any>>firstWatcher.dispose).toHaveBeenCalledTimes(1);
 		expect(callback).toHaveBeenCalledTimes(0);
 	});
 
@@ -72,7 +74,7 @@ describe('RepoFileWatcher', () => {
 	it('Should ignore file system events while muted', () => {
 		// Setup
 		repoFileWatcher.start('/path/to/repo');
-		const onDidCreate = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidCreate).mock.calls[0][0];
+		const onDidCreate = (<jest.Mock<any, any>>watcher(0).onDidCreate).mock.calls[0][0];
 
 		// Run
 		repoFileWatcher.mute();
@@ -87,8 +89,8 @@ describe('RepoFileWatcher', () => {
 		// Setup
 		date.setCurrentTime(1587559258);
 		repoFileWatcher.start('/path/to/repo');
-		const onDidCreate = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidCreate).mock.calls[0][0];
-		const onDidChange = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidChange).mock.calls[0][0];
+		const onDidCreate = (<jest.Mock<any, any>>watcher(0).onDidCreate).mock.calls[0][0];
+		const onDidChange = (<jest.Mock<any, any>>watcher(0).onDidChange).mock.calls[0][0];
 
 		// Run
 		repoFileWatcher.mute();
@@ -105,7 +107,7 @@ describe('RepoFileWatcher', () => {
 	it('Should ignore file system events on files ignored within .git directory', () => {
 		// Setup
 		repoFileWatcher.start('/path/to/repo');
-		const onDidCreate = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidCreate).mock.calls[0][0];
+		const onDidCreate = (<jest.Mock<any, any>>watcher(0).onDidCreate).mock.calls[0][0];
 
 		// Run
 		onDidCreate(vscode.Uri.file('/path/to/repo/.git/config-x'));
@@ -118,7 +120,7 @@ describe('RepoFileWatcher', () => {
 	it('Should report file events when a worktree\'s HEAD changes', () => {
 		// Setup
 		repoFileWatcher.start('/path/to/repo');
-		const onDidChange = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidChange).mock.calls[0][0];
+		const onDidChange = (<jest.Mock<any, any>>watcher(0).onDidChange).mock.calls[0][0];
 
 		// Run
 		onDidChange(vscode.Uri.file('/path/to/repo/.git/worktrees/feature/HEAD'));
@@ -128,30 +130,60 @@ describe('RepoFileWatcher', () => {
 		expect(callback).toHaveBeenCalledTimes(1);
 	});
 
-	it('Should ignore file system events in the folder that worktrees are created in', () => {
+	it('Should report file events in a worktree inside the repository, so its uncommitted changes stay up to date', () => {
 		// Setup
-		repoFileWatcher.start('/path/to/repo');
-		const onDidChange = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidChange).mock.calls[0][0];
+		repoFileWatcher.start('/path/to/repo', ['/path/to/repo', '/path/to/repo/.worktrees/feature']);
+		const onDidChange = (<jest.Mock<any, any>>watcher(0).onDidChange).mock.calls[0][0];
 
 		// Run
 		onDidChange(vscode.Uri.file('/path/to/repo/.worktrees/feature/file'));
+		jest.runOnlyPendingTimers();
+
+		// Assert
+		expect(repoFileWatcher['fsWatchers'].map((fsWatcher) => fsWatcher.root)).toStrictEqual(['/path/to/repo']);
+		expect(callback).toHaveBeenCalledTimes(1);
+	});
+
+	it('Should watch each worktree outside the repository with its own File System Watcher', () => {
+		// Setup
+		repoFileWatcher.start('/path/to/repo', ['/path/to/repo', '/path/to/repo-feature', '/path/to/worktrees/fix']);
+		const onDidChange = (<jest.Mock<any, any>>watcher(1).onDidChange).mock.calls[0][0];
+
+		// Run
+		onDidChange(vscode.Uri.file('/path/to/repo-feature/src/file'));
+		jest.runOnlyPendingTimers();
+
+		// Assert
+		expect(repoFileWatcher['fsWatchers'].map((fsWatcher) => fsWatcher.root)).toStrictEqual(['/path/to/repo', '/path/to/repo-feature', '/path/to/worktrees/fix']);
+		expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith('/path/to/repo-feature/**');
+		expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith('/path/to/worktrees/fix/**');
+		expect(spyOnLog).toHaveBeenCalledWith('Started watching repo: /path/to/repo (and 2 worktrees outside it)');
+		expect(callback).toHaveBeenCalledTimes(1);
+	});
+
+	it('Should ignore file events on files ignored within the .git directory of a worktree outside the repository', () => {
+		// Setup
+		repoFileWatcher.start('/path/to/repo', ['/path/to/repo-feature']);
+		const onDidChange = (<jest.Mock<any, any>>watcher(1).onDidChange).mock.calls[0][0];
+
+		// Run
+		onDidChange(vscode.Uri.file('/path/to/repo-feature/.git/config-x'));
 		jest.runOnlyPendingTimers();
 
 		// Assert
 		expect(callback).toHaveBeenCalledTimes(0);
 	});
 
-	it('Should report file events in the repository when worktrees are created outside it', () => {
+	it('Should dispose every File System Watcher when stopped', () => {
 		// Setup
-		vscode.mockExtensionSettingReturnValue('worktree.defaultLocation', '/path/to/worktrees');
-		repoFileWatcher.start('/path/to/repo');
-		const onDidChange = (<jest.Mock<any, any>>repoFileWatcher['fsWatcher']!.onDidChange).mock.calls[0][0];
+		repoFileWatcher.start('/path/to/repo', ['/path/to/repo-feature']);
+		const watchers = [watcher(0), watcher(1)];
 
 		// Run
-		onDidChange(vscode.Uri.file('/path/to/repo/.worktrees/feature/file'));
-		jest.runOnlyPendingTimers();
+		repoFileWatcher.stop();
 
 		// Assert
-		expect(callback).toHaveBeenCalledTimes(1);
+		watchers.forEach((fsWatcher) => expect(<jest.Mock<any, any>>fsWatcher.dispose).toHaveBeenCalledTimes(1));
+		expect(repoFileWatcher['fsWatchers']).toStrictEqual([]);
 	});
 });

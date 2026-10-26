@@ -1,20 +1,17 @@
-import * as path from 'path';
 import * as vscode from 'vscode';
-import { getConfig } from './config';
 import { Logger } from './logger';
-import { getPathFromStr, getPathFromUri } from './utils';
+import { getPathFromUri, pathWithTrailingSlash } from './utils';
 
-const FILE_CHANGE_REGEX = /(^\.git\/(config|index|HEAD|refs\/stash|refs\/heads\/.*|refs\/remotes\/.*|refs\/tags\/.*|worktrees\/[^\/]+\/HEAD)$)|(^(?!\.git).*$)|(^\.git[^\/]+$)/;
+const FILE_CHANGE_REGEX = /(^\.git\/(config|index|HEAD|refs\/stash|refs\/heads\/.*|refs\/remotes\/.*|refs\/tags\/.*|worktrees\/[^\/]+\/(HEAD|index))$)|(^(?!\.git).*$)|(^\.git[^\/]+$)/;
 
 /**
- * Watches a Git repository for file events.
+ * Watches a Git repository, and its worktrees, for file events.
  */
 export class RepoFileWatcher {
 	private readonly logger: Logger;
 	private readonly repoChangeCallback: () => void;
 	private repo: string | null = null;
-	private worktreeFolder: string | null = null;
-	private fsWatcher: vscode.FileSystemWatcher | null = null;
+	private fsWatchers: { root: string, watcher: vscode.FileSystemWatcher }[] = [];
 	private refreshTimeout: NodeJS.Timeout | null = null;
 	private muted: boolean = false;
 	private resumeAt: number = 0;
@@ -32,33 +29,35 @@ export class RepoFileWatcher {
 	/**
 	 * Start watching a repository for file events.
 	 * @param repo The path of the repository to watch.
+	 * @param worktrees The paths of the repository's worktrees. Those outside the repository's folder get their own watcher, so their uncommitted changes stay up to date.
 	 */
-	public start(repo: string) {
-		if (this.fsWatcher !== null) {
-			// If there is an existing File System Watcher, stop it
+	public start(repo: string, worktrees: ReadonlyArray<string> = []) {
+		if (this.fsWatchers.length > 0) {
+			// If there are existing File System Watchers, stop them
 			this.stop();
 		}
 
 		this.repo = repo;
-		// Ignore file events in the folder that worktrees are created in, as they don't change this repository
-		const worktreeLocation = getConfig(repo).worktreeDefaultLocation;
-		this.worktreeFolder = path.isAbsolute(worktreeLocation) ? null : getPathFromStr(path.normalize(worktreeLocation)) + '/';
-		// Create a File System Watcher for all events within the specified repository
-		this.fsWatcher = vscode.workspace.createFileSystemWatcher(repo + '/**');
-		this.fsWatcher.onDidCreate(uri => this.refresh(uri));
-		this.fsWatcher.onDidChange(uri => this.refresh(uri));
-		this.fsWatcher.onDidDelete(uri => this.refresh(uri));
-		this.logger.log('Started watching repo: ' + repo);
+		const roots = [repo, ...worktrees.filter((worktree) => worktree !== repo && !worktree.startsWith(pathWithTrailingSlash(repo)))];
+		this.fsWatchers = roots.map((root) => {
+			// Create a File System Watcher for all events within the folder
+			const watcher = vscode.workspace.createFileSystemWatcher(root + '/**');
+			watcher.onDidCreate(uri => this.refresh(root, uri));
+			watcher.onDidChange(uri => this.refresh(root, uri));
+			watcher.onDidDelete(uri => this.refresh(root, uri));
+			return { root: root, watcher: watcher };
+		});
+		this.logger.log('Started watching repo: ' + repo + (roots.length > 1 ? ' (and ' + (roots.length - 1) + ' worktree' + (roots.length > 2 ? 's' : '') + ' outside it)' : ''));
 	}
 
 	/**
 	 * Stop watching the repository for file events.
 	 */
 	public stop() {
-		if (this.fsWatcher !== null) {
-			// If there is an existing File System Watcher, stop it
-			this.fsWatcher.dispose();
-			this.fsWatcher = null;
+		if (this.fsWatchers.length > 0) {
+			// If there are existing File System Watchers, stop them
+			this.fsWatchers.forEach((fsWatcher) => fsWatcher.watcher.dispose());
+			this.fsWatchers = [];
 			this.logger.log('Stopped watching repo: ' + this.repo);
 		}
 		if (this.refreshTimeout !== null) {
@@ -85,13 +84,14 @@ export class RepoFileWatcher {
 
 
 	/**
-	 * Handle a file event triggered by the File System Watcher.
+	 * Handle a file event triggered by a File System Watcher.
+	 * @param root The folder the File System Watcher watches.
 	 * @param uri The URI of the file that the event occurred on.
 	 */
-	private refresh(uri: vscode.Uri) {
+	private refresh(root: string, uri: vscode.Uri) {
 		if (this.muted) return;
-		const filePath = getPathFromUri(uri).replace(this.repo + '/', '');
-		if (!filePath.match(FILE_CHANGE_REGEX) || (this.worktreeFolder !== null && filePath.startsWith(this.worktreeFolder))) return;
+		const filePath = getPathFromUri(uri).replace(root + '/', '');
+		if (!filePath.match(FILE_CHANGE_REGEX)) return;
 		if ((new Date()).getTime() < this.resumeAt) return;
 
 		if (this.refreshTimeout !== null) {

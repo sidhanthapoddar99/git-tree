@@ -11,6 +11,7 @@ export interface GitCommit {
 	readonly tags: ReadonlyArray<GitCommitTag>;
 	readonly remotes: ReadonlyArray<GitCommitRemote>;
 	readonly stash: GitCommitStash | null; // null => not a stash, otherwise => stash info
+	readonly worktree?: string; // Only set on a row of uncommitted changes in another worktree: the path of that worktree
 }
 
 export interface GitCommitTag {
@@ -579,7 +580,7 @@ export interface BaseMessage {
 }
 
 export interface RepoRequest extends BaseMessage {
-	readonly repo: string;
+	readonly repo: string; // Git commands run here: the repository, or the worktree of it that the view shows
 }
 
 export interface ResponseWithErrorInfo extends BaseMessage {
@@ -935,6 +936,7 @@ export interface RequestLoadCommits extends RepoRequest {
 	readonly remotes: ReadonlyArray<string>;
 	readonly hideRemotes: ReadonlyArray<string>;
 	readonly stashes: ReadonlyArray<GitStash>;
+	readonly worktrees: ReadonlyArray<GitWorktree>;
 }
 export interface ResponseLoadCommits extends ResponseWithErrorInfo {
 	readonly command: 'loadCommits';
@@ -958,6 +960,8 @@ export interface ResponseLoadConfig extends ResponseWithErrorInfo {
 
 export interface RequestLoadRepoInfo extends RepoRequest {
 	readonly command: 'loadRepoInfo';
+	// For this request, repo is the repository itself, and worktree is where Git commands run: the repository, or one of its linked worktrees
+	readonly worktree: string;
 	readonly refreshId: number;
 	readonly showRemoteBranches: boolean;
 	readonly showStashes: boolean;

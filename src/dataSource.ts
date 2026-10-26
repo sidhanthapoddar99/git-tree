@@ -163,9 +163,10 @@ export class DataSource extends Disposable {
 	 * @param remotes An array of known remotes.
 	 * @param hideRemotes An array of hidden remotes.
 	 * @param stashes An array of all stashes in the repository.
+	 * @param worktrees An array of all worktrees of the repository. Each other worktree with uncommitted changes gets its own row.
 	 * @returns The commits in the repository.
 	 */
-	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>): Promise<GitCommitData> {
+	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, worktrees: ReadonlyArray<GitWorktree>): Promise<GitCommitData> {
 		const config = getConfig();
 		const log = this.getLog(repo, branches, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes);
 		const refs = this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage);
@@ -175,6 +176,11 @@ export class DataSource extends Disposable {
 			// Its result, or error, is only used when HEAD is one of the loaded commits
 			uncommittedChanges.catch(() => { });
 		}
+		// The other worktrees' uncommitted changes, also read alongside the log. The index of each worktree in `worktrees` identifies its row.
+		const otherWorktrees = config.showUncommittedChanges
+			? worktrees.map((worktree, index) => ({ worktree: worktree, index: index })).filter((item) => !item.worktree.isCurrent && !item.worktree.prunable && item.worktree.head !== null)
+			: [];
+		const otherUncommittedChanges = Promise.all(otherWorktrees.map((item) => this.getUncommittedChanges(item.worktree.path).catch(() => null)));
 
 		return Promise.all([log, refs]).then(async (results) => {
 			let commits: GitCommitRecord[] = results[0], refData: GitRefData | string = results[1], i;
@@ -203,6 +209,28 @@ export class DataSource extends Disposable {
 						break;
 					}
 				}
+			}
+
+			if (otherWorktrees.length > 0) {
+				const loadedHashes = new Set(commits.map((commit) => commit.hash));
+				const otherCounts = await otherUncommittedChanges;
+				const otherRows: GitCommitRecord[] = [];
+				for (i = 0; i < otherWorktrees.length; i++) {
+					const worktree = otherWorktrees[i].worktree, count = otherCounts[i];
+					if (!loadedHashes.has(worktree.head!) || count === 0) continue;
+					otherRows.push({
+						hash: UNCOMMITTED + otherWorktrees[i].index,
+						parents: [worktree.head!],
+						author: '*',
+						email: '',
+						date: Math.round((new Date()).getTime() / 1000),
+						// When Git status fails, say so, rather than looking like the worktree has no changes
+						message: count !== null ? 'Uncommitted Changes (' + count + ')' : 'Uncommitted Changes (unable to read them)',
+						worktree: worktree.path
+					});
+				}
+				// The rows go after the viewed worktree's row, which stays first
+				commits.splice(commits.length > 0 && commits[0].hash === UNCOMMITTED ? 1 : 0, 0, ...otherRows);
 			}
 
 			let commitNodes: DeepWriteable<GitCommit>[] = [];
@@ -2161,6 +2189,7 @@ interface GitCommitRecord {
 	email: string;
 	date: number;
 	message: string;
+	worktree?: string;
 }
 
 interface GitCommitData {

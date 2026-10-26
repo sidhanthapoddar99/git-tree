@@ -234,7 +234,7 @@ class FindWidget {
 				for (let i = 0; i < commits.length; i++) {
 					commit = commits[i];
 					let branchLabels = getBranchLabels(commit.heads, commit.remotes);
-					if (commit.hash !== UNCOMMITTED && (
+					if (!isUncommittedChanges(commit.hash) && (
 						(colVisibility.author && findPattern.test(commit.author))
 						|| (colVisibility.commit && (commit.hash.search(findPattern) === 0 || findPattern.test(abbrevCommit(commit.hash))))
 						|| findPattern.test(commit.message)

@@ -46,6 +46,7 @@ declare global {
 
 	interface WebViewState {
 		readonly currentRepo: string;
+		readonly currentWorktree?: string; // Missing in state saved by older versions
 		readonly currentRepoLoading: boolean;
 		readonly gitRepos: GG.GitRepoSet;
 		readonly gitBranches: ReadonlyArray<string>;

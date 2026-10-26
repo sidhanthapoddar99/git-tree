@@ -2404,12 +2404,13 @@ describe('GitTreeView', () => {
 					commitOrdering: CommitOrdering.Date,
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
-					stashes: []
+					stashes: [],
+					worktrees: []
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], []);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2445,12 +2446,13 @@ describe('GitTreeView', () => {
 					commitOrdering: CommitOrdering.Date,
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
-					stashes: []
+					stashes: [],
+					worktrees: []
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, true, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, true, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], []);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2486,12 +2488,13 @@ describe('GitTreeView', () => {
 					commitOrdering: CommitOrdering.Date,
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
-					stashes: []
+					stashes: [],
+					worktrees: []
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, true, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, true, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], []);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2527,12 +2530,13 @@ describe('GitTreeView', () => {
 					commitOrdering: CommitOrdering.Date,
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
-					stashes: []
+					stashes: [],
+					worktrees: []
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, false, true, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, false, true, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], []);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2573,6 +2577,7 @@ describe('GitTreeView', () => {
 				onDidReceiveMessage({
 					command: 'loadRepoInfo',
 					repo: '/path/to/repo',
+					worktree: '/path/to/repo',
 					refreshId: 0,
 					showRemoteBranches: true,
 					showStashes: false,
@@ -2584,7 +2589,7 @@ describe('GitTreeView', () => {
 					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream']);
 					expect(spyOnRepoRoot).not.toHaveBeenCalled();
 					expect(spyOnSetLastActiveRepo).toHaveBeenCalledWith('/path/to/repo');
-					expect(spyOnRepoFileWatcherStart).toHaveBeenCalledWith('/path/to/repo');
+					expect(spyOnRepoFileWatcherStart).toHaveBeenCalledWith('/path/to/repo', []);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadRepoInfo',
@@ -2613,7 +2618,7 @@ describe('GitTreeView', () => {
 				spyOnWriteCommitGraphIfMissing.mockResolvedValueOnce('error message');
 
 				// Run
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
 
 				// Assert
 				await waitForExpect(() => expect(spyOnLogError).toHaveBeenCalledWith('Unable to write the commit-graph of /path/to/repo: error message'));
@@ -2628,7 +2633,7 @@ describe('GitTreeView', () => {
 				spyOnRepoFileWatcherStart.mockImplementationOnce(() => { });
 
 				// Run
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
 
 				// Assert
 				await waitForExpect(() => expect(spyOnRepoFileWatcherStart).toHaveBeenCalled());
@@ -2656,6 +2661,7 @@ describe('GitTreeView', () => {
 				onDidReceiveMessage({
 					command: 'loadRepoInfo',
 					repo: '/path/to/repo',
+					worktree: '/path/to/repo',
 					refreshId: 1,
 					showRemoteBranches: true,
 					showStashes: false,
@@ -2708,6 +2714,7 @@ describe('GitTreeView', () => {
 				onDidReceiveMessage({
 					command: 'loadRepoInfo',
 					repo: '/path/to/repo',
+					worktree: '/path/to/repo',
 					refreshId: 2,
 					showRemoteBranches: true,
 					showStashes: false,
@@ -2760,6 +2767,7 @@ describe('GitTreeView', () => {
 				onDidReceiveMessage({
 					command: 'loadRepoInfo',
 					repo: '/path/to/repo',
+					worktree: '/path/to/repo',
 					refreshId: 3,
 					showRemoteBranches: true,
 					showStashes: false,
@@ -2788,6 +2796,37 @@ describe('GitTreeView', () => {
 					expect(GitTreeView.currentPanel!['currentRepo']).toBe('/path/to/repo');
 					expect(GitTreeView.currentPanel!['loadRepoInfoRefreshId']).toBe(3);
 				});
+			});
+
+			it('Should get the repository information of the worktree being shown, and watch every worktree', async () => {
+				// Setup
+				const worktree = (path: string, isMain: boolean, isCurrent: boolean, prunable: boolean) => ({ path: path, name: path.substring(path.lastIndexOf('/') + 1), head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: null, isMain: isMain, isCurrent: isCurrent, locked: false, prunable: prunable });
+				const worktrees = [worktree('/path/to/repo', true, false, false), worktree('/path/to/repo-feature', false, true, false), worktree('/path/to/repo-old', false, false, true)];
+				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
+				const spyOnRepoFileWatcherStart = jest.spyOn(GitTreeView.currentPanel!['repoFileWatcher'], 'start');
+				spyOnGetRepoInfo.mockResolvedValue({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: worktrees, error: null });
+				jest.spyOn(extensionState, 'setLastActiveRepo').mockImplementationOnce(() => { });
+				spyOnRepoFileWatcherStart.mockImplementation(() => { });
+
+				// Run
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo-feature', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo-feature', true, false, []);
+					expect(spyOnRepoFileWatcherStart).toHaveBeenCalledWith('/path/to/repo', ['/path/to/repo', '/path/to/repo-feature']);
+					expect(GitTreeView.currentPanel!['currentRepo']).toBe('/path/to/repo');
+					expect(GitTreeView.currentPanel!['panel'].title).toBe('Git Tree: repo (repo-feature)');
+				});
+
+				// Run: switch back to the main worktree, which watches the same worktrees
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 1, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+
+				// Assert
+				await waitForExpect(() => expect(GitTreeView.currentPanel!['panel'].title).toBe('Git Tree: repo'));
+				expect(spyOnRepoFileWatcherStart).toHaveBeenCalledTimes(1);
+				spyOnGetRepoInfo.mockRestore();
+				spyOnRepoFileWatcherStart.mockRestore();
 			});
 		});
 

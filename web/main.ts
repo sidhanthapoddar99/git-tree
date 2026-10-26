@@ -15,6 +15,7 @@ class GitTreeView {
 	private currentBranches: string[] | null = null;
 
 	private currentRepo!: string;
+	private currentWorktree!: string; // Where Git commands run: the repository, or one of its linked worktrees
 	private currentRepoLoading: boolean = true;
 	private currentRepoRefreshState: {
 		inProgress: boolean;
@@ -47,6 +48,7 @@ class GitTreeView {
 	private readonly settingsWidget: SettingsWidget;
 	private readonly repoDropdown: Dropdown;
 	private readonly branchDropdown: Dropdown;
+	private readonly worktreeDropdown: Dropdown;
 
 	private readonly viewElem: HTMLElement;
 	private readonly controlsElem: HTMLElement;
@@ -93,6 +95,10 @@ class GitTreeView {
 			this.requestLoadRepoInfoAndCommits(true, true);
 		});
 
+		this.worktreeDropdown = new Dropdown('worktreeDropdown', true, false, 'Worktrees', (values) => {
+			this.loadWorktree(values[0]);
+		});
+
 		this.showRemoteBranchesElem = <HTMLInputElement>document.getElementById('showRemoteBranchesCheckbox')!;
 		this.showRemoteBranchesElem.addEventListener('change', () => {
 			this.saveRepoStateValue(this.currentRepo, 'showRemoteBranchesV2', this.showRemoteBranchesElem.checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
@@ -122,6 +128,7 @@ class GitTreeView {
 
 		if (prevState && !prevState.currentRepoLoading && typeof this.gitRepos[prevState.currentRepo] !== 'undefined') {
 			this.currentRepo = prevState.currentRepo;
+			this.currentWorktree = prevState.currentWorktree || prevState.currentRepo;
 			this.currentBranches = prevState.currentBranches;
 			this.maxCommits = prevState.maxCommits;
 			this.expandedCommit = prevState.expandedCommit;
@@ -159,7 +166,7 @@ class GitTreeView {
 		terminalBtn.addEventListener('click', () => {
 			runAction({
 				command: 'openTerminal',
-				repo: this.currentRepo,
+				repo: this.currentWorktree,
 				name: this.gitRepos[this.currentRepo].name || getRepoName(this.currentRepo)
 			}, 'Opening Terminal');
 		});
@@ -208,6 +215,7 @@ class GitTreeView {
 
 	private loadRepo(repo: string) {
 		this.currentRepo = repo;
+		this.currentWorktree = repo;
 		this.currentRepoLoading = true;
 		this.showRemoteBranchesElem.checked = getShowRemoteBranches(this.gitRepos[this.currentRepo].showRemoteBranchesV2);
 		this.maxCommits = this.config.initialLoadCommits;
@@ -224,11 +232,36 @@ class GitTreeView {
 		this.refresh(true);
 	}
 
+	/**
+	 * Show a worktree of the current repository: Git commands run in it, so its HEAD, branch and uncommitted changes are the ones shown.
+	 * @param worktree The path of the worktree.
+	 * @param showUncommittedChanges Open the worktree's uncommitted changes once it has loaded.
+	 */
+	private loadWorktree(worktree: string, showUncommittedChanges: boolean = false) {
+		if (this.currentWorktree === worktree) return;
+		this.currentWorktree = worktree;
+		this.closeCommitDetails(false);
+		this.loadViewTo = showUncommittedChanges ? { repo: this.currentWorktree, commitDetails: { commitHash: UNCOMMITTED, compareWithHash: null } } : null;
+		this.saveState();
+		this.refresh(true);
+	}
+
+	private renderWorktreeDropdown() {
+		const worktrees = this.gitWorktrees.filter((worktree) => !worktree.prunable);
+		alterClass(this.controlsElem, 'singleWorktree', worktrees.length < 2);
+		this.worktreeDropdown.setOptions(worktrees.map((worktree) => ({
+			name: worktree.name + (worktree.isMain ? ' (main)' : ''),
+			value: worktree.path,
+			hint: worktree.branch !== null ? worktree.branch : 'detached'
+		})), [this.currentWorktree]);
+	}
+
 	private loadRepoInfo(branchOptions: ReadonlyArray<string>, branchHead: string | null, remotes: ReadonlyArray<string>, stashes: ReadonlyArray<GG.GitStash>, worktrees: ReadonlyArray<GG.GitWorktree>, isRepo: boolean) {
 		// Changes to this.gitStashes are reflected as changes to the commits when loadCommits is run
 		this.gitStashes = stashes;
 		// Changes to this.gitWorktrees are reflected when the commits are next rendered
 		this.gitWorktrees = worktrees;
+		this.renderWorktreeDropdown();
 
 		if (!isRepo || (!this.currentRepoRefreshState.hard && arraysStrictlyEqual(this.gitBranches, branchOptions) && this.gitBranchHead === branchHead && arraysStrictlyEqual(this.gitRemotes, remotes))) {
 			this.saveState();
@@ -295,6 +328,12 @@ class GitTreeView {
 				refreshState.repoInfoChanges = refreshState.repoInfoChanges || repoInfoChanges;
 				refreshState.requestingRepoInfo = false;
 				this.requestLoadCommits();
+			} else if (this.currentWorktree !== this.currentRepo) {
+				// The linked worktree being shown no longer exists, so show the repository itself
+				refreshState.inProgress = false;
+				this.currentWorktree = this.currentRepo;
+				this.saveState();
+				this.refresh(true);
 			} else {
 				dialog.closeActionRunning();
 				refreshState.inProgress = false;
@@ -319,8 +358,11 @@ class GitTreeView {
 			((a.stash === null && b.stash === null) || (a.stash !== null && b.stash !== null && a.stash.selector === b.stash.selector))
 		) && this.renderedGitBranchHead === this.gitBranchHead && this.renderedGitWorktrees === JSON.stringify(this.gitWorktrees)) {
 
-			if (this.commits[0].hash === UNCOMMITTED) {
-				this.commits[0] = commits[0];
+			if (isUncommittedChanges(this.commits[0].hash)) {
+				// Only the rows of uncommitted changes can differ, so update them in place
+				for (let i = 0; i < commits.length && isUncommittedChanges(commits[i].hash); i++) {
+					this.commits[i] = commits[i];
+				}
 				this.saveState();
 				this.renderUncommittedChanges();
 				if (this.expandedCommit !== null && this.expandedCommit.commitElem !== null) {
@@ -600,6 +642,7 @@ class GitTreeView {
 		sendMessage({
 			command: 'loadRepoInfo',
 			repo: this.currentRepo,
+			worktree: this.currentWorktree,
 			refreshId: ++this.currentRepoRefreshState.loadRepoInfoRefreshId,
 			showRemoteBranches: getShowRemoteBranches(repoState.showRemoteBranchesV2),
 			showStashes: getShowStashes(repoState.showStashes),
@@ -611,7 +654,7 @@ class GitTreeView {
 		const repoState = this.gitRepos[this.currentRepo];
 		sendMessage({
 			command: 'loadCommits',
-			repo: this.currentRepo,
+			repo: this.currentWorktree,
 			refreshId: ++this.currentRepoRefreshState.loadCommitsRefreshId,
 			branches: this.currentBranches === null || (this.currentBranches.length === 1 && this.currentBranches[0] === SHOW_ALL_BRANCHES) ? null : this.currentBranches,
 			maxCommits: this.maxCommits,
@@ -622,7 +665,8 @@ class GitTreeView {
 			commitOrdering: getCommitOrdering(repoState.commitOrdering),
 			remotes: this.gitRemotes,
 			hideRemotes: repoState.hideRemotes,
-			stashes: this.gitStashes
+			stashes: this.gitStashes,
+			worktrees: this.gitWorktrees
 		});
 	}
 
@@ -669,7 +713,7 @@ class GitTreeView {
 		let commit = this.commits[this.commitLookup[hash]];
 		sendMessage({
 			command: 'commitDetails',
-			repo: this.currentRepo,
+			repo: this.currentWorktree,
 			commitHash: hash,
 			hasParents: commit.parents.length > 0,
 			stash: commit.stash,
@@ -682,7 +726,7 @@ class GitTreeView {
 		let commitOrder = this.getCommitOrder(hash, compareWithHash);
 		sendMessage({
 			command: 'compareCommits',
-			repo: this.currentRepo,
+			repo: this.currentWorktree,
 			commitHash: hash, compareWithHash: compareWithHash,
 			fromHash: commitOrder.from, toHash: commitOrder.to,
 			refresh: refresh
@@ -824,9 +868,11 @@ class GitTreeView {
 			markdown: this.config.markdown
 		});
 
+		// Label every worktree, including the main one, when the repository has more than one
 		const branchWorktrees: { [branch: string]: GG.GitWorktree } = {}, detachedWorktrees: { [hash: string]: GG.GitWorktree[] } = {};
+		const labelWorktrees = this.gitWorktrees.filter((worktree) => !worktree.prunable).length > 1;
 		this.gitWorktrees.forEach((worktree) => {
-			if (worktree.isCurrent || worktree.head === null) return;
+			if (!labelWorktrees || worktree.prunable || worktree.head === null) return;
 			if (worktree.branch !== null) {
 				branchWorktrees[worktree.branch] = worktree;
 			} else {
@@ -842,7 +888,9 @@ class GitTreeView {
 
 		for (let i = 0; i < this.commits.length; i++) {
 			let commit = this.commits[i];
-			let message = '<span class="text">' + textFormatter.format(commit.message) + '</span>';
+			let message = isUncommittedChanges(commit.hash)
+				? this.getUncommittedChangesHtml(commit)
+				: '<span class="text">' + textFormatter.format(commit.message) + '</span>';
 			let date = formatShortDate(commit.date);
 			let branchLabels = getBranchLabels(commit.heads, commit.remotes);
 			let refBranches = '', refTags = '', j, k, refName, remoteName, refActive, refHtml, branchCheckedOutAtCommit: string | null = null;
@@ -864,8 +912,7 @@ class GitTreeView {
 			}
 			if (typeof detachedWorktrees[commit.hash] !== 'undefined') {
 				for (j = 0; j < detachedWorktrees[commit.hash].length; j++) {
-					refName = escapeHtml(detachedWorktrees[commit.hash][j].path);
-					refBranches += '<span class="gitRef worktree" data-name="' + refName + '" title="The worktree ' + refName + ' has this commit checked out (detached HEAD)">' + SVG_ICONS.worktree + '<span class="gitRefName" data-fullref="' + refName + '">' + escapeHtml(detachedWorktrees[commit.hash][j].name) + '</span></span>';
+					refBranches += getWorktreeRefHtml(detachedWorktrees[commit.hash][j], 'The worktree ' + detachedWorktrees[commit.hash][j].path + ' has this commit checked out (detached HEAD)');
 				}
 			}
 			for (j = 0; j < branchLabels.remotes.length; j++) {
@@ -894,7 +941,7 @@ class GitTreeView {
 				(this.config.referenceLabels.branchLabelsAlignedToGraph ? '<td>' + (refBranches !== '' ? '<span style="margin-left:' + (widthsAtVertices[i] - 4) + 'px"' + refBranches.substring(5) : '') + '</td><td><span class="description">' + commitDot : '<td></td><td><span class="description">' + commitDot + refBranches) + (this.config.referenceLabels.tagLabelsOnRight ? message + refTags : refTags + message) + '</span></td>' +
 				(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
 				(colVisibility.author ? '<td class="authorCol text" title="' + escapeHtml(commit.author + ' <' + commit.email + '>') + '">' + (this.config.fetchAvatars ? '<span class="avatar" data-email="' + escapeHtml(commit.email) + '">' + (typeof this.avatars[commit.email] === 'string' ? '<img class="avatarImg" src="' + this.avatars[commit.email] + '">' : '') + '</span>' : '') + escapeHtml(commit.author) + '</td>' : '') +
-				(colVisibility.commit ? '<td class="text" title="' + escapeHtml(commit.hash) + '">' + abbrevCommit(commit.hash) + '</td>' : '') +
+				(colVisibility.commit ? (isUncommittedChanges(commit.hash) ? '<td class="text" title="' + UNCOMMITTED + '">' + UNCOMMITTED + '</td>' : '<td class="text" title="' + escapeHtml(commit.hash) + '">' + abbrevCommit(commit.hash) + '</td>') : '') +
 				'</tr>';
 		}
 		this.tableElem.innerHTML = '<table>' + html + '</table>';
@@ -949,11 +996,38 @@ class GitTreeView {
 	}
 
 	private renderUncommittedChanges() {
-		const colVisibility = this.getColumnVisibility(), date = formatShortDate(this.commits[0].date);
-		document.getElementById('uncommittedChanges')!.innerHTML = '<td></td><td><b>' + escapeHtml(this.commits[0].message) + '</b></td>' +
-			(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
-			(colVisibility.author ? '<td class="authorCol text" title="* <>">*</td>' : '') +
-			(colVisibility.commit ? '<td class="text" title="*">*</td>' : '');
+		const colVisibility = this.getColumnVisibility(), elems = getCommitElems();
+		for (let i = 0; i < this.commits.length && isUncommittedChanges(this.commits[i].hash); i++) {
+			const elem = findCommitElemWithId(elems, i);
+			if (elem === null) continue;
+			const date = formatShortDate(this.commits[i].date);
+			elem.innerHTML = '<td></td><td><span class="description">' + this.getUncommittedChangesHtml(this.commits[i]) + '</span></td>' +
+				(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
+				(colVisibility.author ? '<td class="authorCol text" title="* <>">*</td>' : '') +
+				(colVisibility.commit ? '<td class="text" title="*">*</td>' : '');
+		}
+	}
+
+	/**
+	 * Get the description of a row of uncommitted changes: the label of its worktree, when the repository has more than one, and its message.
+	 * @param commit The row of uncommitted changes.
+	 * @returns The HTML.
+	 */
+	private getUncommittedChangesHtml(commit: GG.GitCommit) {
+		const worktree = this.getWorktreeOfUncommittedChanges(commit);
+		const label = worktree !== null && this.gitWorktrees.filter((worktree) => !worktree.prunable).length > 1
+			? getWorktreeRefHtml(worktree, 'Uncommitted changes in the worktree ' + worktree.path + (commit.hash !== UNCOMMITTED ? '. Click to show this worktree.' : ''))
+			: '';
+		return label + '<span class="text"><b>' + escapeHtml(commit.message) + '</b></span>';
+	}
+
+	/**
+	 * Get the worktree that a row of uncommitted changes is in.
+	 * @param commit The row of uncommitted changes.
+	 * @returns The worktree, or NULL if it isn't known.
+	 */
+	private getWorktreeOfUncommittedChanges(commit: GG.GitCommit) {
+		return this.gitWorktrees.find((worktree) => commit.hash === UNCOMMITTED ? worktree.isCurrent : worktree.path === commit.worktree) || null;
 	}
 
 	private renderFetchButton() {
@@ -1008,7 +1082,7 @@ class GitTreeView {
 				visible: visibility.rename,
 				onClick: () => {
 					dialog.showRefInput('Enter the new name for branch <b><i>' + escapeHtml(refName) + '</i></b>:', refName, 'Rename Branch', (newName) => {
-						runAction({ command: 'renameBranch', repo: this.currentRepo, oldName: refName, newName: newName }, 'Renaming Branch');
+						runAction({ command: 'renameBranch', repo: this.currentWorktree, oldName: refName, newName: newName }, 'Renaming Branch');
 					}, target);
 				}
 			}, {
@@ -1026,7 +1100,7 @@ class GitTreeView {
 						});
 					}
 					dialog.showForm('Are you sure you want to delete the branch <b><i>' + escapeHtml(refName) + '</i></b>?', inputs, 'Yes, delete', (values) => {
-						runAction({ command: 'deleteBranch', repo: this.currentRepo, branchName: refName, forceDelete: <boolean>values[0], deleteOnRemotes: remotesWithBranch.length > 0 && <boolean>values[1] ? remotesWithBranch : [] }, 'Deleting Branch');
+						runAction({ command: 'deleteBranch', repo: this.currentWorktree, branchName: refName, forceDelete: <boolean>values[0], deleteOnRemotes: remotesWithBranch.length > 0 && <boolean>values[1] ? remotesWithBranch : [] }, 'Deleting Branch');
 					}, target);
 				}
 			}, {
@@ -1071,7 +1145,7 @@ class GitTreeView {
 						const setUpstream = <boolean>values[0];
 						runAction({
 							command: 'pushBranch',
-							repo: this.currentRepo,
+							repo: this.currentWorktree,
 							branchName: refName,
 							remotes: remotes,
 							setUpstream: setUpstream,
@@ -1109,7 +1183,7 @@ class GitTreeView {
 				title: 'Create Archive',
 				visible: visibility.createArchive,
 				onClick: () => {
-					runAction({ command: 'createArchive', repo: this.currentRepo, ref: refName }, 'Creating Archive');
+					runAction({ command: 'createArchive', repo: this.currentWorktree, ref: refName }, 'Creating Archive');
 				}
 			},
 			{
@@ -1155,7 +1229,7 @@ class GitTreeView {
 				title: 'Checkout' + (globalState.alwaysAcceptCheckoutCommit ? '' : ELLIPSIS),
 				visible: visibility.checkout,
 				onClick: () => {
-					const checkoutCommit = () => runAction({ command: 'checkoutCommit', repo: this.currentRepo, commitHash: hash }, 'Checking out Commit');
+					const checkoutCommit = () => runAction({ command: 'checkoutCommit', repo: this.currentWorktree, commitHash: hash }, 'Checking out Commit');
 					if (globalState.alwaysAcceptCheckoutCommit) {
 						checkoutCommit();
 					} else {
@@ -1202,7 +1276,7 @@ class GitTreeView {
 						let parentIndex = isMerge ? parseInt(<string>values.shift()) : 0;
 						runAction({
 							command: 'cherrypickCommit',
-							repo: this.currentRepo,
+							repo: this.currentWorktree,
 							commitHash: hash,
 							parentIndex: parentIndex,
 							recordOrigin: <boolean>values[0],
@@ -1220,11 +1294,11 @@ class GitTreeView {
 							value: (index + 1).toString()
 						}));
 						dialog.showSelect('Are you sure you want to revert merge commit <b><i>' + abbrevCommit(hash) + '</i></b>? Choose the parent hash on the main branch, to revert the commit relative to:', '1', options, 'Yes, revert', (parentIndex) => {
-							runAction({ command: 'revertCommit', repo: this.currentRepo, commitHash: hash, parentIndex: parseInt(parentIndex) }, 'Reverting Commit');
+							runAction({ command: 'revertCommit', repo: this.currentWorktree, commitHash: hash, parentIndex: parseInt(parentIndex) }, 'Reverting Commit');
 						}, target);
 					} else {
 						dialog.showConfirmation('Are you sure you want to revert commit <b><i>' + abbrevCommit(hash) + '</i></b>?', 'Yes, revert', () => {
-							runAction({ command: 'revertCommit', repo: this.currentRepo, commitHash: hash, parentIndex: 0 }, 'Reverting Commit');
+							runAction({ command: 'revertCommit', repo: this.currentWorktree, commitHash: hash, parentIndex: 0 }, 'Reverting Commit');
 						}, target);
 					}
 				}
@@ -1233,7 +1307,7 @@ class GitTreeView {
 				visible: visibility.drop && this.graph.dropCommitPossible(this.commitLookup[hash]),
 				onClick: () => {
 					dialog.showConfirmation('Are you sure you want to permanently drop commit <b><i>' + abbrevCommit(hash) + '</i></b>?' + (this.onlyFollowFirstParent ? '<br/><i>Note: By enabling "Only follow the first parent of commits", some commits may have been hidden from the Git Tree View that could affect the outcome of performing this action.</i>' : ''), 'Yes, drop', () => {
-						runAction({ command: 'dropCommit', repo: this.currentRepo, commitHash: hash }, 'Dropping Commit');
+						runAction({ command: 'dropCommit', repo: this.currentWorktree, commitHash: hash }, 'Dropping Commit');
 					}, target);
 				}
 			}
@@ -1255,7 +1329,7 @@ class GitTreeView {
 						{ name: 'Mixed - Keep working tree, but reset index', value: GG.GitResetMode.Mixed },
 						{ name: 'Hard - Discard all changes', value: GG.GitResetMode.Hard }
 					], 'Yes, reset', (mode) => {
-						runAction({ command: 'resetToCommit', repo: this.currentRepo, commit: hash, resetMode: <GG.GitResetMode>mode }, 'Resetting to Commit');
+						runAction({ command: 'resetToCommit', repo: this.currentWorktree, commit: hash, resetMode: <GG.GitResetMode>mode }, 'Resetting to Commit');
 					}, target);
 				}
 			}
@@ -1292,7 +1366,7 @@ class GitTreeView {
 				visible: visibility.delete && remote !== '',
 				onClick: () => {
 					dialog.showConfirmation('Are you sure you want to delete the remote branch <b><i>' + escapeHtml(refName) + '</i></b>?', 'Yes, delete', () => {
-						runAction({ command: 'deleteRemoteBranch', repo: this.currentRepo, branchName: branchName, remote: remote }, 'Deleting Remote Branch');
+						runAction({ command: 'deleteRemoteBranch', repo: this.currentWorktree, branchName: branchName, remote: remote }, 'Deleting Remote Branch');
 					}, target);
 				}
 			}, {
@@ -1305,7 +1379,7 @@ class GitTreeView {
 						value: this.config.dialogDefaults.fetchIntoLocalBranch.forceFetch,
 						info: 'Force the local branch to be reset to this remote branch.'
 					}], 'Yes, fetch', (values) => {
-						runAction({ command: 'fetchIntoLocalBranch', repo: this.currentRepo, remote: remote, remoteBranch: branchName, localBranch: branchName, force: <boolean>values[0] }, 'Fetching Branch');
+						runAction({ command: 'fetchIntoLocalBranch', repo: this.currentWorktree, remote: remote, remoteBranch: branchName, localBranch: branchName, force: <boolean>values[0] }, 'Fetching Branch');
 					}, target);
 				}
 			}, {
@@ -1320,7 +1394,7 @@ class GitTreeView {
 						{ type: DialogInputType.Checkbox, name: 'Create a new commit even if fast-forward is possible', value: this.config.dialogDefaults.pullBranch.noFastForward },
 						{ type: DialogInputType.Checkbox, name: 'Squash Commits', value: this.config.dialogDefaults.pullBranch.squash, info: 'Create a single commit on the current branch whose effect is the same as merging this remote branch.' }
 					], 'Yes, pull', (values) => {
-						runAction({ command: 'pullBranch', repo: this.currentRepo, branchName: branchName, remote: remote, createNewCommit: <boolean>values[0], squash: <boolean>values[1] }, 'Pulling Branch');
+						runAction({ command: 'pullBranch', repo: this.currentWorktree, branchName: branchName, remote: remote, createNewCommit: <boolean>values[0], squash: <boolean>values[1] }, 'Pulling Branch');
 					}, target);
 				}
 			}
@@ -1351,7 +1425,7 @@ class GitTreeView {
 				title: 'Create Archive',
 				visible: visibility.createArchive,
 				onClick: () => {
-					runAction({ command: 'createArchive', repo: this.currentRepo, ref: refName }, 'Creating Archive');
+					runAction({ command: 'createArchive', repo: this.currentWorktree, ref: refName }, 'Creating Archive');
 				}
 			},
 			{
@@ -1388,7 +1462,7 @@ class GitTreeView {
 						value: this.config.dialogDefaults.applyStash.reinstateIndex,
 						info: 'Attempt to reinstate the indexed changes, in addition to the working tree\'s changes.'
 					}], 'Yes, apply stash', (values) => {
-						runAction({ command: 'applyStash', repo: this.currentRepo, selector: selector, reinstateIndex: <boolean>values[0] }, 'Applying Stash');
+						runAction({ command: 'applyStash', repo: this.currentWorktree, selector: selector, reinstateIndex: <boolean>values[0] }, 'Applying Stash');
 					}, target);
 				}
 			}, {
@@ -1396,7 +1470,7 @@ class GitTreeView {
 				visible: visibility.createBranch,
 				onClick: () => {
 					dialog.showRefInput('Create a branch from stash <b><i>' + escapeHtml(selector.substring(5)) + '</i></b> with the name:', '', 'Create Branch', (branchName) => {
-						runAction({ command: 'branchFromStash', repo: this.currentRepo, selector: selector, branchName: branchName }, 'Creating Branch');
+						runAction({ command: 'branchFromStash', repo: this.currentWorktree, selector: selector, branchName: branchName }, 'Creating Branch');
 					}, target);
 				}
 			}, {
@@ -1409,7 +1483,7 @@ class GitTreeView {
 						value: this.config.dialogDefaults.popStash.reinstateIndex,
 						info: 'Attempt to reinstate the indexed changes, in addition to the working tree\'s changes.'
 					}], 'Yes, pop stash', (values) => {
-						runAction({ command: 'popStash', repo: this.currentRepo, selector: selector, reinstateIndex: <boolean>values[0] }, 'Popping Stash');
+						runAction({ command: 'popStash', repo: this.currentWorktree, selector: selector, reinstateIndex: <boolean>values[0] }, 'Popping Stash');
 					}, target);
 				}
 			}, {
@@ -1417,7 +1491,7 @@ class GitTreeView {
 				visible: visibility.drop,
 				onClick: () => {
 					dialog.showConfirmation('Are you sure you want to drop the stash <b><i>' + escapeHtml(selector.substring(5)) + '</i></b>?', 'Yes, drop', () => {
-						runAction({ command: 'dropStash', repo: this.currentRepo, selector: selector }, 'Dropping Stash');
+						runAction({ command: 'dropStash', repo: this.currentWorktree, selector: selector }, 'Dropping Stash');
 					}, target);
 				}
 			}
@@ -1445,7 +1519,7 @@ class GitTreeView {
 				title: 'View Details',
 				visible: visibility.viewDetails && isAnnotated,
 				onClick: () => {
-					runAction({ command: 'tagDetails', repo: this.currentRepo, tagName: tagName, commitHash: hash }, 'Retrieving Tag Details');
+					runAction({ command: 'tagDetails', repo: this.currentWorktree, tagName: tagName, commitHash: hash }, 'Retrieving Tag Details');
 				}
 			}, {
 				title: 'Delete Tag' + ELLIPSIS,
@@ -1475,7 +1549,7 @@ class GitTreeView {
 					const runPushTagAction = (remotes: string[]) => {
 						runAction({
 							command: 'pushTag',
-							repo: this.currentRepo,
+							repo: this.currentWorktree,
 							tagName: tagName,
 							remotes: remotes,
 							commitHash: hash,
@@ -1501,7 +1575,7 @@ class GitTreeView {
 				title: 'Create Archive',
 				visible: visibility.createArchive,
 				onClick: () => {
-					runAction({ command: 'createArchive', repo: this.currentRepo, ref: tagName }, 'Creating Archive');
+					runAction({ command: 'createArchive', repo: this.currentWorktree, ref: tagName }, 'Creating Archive');
 				}
 			},
 			{
@@ -1525,7 +1599,7 @@ class GitTreeView {
 						{ type: DialogInputType.Text, name: 'Message', default: '', placeholder: 'Optional' },
 						{ type: DialogInputType.Checkbox, name: 'Include Untracked', value: this.config.dialogDefaults.stashUncommittedChanges.includeUntracked, info: 'Include all untracked files in the stash, and then clean them from the working directory.' }
 					], 'Yes, stash', (values) => {
-						runAction({ command: 'pushStash', repo: this.currentRepo, message: <string>values[0], includeUntracked: <boolean>values[1] }, 'Stashing uncommitted changes');
+						runAction({ command: 'pushStash', repo: this.currentWorktree, message: <string>values[0], includeUntracked: <boolean>values[1] }, 'Stashing uncommitted changes');
 					}, target);
 				}
 			}
@@ -1538,7 +1612,7 @@ class GitTreeView {
 						{ name: 'Mixed - Keep working tree, but reset index', value: GG.GitResetMode.Mixed },
 						{ name: 'Hard - Discard all changes', value: GG.GitResetMode.Hard }
 					], 'Yes, reset', (mode) => {
-						runAction({ command: 'resetToCommit', repo: this.currentRepo, commit: 'HEAD', resetMode: <GG.GitResetMode>mode }, 'Resetting uncommitted changes');
+						runAction({ command: 'resetToCommit', repo: this.currentWorktree, commit: 'HEAD', resetMode: <GG.GitResetMode>mode }, 'Resetting uncommitted changes');
 					}, target);
 				}
 			}, {
@@ -1546,7 +1620,7 @@ class GitTreeView {
 				visible: visibility.clean,
 				onClick: () => {
 					dialog.showCheckbox('Are you sure you want to clean all untracked files?', 'Clean untracked directories', true, 'Yes, clean', directories => {
-						runAction({ command: 'cleanUntrackedFiles', repo: this.currentRepo, directories: directories }, 'Cleaning untracked files');
+						runAction({ command: 'cleanUntrackedFiles', repo: this.currentWorktree, directories: directories }, 'Cleaning untracked files');
 					}, target);
 				}
 			}
@@ -1570,8 +1644,25 @@ class GitTreeView {
 		return this.gitWorktrees.find((worktree) => worktree.branch === branchName && !worktree.isCurrent) || null;
 	}
 
-	private getWorktreeContextMenuActions(worktree: GG.GitWorktree, target: DialogTarget & RefTarget): ContextMenuActions {
+	/**
+	 * If a row is another worktree's uncommitted changes, show that worktree and open its uncommitted changes.
+	 * @param commit The row.
+	 * @returns TRUE => the row is another worktree's uncommitted changes, FALSE => it isn't.
+	 */
+	private showWorktreeOfUncommittedChanges(commit: GG.GitCommit) {
+		if (commit.hash === UNCOMMITTED || !isUncommittedChanges(commit.hash) || typeof commit.worktree === 'undefined') return false;
+		this.loadWorktree(commit.worktree, true);
+		return true;
+	}
+
+	private getWorktreeContextMenuActions(worktree: GG.GitWorktree, target: DialogTarget): ContextMenuActions {
 		return [[
+			{
+				title: 'Show This Worktree',
+				visible: !worktree.isCurrent && !worktree.prunable,
+				onClick: () => this.loadWorktree(worktree.path)
+			}
+		], [
 			{
 				title: 'Open Worktree in New Window',
 				visible: true,
@@ -1674,7 +1765,7 @@ class GitTreeView {
 			const runAddTagAction = (force: boolean) => {
 				runAction({
 					command: 'addTag',
-					repo: this.currentRepo,
+					repo: this.currentWorktree,
 					tagName: tagName,
 					commitHash: hash,
 					type: type,
@@ -1707,7 +1798,7 @@ class GitTreeView {
 					}, 'Checkout the existing branch' + (canPullFromRemote ? ' & pull changes' : ''), () => {
 						runAction({
 							command: 'checkoutBranch',
-							repo: this.currentRepo,
+							repo: this.currentWorktree,
 							branchName: newBranch,
 							remoteBranch: null,
 							pullAfterwards: canPullFromRemote
@@ -1721,11 +1812,11 @@ class GitTreeView {
 						}, 'Checking out Branch' + (canPullFromRemote ? ' & Pulling Changes' : ''));
 					}, target);
 				} else {
-					runAction({ command: 'checkoutBranch', repo: this.currentRepo, branchName: newBranch, remoteBranch: refName, pullAfterwards: null }, 'Checking out Branch');
+					runAction({ command: 'checkoutBranch', repo: this.currentWorktree, branchName: newBranch, remoteBranch: refName, pullAfterwards: null }, 'Checking out Branch');
 				}
 			}, target);
 		} else {
-			runAction({ command: 'checkoutBranch', repo: this.currentRepo, branchName: refName, remoteBranch: null, pullAfterwards: null }, 'Checking out Branch');
+			runAction({ command: 'checkoutBranch', repo: this.currentWorktree, branchName: refName, remoteBranch: null, pullAfterwards: null }, 'Checking out Branch');
 		}
 	}
 
@@ -1737,12 +1828,12 @@ class GitTreeView {
 			const branchName = <string>values[0], checkOut = <boolean>values[1];
 			if (this.gitBranches.includes(branchName)) {
 				dialog.showTwoButtons('A branch named <b><i>' + escapeHtml(branchName) + '</i></b> already exists, do you want to replace it with this new branch?', 'Yes, replace the existing branch', () => {
-					runAction({ command: 'createBranch', repo: this.currentRepo, branchName: branchName, commitHash: hash, checkout: checkOut, force: true }, 'Creating Branch');
+					runAction({ command: 'createBranch', repo: this.currentWorktree, branchName: branchName, commitHash: hash, checkout: checkOut, force: true }, 'Creating Branch');
 				}, 'No, choose another branch name', () => {
 					this.createBranchAction(hash, branchName, checkOut, target);
 				}, target);
 			} else {
-				runAction({ command: 'createBranch', repo: this.currentRepo, branchName: branchName, commitHash: hash, checkout: checkOut, force: false }, 'Creating Branch');
+				runAction({ command: 'createBranch', repo: this.currentWorktree, branchName: branchName, commitHash: hash, checkout: checkOut, force: false }, 'Creating Branch');
 			}
 		}, target);
 	}
@@ -1751,7 +1842,7 @@ class GitTreeView {
 		const location = this.config.worktreeDefaultLocation;
 		const getFolder = (folderInput: string, name: string) => folderInput.trim() !== '' ? folderInput.trim() : location + '/' + name.replace(/[\\/:*?"<>|\s]+/g, '-');
 		const runCreateWorktree = (path: string, newBranch: string | null, openInNewWindow: boolean) => {
-			runAction({ command: 'createWorktree', repo: this.currentRepo, path: path, commitish: commitish, newBranch: newBranch, openInNewWindow: openInNewWindow }, 'Creating Worktree');
+			runAction({ command: 'createWorktree', repo: this.currentWorktree, path: path, commitish: commitish, newBranch: newBranch, openInNewWindow: openInNewWindow }, 'Creating Worktree');
 		};
 
 		if (isBranch) {
@@ -1774,11 +1865,11 @@ class GitTreeView {
 	}
 
 	private deleteTagAction(refName: string, deleteOnRemote: string | null) {
-		runAction({ command: 'deleteTag', repo: this.currentRepo, tagName: refName, deleteOnRemote: deleteOnRemote }, 'Deleting Tag');
+		runAction({ command: 'deleteTag', repo: this.currentWorktree, tagName: refName, deleteOnRemote: deleteOnRemote }, 'Deleting Tag');
 	}
 
 	private fetchFromRemotesAction() {
-		runAction({ command: 'fetch', repo: this.currentRepo, name: null, prune: this.config.fetchAndPrune, pruneTags: this.config.fetchAndPruneTags }, 'Fetching from Remote(s)');
+		runAction({ command: 'fetch', repo: this.currentWorktree, name: null, prune: this.config.fetchAndPrune, pruneTags: this.config.fetchAndPruneTags }, 'Fetching from Remote(s)');
 	}
 
 	private mergeAction(obj: string, name: string, actionOn: GG.MergeActionOn, target: DialogTarget & (CommitTarget | RefTarget)) {
@@ -1787,7 +1878,7 @@ class GitTreeView {
 			{ type: DialogInputType.Checkbox, name: 'Squash Commits', value: this.config.dialogDefaults.merge.squash, info: 'Create a single commit on the current branch whose effect is the same as merging this ' + actionOn.toLowerCase() + '.' },
 			{ type: DialogInputType.Checkbox, name: 'No Commit', value: this.config.dialogDefaults.merge.noCommit, info: 'The changes of the merge will be staged but not committed, so that you can review and/or modify the merge result before committing.' }
 		], 'Yes, merge', (values) => {
-			runAction({ command: 'merge', repo: this.currentRepo, obj: obj, actionOn: actionOn, createNewCommit: <boolean>values[0], squash: <boolean>values[1], noCommit: <boolean>values[2] }, 'Merging ' + actionOn);
+			runAction({ command: 'merge', repo: this.currentWorktree, obj: obj, actionOn: actionOn, createNewCommit: <boolean>values[0], squash: <boolean>values[1], noCommit: <boolean>values[2] }, 'Merging ' + actionOn);
 		}, target);
 	}
 
@@ -1797,7 +1888,7 @@ class GitTreeView {
 			{ type: DialogInputType.Checkbox, name: 'Ignore Date', value: this.config.dialogDefaults.rebase.ignoreDate, info: 'Only applicable to a non-interactive rebase.' }
 		], 'Yes, rebase', (values) => {
 			let interactive = <boolean>values[0];
-			runAction({ command: 'rebase', repo: this.currentRepo, obj: obj, actionOn: actionOn, ignoreDate: <boolean>values[1], interactive: interactive }, interactive ? 'Launching Interactive Rebase' : 'Rebasing on ' + actionOn);
+			runAction({ command: 'rebase', repo: this.currentWorktree, obj: obj, actionOn: actionOn, ignoreDate: <boolean>values[1], interactive: interactive }, interactive ? 'Launching Interactive Rebase' : 'Rebasing on ' + actionOn);
 		}, target);
 	}
 
@@ -2448,8 +2539,13 @@ class GitTreeView {
 				};
 
 				let actions: ContextMenuActions;
+				let worktree: GG.GitWorktree | null;
 				if (commit.hash === UNCOMMITTED) {
 					actions = this.getUncommittedChangesContextMenuActions(target);
+				} else if (isUncommittedChanges(commit.hash)) {
+					// Another worktree's uncommitted changes
+					if ((worktree = this.getWorktreeOfUncommittedChanges(commit)) === null) return;
+					actions = this.getWorktreeContextMenuActions(worktree, target);
 				} else if (commit.stash !== null) {
 					target.ref = commit.stash.selector;
 					actions = this.getStashContextMenuActions(<RefTarget>target);
@@ -2468,6 +2564,7 @@ class GitTreeView {
 	public loadCommitDetails(commitElem: HTMLElement) {
 		const commit = this.getCommitOfElem(commitElem);
 		if (commit === null) return;
+		if (this.showWorktreeOfUncommittedChanges(commit)) return;
 
 		this.closeCommitDetails(false);
 		this.saveExpandedCommitLoading(parseInt(commitElem.dataset.id!), commit.hash, commitElem, null, null);
@@ -2578,6 +2675,8 @@ class GitTreeView {
 	private loadCommitComparison(commitElem: HTMLElement, compareWithElem: HTMLElement) {
 		const commit = this.getCommitOfElem(commitElem);
 		const compareWithCommit = this.getCommitOfElem(compareWithElem);
+		// Another worktree's uncommitted changes can't be compared from here, so show that worktree instead
+		if (compareWithCommit !== null && this.showWorktreeOfUncommittedChanges(compareWithCommit)) return;
 
 		if (commit !== null && compareWithCommit !== null) {
 			if (this.expandedCommit !== null) {
@@ -2785,14 +2884,14 @@ class GitTreeView {
 					if (expandedCommit === null || e.target === null) return;
 					let sourceElem = <HTMLElement>(<Element>e.target).closest('#cdvCodeReview')!;
 					if (sourceElem.classList.contains(CLASS_ACTIVE)) {
-						sendMessage({ command: 'endCodeReview', repo: this.currentRepo, id: expandedCommit.codeReview!.id });
+						sendMessage({ command: 'endCodeReview', repo: this.currentWorktree, id: expandedCommit.codeReview!.id });
 						this.endCodeReview();
 					} else {
 						const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
 						const id = expandedCommit.compareWithHash !== null ? commitOrder.from + '-' + commitOrder.to : expandedCommit.commitHash;
 						sendMessage({
 							command: 'startCodeReview',
-							repo: this.currentRepo,
+							repo: this.currentWorktree,
 							id: id,
 							commitHash: expandedCommit.commitHash,
 							compareWithHash: expandedCommit.compareWithHash,
@@ -2810,7 +2909,7 @@ class GitTreeView {
 					const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
 					runAction({
 						command: 'openExternalDirDiff',
-						repo: this.currentRepo,
+						repo: this.currentWorktree,
 						fromHash: commitOrder.from,
 						toHash: commitOrder.to,
 						isGui: this.gitConfig.guiDiffTool !== null
@@ -2945,7 +3044,7 @@ class GitTreeView {
 
 			sendMessage({
 				command: 'updateCodeReview',
-				repo: this.currentRepo,
+				repo: this.currentWorktree,
 				id: expandedCommit.codeReview.id,
 				remainingFiles: expandedCommit.codeReview.remainingFiles,
 				lastViewedFile: expandedCommit.lastViewedFile
@@ -3042,7 +3141,7 @@ class GitTreeView {
 			this.cdvUpdateFileState(file, fileElem, true, true);
 			sendMessage({
 				command: 'viewDiff',
-				repo: this.currentRepo,
+				repo: this.currentWorktree,
 				fromHash: fromHash,
 				toHash: toHash,
 				oldFilePath: file.oldFilePath,
@@ -3052,7 +3151,7 @@ class GitTreeView {
 		};
 
 		const triggerCopyFilePath = (file: GG.GitFileChange, absolute: boolean) => {
-			sendMessage({ command: 'copyFilePath', repo: this.currentRepo, filePath: file.newFilePath, absolute: absolute });
+			sendMessage({ command: 'copyFilePath', repo: this.currentWorktree, filePath: file.newFilePath, absolute: absolute });
 		};
 
 		const triggerResetFileToRevision = (file: GG.GitFileChange, fileElem: HTMLElement) => {
@@ -3061,7 +3160,7 @@ class GitTreeView {
 
 			const commitHash = getCommitHashForFile(file, expandedCommit);
 			dialog.showConfirmation('Are you sure you want to reset <b><i>' + escapeHtml(file.newFilePath) + '</i></b> to it\'s state at commit <b><i>' + abbrevCommit(commitHash) + '</i></b>? Any uncommitted changes made to this file will be overwritten.', 'Yes, reset file', () => {
-				runAction({ command: 'resetFileToRevision', repo: this.currentRepo, commitHash: commitHash, filePath: file.newFilePath }, 'Resetting file');
+				runAction({ command: 'resetFileToRevision', repo: this.currentWorktree, commitHash: commitHash, filePath: file.newFilePath }, 'Resetting file');
 			}, {
 				type: TargetType.CommitDetailsView,
 				hash: commitHash,
@@ -3074,7 +3173,7 @@ class GitTreeView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, true, true);
-			sendMessage({ command: 'viewFileAtRevision', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'viewFileAtRevision', repo: this.currentWorktree, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
 		};
 
 		const triggerViewFileDiffWithWorkingFile = (file: GG.GitFileChange, fileElem: HTMLElement) => {
@@ -3082,7 +3181,7 @@ class GitTreeView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, null, true);
-			sendMessage({ command: 'viewDiffWithWorkingFile', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'viewDiffWithWorkingFile', repo: this.currentWorktree, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
 		};
 
 		const triggerOpenFile = (file: GG.GitFileChange, fileElem: HTMLElement) => {
@@ -3090,7 +3189,7 @@ class GitTreeView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, true, true);
-			sendMessage({ command: 'openFile', repo: this.currentRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'openFile', repo: this.currentWorktree, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
 		};
 
 		addListenerToClass('fileTreeFolder', 'click', (e) => {
@@ -3155,6 +3254,7 @@ class GitTreeView {
 			const file = getFileOfFileElem(expandedCommit.fileChanges, fileElem);
 			const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
 			const isUncommitted = commitOrder.to === UNCOMMITTED;
+			const otherWorktrees = this.gitWorktrees.filter((worktree) => !worktree.isCurrent && !worktree.prunable);
 
 			GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 			expandedCommit.contextMenuOpen.fileView = parseInt(fileElem.dataset.index!);
@@ -3223,6 +3323,19 @@ class GitTreeView {
 						title: 'Copy Relative File Path to Clipboard',
 						visible: visibility.copyRelativeFilePath,
 						onClick: () => triggerCopyFilePath(file, false)
+					},
+					{
+						// The same relative path is a different absolute path in each worktree
+						title: 'Copy Absolute File Path in Another Worktree' + ELLIPSIS,
+						visible: visibility.copyAbsoluteFilePath && otherWorktrees.length > 0,
+						onClick: () => {
+							dialog.showSelect('Copy the absolute path of <b><i>' + escapeHtml(file.newFilePath) + '</i></b> in which worktree?', otherWorktrees[0].path, otherWorktrees.map((worktree) => ({
+								name: worktree.name + (worktree.isMain ? ' (main)' : ''),
+								value: worktree.path
+							})), 'Copy Path', (worktreePath) => {
+								sendMessage({ command: 'copyFilePath', repo: worktreePath, filePath: file.newFilePath, absolute: true });
+							}, null);
+						}
 					}
 				]
 			], false, target, <MouseEvent>e, this.isCdvDocked() ? document.body : this.viewElem, () => {
@@ -3669,7 +3782,18 @@ window.addEventListener('load', () => {
  */
 function getWorktreeLabelHtml(worktree: GG.GitWorktree) {
 	const path = escapeHtml(worktree.path);
-	return '<span class="gitRefWorktree" data-path="' + path + '" title="Checked out in the worktree ' + path + '">' + SVG_ICONS.worktree + escapeHtml(worktree.name) + '</span>';
+	return '<span class="gitRefWorktree' + (worktree.isCurrent ? ' current' : '') + '" data-path="' + path + '" title="Checked out in the worktree ' + path + (worktree.isCurrent ? ', which this view shows' : '') + '">' + SVG_ICONS.worktree + escapeHtml(worktree.name) + '</span>';
+}
+
+/**
+ * Get the HTML of a standalone worktree label, as used for a detached worktree or a row of uncommitted changes.
+ * @param worktree The worktree.
+ * @param title The tooltip of the label.
+ * @returns The HTML.
+ */
+function getWorktreeRefHtml(worktree: GG.GitWorktree, title: string) {
+	const path = escapeHtml(worktree.path);
+	return '<span class="gitRef worktree' + (worktree.isCurrent ? ' current' : '') + '" data-name="' + path + '" title="' + escapeHtml(title) + '">' + SVG_ICONS.worktree + '<span class="gitRefName" data-fullref="' + path + '">' + escapeHtml(worktree.name) + '</span></span>';
 }
 
 function generateFileViewHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, fileContextMenuOpen: number, type: GG.FileViewType, isUncommitted: boolean) {
