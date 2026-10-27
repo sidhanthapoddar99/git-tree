@@ -532,6 +532,24 @@ class Config {
 	}
 
 	/**
+	 * Get the value of the `git-tree.remoteHosts.refreshInterval` Extension Setting, in milliseconds.
+	 * @returns The interval, at least 5 seconds. 0 => no interval.
+	 */
+	get remoteHostsRefreshInterval() {
+		const configValue = this.config.get<number>('remoteHosts.refreshInterval', 0);
+		return typeof configValue === 'number' && isFinite(configValue) && configValue > 0 ? Math.max(5000, Math.round(configValue * 1000)) : 0;
+	}
+
+	/**
+	 * Get the value of the `git-tree.remoteHosts.sshPath` Extension Setting.
+	 * @returns The `ssh` executable to run (`ssh` from the PATH when the setting is empty).
+	 */
+	get remoteHostsSshPath() {
+		const configValue = this.config.get<string>('remoteHosts.sshPath', '');
+		return typeof configValue === 'string' && configValue.trim() !== '' ? configValue.trim() : 'ssh';
+	}
+
+	/**
 	 * Get the value of the `git-tree.repositoryDropdownOrder` Extension Setting.
 	 */
 	get repoDropdownOrder(): RepoDropdownOrder {

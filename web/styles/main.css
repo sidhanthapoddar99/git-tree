@@ -277,6 +277,11 @@ code{
 	opacity:0.5;
 }
 
+/* A remote host that isn't ok: its worktrees' rows and labels, and its branches, are from its last good refresh */
+#commitTable tr.commit.staleHost td.text, #commitTable tr.commit.staleHost span.description .text, .gitRef.staleHost{
+	opacity:0.5;
+}
+
 #commitTable.fixedLayout table{
 	table-layout:fixed;
 }

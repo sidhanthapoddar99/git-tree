@@ -74,7 +74,7 @@ describe('CommandManager', () => {
 
 	it('Should construct a CommandManager, and be disposed', () => {
 		// Assert
-		expect(commandManager['disposables']).toHaveLength(12);
+		expect(commandManager['disposables']).toHaveLength(14);
 		expect(commandManager['gitExecutable']).toStrictEqual({
 			path: '/path/to/git',
 			version: '2.31.0'

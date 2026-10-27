@@ -14,6 +14,7 @@ import { DataSource } from '../src/dataSource';
 import { ExtensionState } from '../src/extensionState';
 import { GitTreeView, standardiseCspSource } from '../src/gitTreeView';
 import { Logger } from '../src/logger';
+import { RemoteHostSnapshot } from '../src/remoteHosts';
 import { RepoChangeEvent, RepoManager } from '../src/repoManager';
 import { CodeReview, CommitOrdering, GitCommitStash, GitConfigLocation, GitFileStatus, GitPushBranchMode, GitResetMode, GitTreeViewGlobalState, GitTreeViewWorkspaceState, MergeActionOn, PullRequestConfig, PullRequestProvider, RebaseActionOn, RequestMessage, ResponseMessage, TagType } from '../src/types';
 import * as utils from '../src/utils';
@@ -2409,12 +2410,13 @@ describe('GitTreeView', () => {
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
+					onlyHostWorktree: null,
 					token: null
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2456,12 +2458,13 @@ describe('GitTreeView', () => {
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
+					onlyHostWorktree: null,
 					token: null
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, true, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, true, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2503,12 +2506,13 @@ describe('GitTreeView', () => {
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
+					onlyHostWorktree: null,
 					token: null
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, true, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, true, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2550,12 +2554,13 @@ describe('GitTreeView', () => {
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
+					onlyHostWorktree: null,
 					token: null
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, false, true, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, false, true, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2601,12 +2606,13 @@ describe('GitTreeView', () => {
 					stashes: [],
 					worktrees: worktrees,
 					onlyWorktreeHistory: true,
+					onlyHostWorktree: null,
 					token: null
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo/.worktrees/review', ['develop'], 300, true, true, false, false, CommitOrdering.Date, ['origin'], [], [], worktrees, true);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo/.worktrees/review', ['develop'], 300, true, true, false, false, CommitOrdering.Date, ['origin'], [], [], worktrees, true, null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2645,6 +2651,7 @@ describe('GitTreeView', () => {
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
+					onlyHostWorktree: null,
 					token: token
 				});
 
@@ -2736,6 +2743,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					stashes: [],
 					worktrees: [],
+					hosts: [],
 					error: null
 				};
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
@@ -2754,7 +2762,8 @@ describe('GitTreeView', () => {
 					refreshId: 0,
 					showRemoteBranches: true,
 					showStashes: false,
-					hideRemotes: ['upstream']
+					hideRemotes: ['upstream'],
+					refreshHosts: false
 				});
 
 				// Assert
@@ -2772,6 +2781,7 @@ describe('GitTreeView', () => {
 							remotes: getRepoInfoResolvedValue.remotes,
 							stashes: getRepoInfoResolvedValue.stashes,
 							worktrees: getRepoInfoResolvedValue.worktrees,
+							hosts: getRepoInfoResolvedValue.hosts,
 							isRepo: true,
 							error: getRepoInfoResolvedValue.error
 						}
@@ -2785,13 +2795,13 @@ describe('GitTreeView', () => {
 
 			it('Should log the error when the commit-graph can\'t be written', async () => {
 				// Setup
-				jest.spyOn(dataSource, 'getRepoInfo').mockResolvedValueOnce({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], error: null });
+				jest.spyOn(dataSource, 'getRepoInfo').mockResolvedValueOnce({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], hosts: [], error: null });
 				jest.spyOn(extensionState, 'setLastActiveRepo').mockImplementationOnce(() => { });
 				jest.spyOn(GitTreeView.currentPanel!['repoFileWatcher'], 'start').mockImplementationOnce(() => { });
 				spyOnWriteCommitGraphIfMissing.mockResolvedValueOnce('error message');
 
 				// Run
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], refreshHosts: false });
 
 				// Assert
 				await waitForExpect(() => expect(spyOnLogError).toHaveBeenCalledWith('Unable to write the commit-graph of /path/to/repo: error message'));
@@ -2800,13 +2810,13 @@ describe('GitTreeView', () => {
 			it('Should not write the commit-graph when the setting is disabled', async () => {
 				// Setup
 				vscode.mockExtensionSettingReturnValue('repository.writeCommitGraph', false);
-				jest.spyOn(dataSource, 'getRepoInfo').mockResolvedValueOnce({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], error: null });
+				jest.spyOn(dataSource, 'getRepoInfo').mockResolvedValueOnce({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], hosts: [], error: null });
 				jest.spyOn(extensionState, 'setLastActiveRepo').mockImplementationOnce(() => { });
 				const spyOnRepoFileWatcherStart = jest.spyOn(GitTreeView.currentPanel!['repoFileWatcher'], 'start');
 				spyOnRepoFileWatcherStart.mockImplementationOnce(() => { });
 
 				// Run
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], refreshHosts: false });
 
 				// Assert
 				await waitForExpect(() => expect(spyOnRepoFileWatcherStart).toHaveBeenCalled());
@@ -2821,6 +2831,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					stashes: [],
 					worktrees: [],
+					hosts: [],
 					error: null
 				};
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
@@ -2838,7 +2849,8 @@ describe('GitTreeView', () => {
 					refreshId: 1,
 					showRemoteBranches: true,
 					showStashes: false,
-					hideRemotes: ['upstream']
+					hideRemotes: ['upstream'],
+					refreshHosts: false
 				});
 
 				// Assert
@@ -2856,6 +2868,7 @@ describe('GitTreeView', () => {
 							remotes: getRepoInfoResolvedValue.remotes,
 							stashes: getRepoInfoResolvedValue.stashes,
 							worktrees: getRepoInfoResolvedValue.worktrees,
+							hosts: getRepoInfoResolvedValue.hosts,
 							isRepo: true,
 							error: getRepoInfoResolvedValue.error
 						}
@@ -2873,6 +2886,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					stashes: [],
 					worktrees: [],
+					hosts: [],
 					error: 'error message'
 				};
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
@@ -2891,7 +2905,8 @@ describe('GitTreeView', () => {
 					refreshId: 2,
 					showRemoteBranches: true,
 					showStashes: false,
-					hideRemotes: ['upstream']
+					hideRemotes: ['upstream'],
+					refreshHosts: false
 				});
 
 				// Assert
@@ -2909,6 +2924,7 @@ describe('GitTreeView', () => {
 							remotes: getRepoInfoResolvedValue.remotes,
 							stashes: getRepoInfoResolvedValue.stashes,
 							worktrees: getRepoInfoResolvedValue.worktrees,
+							hosts: getRepoInfoResolvedValue.hosts,
 							isRepo: true,
 							error: getRepoInfoResolvedValue.error
 						}
@@ -2926,6 +2942,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					stashes: [],
 					worktrees: [],
+					hosts: [],
 					error: 'error message'
 				};
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
@@ -2944,7 +2961,8 @@ describe('GitTreeView', () => {
 					refreshId: 3,
 					showRemoteBranches: true,
 					showStashes: false,
-					hideRemotes: ['upstream']
+					hideRemotes: ['upstream'],
+					refreshHosts: false
 				});
 
 				// Assert
@@ -2962,6 +2980,7 @@ describe('GitTreeView', () => {
 							remotes: getRepoInfoResolvedValue.remotes,
 							stashes: getRepoInfoResolvedValue.stashes,
 							worktrees: getRepoInfoResolvedValue.worktrees,
+							hosts: getRepoInfoResolvedValue.hosts,
 							isRepo: false,
 							error: null
 						}
@@ -2977,12 +2996,12 @@ describe('GitTreeView', () => {
 				const worktrees = [worktree('/path/to/repo', true, false, false), worktree('/path/to/repo-feature', false, true, false), worktree('/path/to/repo-old', false, false, true)];
 				const spyOnGetRepoInfo = jest.spyOn(dataSource, 'getRepoInfo');
 				const spyOnRepoFileWatcherStart = jest.spyOn(GitTreeView.currentPanel!['repoFileWatcher'], 'start');
-				spyOnGetRepoInfo.mockResolvedValue({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: worktrees, error: null });
+				spyOnGetRepoInfo.mockResolvedValue({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: worktrees, hosts: [], error: null });
 				jest.spyOn(extensionState, 'setLastActiveRepo').mockImplementationOnce(() => { });
 				spyOnRepoFileWatcherStart.mockImplementation(() => { });
 
 				// Run
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo-feature', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo-feature', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], refreshHosts: false });
 
 				// Assert
 				await waitForExpect(() => {
@@ -2993,7 +3012,7 @@ describe('GitTreeView', () => {
 				});
 
 				// Run: switch back to the main worktree, which watches the same worktrees
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 1, showRemoteBranches: true, showStashes: false, hideRemotes: [] });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 1, showRemoteBranches: true, showStashes: false, hideRemotes: [], refreshHosts: false });
 
 				// Assert
 				await waitForExpect(() => expect(GitTreeView.currentPanel!['panel'].title).toBe('Git Tree: repo'));
@@ -4060,6 +4079,287 @@ describe('GitTreeView', () => {
 						}
 					]);
 				});
+			});
+		});
+	});
+
+	describe('Remote hosts', () => {
+		const hostSnapshot: RemoteHostSnapshot = {
+			host: { name: 'server', ssh: 'gt-test', path: '/home/dev/app', state: 'ok', message: null, lastRefresh: 1700000000000 },
+			worktrees: []
+		};
+		let onDidChangeHosts: EventEmitter<string>;
+		let remoteHosts: { [name: string]: jest.Mock | Function };
+		let onDidReceiveMessage: (msg: RequestMessage) => void;
+		let messages: ResponseMessage[];
+
+		const setRemoteHosts = (value: object | null) => {
+			Object.defineProperty(dataSource, 'remoteHosts', { value: value, configurable: true, writable: true });
+		};
+
+		beforeEach(() => {
+			onDidChangeHosts = new EventEmitter<string>();
+			remoteHosts = {
+				onDidChange: onDidChangeHosts.subscribe,
+				getHosts: jest.fn(() => [hostSnapshot]),
+				refresh: jest.fn(),
+				createWorktree: jest.fn(() => Promise.resolve(null)),
+				openWorktree: jest.fn(() => Promise.resolve(null)),
+				removeWorktree: jest.fn(() => Promise.resolve(null)),
+				openTerminal: jest.fn(() => null),
+				askFetchConsent: jest.fn(() => Promise.resolve())
+			};
+			setRemoteHosts(remoteHosts);
+			GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+			const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+			onDidReceiveMessage = mockedWebviewPanel.mocks.panel.webview.onDidReceiveMessage;
+			messages = mockedWebviewPanel.mocks.messages;
+		});
+
+		afterEach(() => {
+			while (GitTreeView.currentPanel) {
+				GitTreeView.currentPanel.dispose();
+			}
+			setRemoteHosts(undefined as unknown as null);
+			onDidChangeHosts.dispose();
+		});
+
+		describe('RemoteHosts.onDidChange', () => {
+			it('Should refresh the view of the repository whose hosts changed', () => {
+				// Setup
+				GitTreeView.currentPanel!['currentRepo'] = '/path/to/repo';
+
+				// Run
+				onDidChangeHosts.emit('/path/to/repo');
+
+				// Assert
+				expect(messages).toStrictEqual([{ command: 'refresh' }]);
+			});
+
+			it('Should refresh the view when the hosts of the worktree it shows changed', () => {
+				// Setup
+				GitTreeView.currentPanel!['currentRepo'] = '/path/to/repo';
+				GitTreeView.currentPanel!['shownWorktree'] = '/path/to/repo-feature';
+
+				// Run
+				onDidChangeHosts.emit('/path/to/repo-feature');
+
+				// Assert
+				expect(messages).toStrictEqual([{ command: 'refresh' }]);
+			});
+
+			it('Shouldn\'t refresh the view of another repository', () => {
+				// Setup
+				GitTreeView.currentPanel!['currentRepo'] = '/path/to/repo';
+
+				// Run
+				onDidChangeHosts.emit('/path/to/other-repo');
+
+				// Assert
+				expect(messages).toStrictEqual([]);
+			});
+
+			it('Shouldn\'t refresh the view when it isn\'t visible', () => {
+				// Setup
+				GitTreeView.currentPanel!['currentRepo'] = '/path/to/repo';
+				vscode.getMockedWebviewPanel(0).mocks.panel.setVisibility(false);
+
+				// Run
+				onDidChangeHosts.emit('/path/to/repo');
+
+				// Assert
+				expect(messages).toStrictEqual([]);
+			});
+		});
+
+		describe('loadRepoInfo', () => {
+			const loadRepoInfo = (refreshId: number, refreshHosts: boolean): RequestMessage => ({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: refreshId, showRemoteBranches: true, showStashes: false, hideRemotes: [], refreshHosts: refreshHosts });
+
+			beforeEach(() => {
+				jest.spyOn(dataSource, 'getRepoInfo').mockResolvedValue({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], hosts: [hostSnapshot.host], error: null });
+				jest.spyOn(extensionState, 'setLastActiveRepo').mockImplementation(() => { });
+				jest.spyOn(GitTreeView.currentPanel!['repoFileWatcher'], 'start').mockImplementation(() => { });
+			});
+
+			it('Should refresh the hosts when the view loads a repository, and send them to the view', async () => {
+				// Run
+				onDidReceiveMessage(loadRepoInfo(0, false));
+
+				// Assert
+				await waitForExpect(() => {
+					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo');
+					expect(messages).toStrictEqual([
+						{ command: 'loadRepoInfo', refreshId: 0, branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], hosts: [hostSnapshot.host], error: null, isRepo: true }
+					]);
+				});
+			});
+
+			it('Shouldn\'t refresh the hosts on a refresh of the same repository', async () => {
+				// Setup
+				onDidReceiveMessage(loadRepoInfo(0, false));
+				await waitForExpect(() => expect(messages).toHaveLength(1));
+
+				// Run
+				onDidReceiveMessage(loadRepoInfo(1, false));
+
+				// Assert
+				await waitForExpect(() => expect(messages).toHaveLength(2));
+				expect(remoteHosts.refresh).toHaveBeenCalledTimes(1);
+			});
+
+			it('Should refresh the hosts when the user refreshes the view', async () => {
+				// Setup
+				onDidReceiveMessage(loadRepoInfo(0, false));
+				await waitForExpect(() => expect(messages).toHaveLength(1));
+
+				// Run
+				onDidReceiveMessage(loadRepoInfo(1, true));
+
+				// Assert
+				await waitForExpect(() => expect(remoteHosts.refresh).toHaveBeenCalledTimes(2));
+			});
+
+			it('Should refresh the hosts again when the view becomes visible', async () => {
+				// Setup
+				onDidReceiveMessage(loadRepoInfo(0, false));
+				await waitForExpect(() => expect(messages).toHaveLength(1));
+				const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+				mockedWebviewPanel.mocks.panel.setVisibility(false);
+				mockedWebviewPanel.mocks.panel.setVisibility(true);
+
+				// Run
+				onDidReceiveMessage(loadRepoInfo(1, false));
+
+				// Assert
+				await waitForExpect(() => expect(remoteHosts.refresh).toHaveBeenCalledTimes(2));
+			});
+		});
+
+		describe('createRemoteWorktree', () => {
+			const createRemoteWorktree = (host: string, worktreePath: string, openInNewWindow: boolean): RequestMessage => ({ command: 'createRemoteWorktree', repo: '/path/to/repo', host: host, path: worktreePath, commitish: 'main', newBranch: 'feature', openInNewWindow: openInNewWindow });
+
+			it('Should create a worktree at the path resolved from the host\'s path, and open it', async () => {
+				// Run
+				onDidReceiveMessage(createRemoteWorktree('server', '../{repo}-feature', true));
+
+				// Assert
+				await waitForExpect(() => {
+					expect(remoteHosts.createWorktree).toHaveBeenCalledWith('/path/to/repo', 'server', '/home/dev/app-feature', 'main', 'feature');
+					expect(remoteHosts.openWorktree).toHaveBeenCalledWith('/path/to/repo', 'server', '/home/dev/app-feature', true);
+					expect(messages).toStrictEqual([{ command: 'createRemoteWorktree', errors: [null, null] }]);
+				});
+			});
+
+			it('Shouldn\'t open the worktree when it couldn\'t be created', async () => {
+				// Setup
+				(remoteHosts.createWorktree as jest.Mock).mockResolvedValueOnce('Git Tree couldn\'t create the worktree on "server".');
+
+				// Run
+				onDidReceiveMessage(createRemoteWorktree('server', '/home/dev/app-feature', true));
+
+				// Assert
+				await waitForExpect(() => expect(messages).toStrictEqual([{ command: 'createRemoteWorktree', errors: ['Git Tree couldn\'t create the worktree on "server".'] }]));
+				expect(remoteHosts.openWorktree).not.toHaveBeenCalled();
+			});
+
+			it('Should refuse a path under ~, since the server\'s home folder isn\'t known', async () => {
+				// Run
+				onDidReceiveMessage(createRemoteWorktree('server', '~/app-feature', false));
+
+				// Assert
+				await waitForExpect(() => expect(messages).toStrictEqual([{ command: 'createRemoteWorktree', errors: ['Use an absolute path, or a path relative to the repository, for a worktree on a server: Git Tree doesn\'t know the server\'s home folder.'] }]));
+				expect(remoteHosts.createWorktree).not.toHaveBeenCalled();
+			});
+
+			it('Should return an error for a host that isn\'t in the config', async () => {
+				// Run
+				onDidReceiveMessage(createRemoteWorktree('other', '/home/dev/app-feature', false));
+
+				// Assert
+				await waitForExpect(() => expect(messages).toStrictEqual([{ command: 'createRemoteWorktree', errors: ['The host "other" isn\'t in .worktrees/git-tree.yaml.'] }]));
+				expect(remoteHosts.createWorktree).not.toHaveBeenCalled();
+			});
+		});
+
+		describe('openRemoteWorktree', () => {
+			it('Should open the worktree with Remote-SSH', async () => {
+				// Run
+				onDidReceiveMessage({ command: 'openRemoteWorktree', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-wt', newWindow: false });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(remoteHosts.openWorktree).toHaveBeenCalledWith('/path/to/repo', 'server', '/home/dev/app-wt', false);
+					expect(messages).toStrictEqual([{ command: 'openRemoteWorktree', error: null }]);
+				});
+			});
+		});
+
+		describe('openRemoteTerminal', () => {
+			it('Should open a terminal on the host', async () => {
+				// Run
+				onDidReceiveMessage({ command: 'openRemoteTerminal', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-wt' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(remoteHosts.openTerminal).toHaveBeenCalledWith('/path/to/repo', 'server', '/home/dev/app-wt');
+					expect(messages).toStrictEqual([{ command: 'openRemoteTerminal', error: null }]);
+				});
+			});
+		});
+
+		describe('removeRemoteWorktree', () => {
+			it('Should remove the worktree on the host', async () => {
+				// Setup
+				(remoteHosts.removeWorktree as jest.Mock).mockResolvedValueOnce('Git Tree couldn\'t remove the worktree on "server": it has changes.');
+
+				// Run
+				onDidReceiveMessage({ command: 'removeRemoteWorktree', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-wt', force: false });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(remoteHosts.removeWorktree).toHaveBeenCalledWith('/path/to/repo', 'server', '/home/dev/app-wt', false);
+					expect(messages).toStrictEqual([{ command: 'removeRemoteWorktree', error: 'Git Tree couldn\'t remove the worktree on "server": it has changes.' }]);
+				});
+			});
+		});
+
+		describe('askRemoteHostFetchConsent', () => {
+			it('Should ask for the fetch consent, without waiting for the answer', async () => {
+				// Setup
+				(remoteHosts.askFetchConsent as jest.Mock).mockReturnValueOnce(new Promise(() => { }));
+
+				// Run
+				onDidReceiveMessage({ command: 'askRemoteHostFetchConsent', repo: '/path/to/repo', host: 'server' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(remoteHosts.askFetchConsent).toHaveBeenCalledWith('/path/to/repo', 'server');
+					expect(messages).toStrictEqual([{ command: 'askRemoteHostFetchConsent', error: null }]);
+				});
+			});
+		});
+
+		describe('Without remote hosts', () => {
+			it('Should answer each host action with an error', async () => {
+				// Setup
+				setRemoteHosts(null);
+
+				// Run
+				onDidReceiveMessage({ command: 'createRemoteWorktree', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-feature', commitish: 'main', newBranch: null, openInNewWindow: false });
+				onDidReceiveMessage({ command: 'openRemoteWorktree', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-wt', newWindow: false });
+				onDidReceiveMessage({ command: 'openRemoteTerminal', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-wt' });
+				onDidReceiveMessage({ command: 'removeRemoteWorktree', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-wt', force: false });
+				onDidReceiveMessage({ command: 'askRemoteHostFetchConsent', repo: '/path/to/repo', host: 'server' });
+
+				// Assert
+				await waitForExpect(() => expect(messages).toHaveLength(5));
+				expect(messages).toEqual(expect.arrayContaining([
+					{ command: 'createRemoteWorktree', errors: ['Remote hosts aren\'t available.'] },
+					{ command: 'openRemoteWorktree', error: 'Remote hosts aren\'t available.' },
+					{ command: 'openRemoteTerminal', error: 'Remote hosts aren\'t available.' },
+					{ command: 'removeRemoteWorktree', error: 'Remote hosts aren\'t available.' },
+					{ command: 'askRemoteHostFetchConsent', error: 'Remote hosts aren\'t available.' }
+				]));
 			});
 		});
 	});

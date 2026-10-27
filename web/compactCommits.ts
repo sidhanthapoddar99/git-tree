@@ -6,7 +6,7 @@
 function decodeCommits(compact: GG.CompactCommits): GG.GitCommit[] {
 	const rows = compact.rows, people = compact.people, commits: GG.GitCommit[] = new Array(rows.length);
 	for (let i = 0; i < rows.length; i++) {
-		const row = rows[i], person = row[2] * 2, heads = row[5], tags = row[6], remotes = row[7], stash = row[8], worktree = row[9];
+		const row = rows[i], person = row[2] * 2, heads = row[5], tags = row[6], remotes = row[7], stash = row[8], worktree = row[9], host = row[10], hostBranches = row[11];
 		const commit: GG.Writeable<GG.GitCommit> = {
 			hash: row[0],
 			parents: row[1].map((parent) => typeof parent === 'number' ? rows[parent][0] : parent),
@@ -21,6 +21,12 @@ function decodeCommits(compact: GG.CompactCommits): GG.GitCommit[] {
 		};
 		if (typeof worktree === 'string') {
 			commit.worktree = worktree;
+		}
+		if (typeof host === 'string') {
+			commit.host = host;
+		}
+		if (typeof hostBranches !== 'undefined' && hostBranches.length > 0) {
+			commit.hostBranches = hostBranches.map((branch) => ({ host: branch[0], name: branch[1] }));
 		}
 		commits[i] = commit;
 	}
@@ -47,8 +53,10 @@ function areCommitsIdentical(a: ReadonlyArray<GG.GitCommit>, b: ReadonlyArray<GG
 function isCommitIdentical(x: GG.GitCommit, y: GG.GitCommit) {
 	if (x === y) return true;
 	const stringsEqual = (a: ReadonlyArray<string>, b: ReadonlyArray<string>) => a.length === b.length && a.every((value, i) => value === b[i]);
-	return x.hash === y.hash && x.author === y.author && x.email === y.email && x.date === y.date && x.message === y.message && x.worktree === y.worktree &&
+	const xHostBranches = x.hostBranches || [], yHostBranches = y.hostBranches || [];
+	return x.hash === y.hash && x.author === y.author && x.email === y.email && x.date === y.date && x.message === y.message && x.worktree === y.worktree && x.host === y.host &&
 		stringsEqual(x.parents, y.parents) && stringsEqual(x.heads, y.heads) &&
+		xHostBranches.length === yHostBranches.length && xHostBranches.every((branch, j) => branch.host === yHostBranches[j].host && branch.name === yHostBranches[j].name) &&
 		x.tags.length === y.tags.length && x.tags.every((tag, j) => tag.name === y.tags[j].name && tag.annotated === y.tags[j].annotated) &&
 		x.remotes.length === y.remotes.length && x.remotes.every((remote, j) => remote.name === y.remotes[j].name && remote.remote === y.remotes[j].remote) &&
 		(x.stash === null || y.stash === null

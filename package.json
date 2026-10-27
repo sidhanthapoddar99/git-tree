@@ -1,7 +1,7 @@
 {
 	"name": "git-tree-rs",
 	"displayName": "git-tree-rs",
-	"version": "0.4.2",
+	"version": "0.5.0",
 	"publisher": "sidh1999",
 	"author": {
 		"name": "Sidhantha Poddar"
@@ -69,6 +69,11 @@
 			},
 			{
 				"category": "Git Tree",
+				"command": "git-tree.addRemoteHost",
+				"title": "Add Remote Host..."
+			},
+			{
+				"category": "Git Tree",
 				"command": "git-tree.clearAvatarCache",
 				"title": "Clear Avatar Cache"
 			},
@@ -91,6 +96,11 @@
 				"category": "Git Tree",
 				"command": "git-tree.removeGitRepository",
 				"title": "Remove Git Repository..."
+			},
+			{
+				"category": "Git Tree",
+				"command": "git-tree.removeRemoteHost",
+				"title": "Remove Remote Host"
 			},
 			{
 				"category": "Git Tree",
@@ -1516,6 +1526,23 @@
 						"markdownDescription": "The folder new worktrees are created in. A worktree named `feature` is created at `<this folder>/feature`.\n\n- A relative path, such as `.worktrees`, is relative to the root of the repository (its main worktree).\n- `~` is your home folder, such as `~/worktrees`.\n- An absolute path, such as `/srv/worktrees`, is used as it is.\n- `{repo}` is replaced by the repository's folder name, so `~/worktrees/{repo}` keeps each repository's worktrees apart.\n\nWhen the folder is inside the repository, Git Tree adds it to `.git/info/exclude`, so the worktrees don't show as untracked files."
 					}
 				}
+			},
+			{
+				"type": "object",
+				"title": "Remote Hosts",
+				"properties": {
+					"git-tree.remoteHosts.refreshInterval": {
+						"type": "number",
+						"default": 0,
+						"minimum": 0,
+						"markdownDescription": "How often Git Tree refreshes the remote hosts in `.worktrees/git-tree.yaml` of each repository it has shown, in seconds (at least 5). `0` turns the interval off: the hosts still refresh when a Git Tree View opens or regains focus, and with the Refresh button."
+					},
+					"git-tree.remoteHosts.sshPath": {
+						"type": "string",
+						"default": "",
+						"markdownDescription": "The `ssh` executable Git Tree runs for remote hosts. Empty means `ssh` from the PATH. Set it when `ssh` isn't on the PATH, like Remote-SSH's `remote.SSH.path`."
+					}
+				}
 			}
 		],
 		"menus": {
@@ -1577,10 +1604,12 @@
 		"package-and-install": "npm run package && node ./.vscode/install-package.js",
 		"test": "jest --verbose",
 		"test-engine": "jest -c jest.engine.config.js",
+		"test-remote": "jest -c jest.remote.config.js",
 		"test-and-report-coverage": "jest --verbose --coverage"
 	},
 	"dependencies": {
-		"iconv-lite": "0.7.3"
+		"iconv-lite": "0.7.3",
+		"yaml": "2.9.1"
 	},
 	"devDependencies": {
 		"@types/jest": "29.5.14",

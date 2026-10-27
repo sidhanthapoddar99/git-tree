@@ -7,6 +7,7 @@ import { DiffDocProvider } from './diffDocProvider';
 import { loadEngine } from './engine';
 import { ExtensionState } from './extensionState';
 import { Logger } from './logger';
+import { RemoteHosts } from './remoteHosts';
 import { RepoManager } from './repoManager';
 import { StatusBarItem } from './statusBarItem';
 import { GitExecutable, findGit, getGitExecutableError, getGitExecutableFromPaths, showErrorMessage, showInformationMessage } from './utils';
@@ -46,7 +47,8 @@ export async function activate(context: vscode.ExtensionContext) {
 	const configurationEmitter = new EventEmitter<vscode.ConfigurationChangeEvent>();
 	const onDidChangeConfiguration = configurationEmitter.subscribe;
 
-	const dataSource = new DataSource(gitExecutable, onDidChangeConfiguration, onDidChangeGitExecutable, logger, 'engine' in loaded ? loaded.engine : null, engineError);
+	const remoteHosts = new RemoteHosts(extensionState, gitExecutable, onDidChangeGitExecutable, logger);
+	const dataSource = new DataSource(gitExecutable, onDidChangeConfiguration, onDidChangeGitExecutable, logger, 'engine' in loaded ? loaded.engine : null, engineError, remoteHosts);
 	const avatarManager = new AvatarManager(dataSource, extensionState, logger);
 	const repoManager = new RepoManager(dataSource, extensionState, onDidChangeConfiguration, logger);
 	const statusBarItem = new StatusBarItem(repoManager.getNumRepos(), repoManager.onDidChangeRepos, onDidChangeConfiguration, logger);

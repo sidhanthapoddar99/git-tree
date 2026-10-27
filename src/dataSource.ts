@@ -8,10 +8,12 @@ import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
 import { getConfig } from './config';
 import { BranchListEntry, CommitDetailsEntry, DiffOutput, Engine, EngineAnswer, EngineDetailsFormat, EngineFormat, EngineLogRequest, LogEntry, ShowRefEntry, StashListEntry, TagDetailsEntry, WorktreeListEntry } from './engine';
 import { Logger } from './logger';
-import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
+import { HOST_REFS_PREFIX, RemoteHostSnapshot, RemoteHosts, getHostBranchesPrefix } from './remoteHosts';
+import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRemoteHost, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, UNCOMMITTED, abbrevCommit, getGitExecutableError, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
 import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
+import { parseWorktreeList } from './worktreeList';
 
 const DRIVE_LETTER_PATH_REGEX = /^[a-z]:\//;
 const EOL_REGEX = /\r\n|\r|\n/g;
@@ -21,6 +23,8 @@ const INVALID_BRANCH_REGEXP = /^\(.* .*\)$/;
 const REMOTE_HEAD_BRANCH_REGEXP = /^remotes\/.*\/HEAD$/;
 const GIT_LOG_SEPARATOR = 'XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb';
 const COMMITS_CACHE_SIZE = 8; // The most `commits` engine answers DataSource keeps, over all repositories and requests
+// The names a remote host may have in `.worktrees/git-tree.yaml`. Only these become part of a ref name or a revision.
+const HOST_NAME_REGEXP = /^[A-Za-z0-9_-]+$/;
 
 export const enum GitConfigKey {
 	DiffGuiTool = 'diff.guitool',
@@ -48,6 +52,7 @@ export class DataSource extends Disposable {
 	private gitExecutable!: GitExecutable | null; // The Git executable Git Tree runs. NULL => there's none, or it's older than Git Tree's minimum Git version
 	private gitExecutableError!: string | null; // Why Git Tree can't run, when `gitExecutable` is NULL: no usable Git, or no engine
 	private readonly engineError: string | null; // Why the engine couldn't be loaded, which stops Git Tree like an unusable Git
+	public readonly remoteHosts: RemoteHosts | null; // The remote hosts of each repository, which the views and commands use too
 	private gitFormatCommitDetails!: string;
 	private gitFormatLog!: string;
 	private gitFormatStash!: string;
@@ -64,9 +69,11 @@ export class DataSource extends Disposable {
 	 * @param logger The Git Tree Logger instance.
 	 * @param engine The Git Tree engine, which reads repositories in-process. NULL => all reads use the Git CLI (the tests of the CLI reads).
 	 * @param engineError Why the engine couldn't be loaded. Non-NULL => every read and action fails with it.
+	 * @param remoteHosts The remote hosts of each repository. NULL => none (the tests that don't use them).
 	 */
-	constructor(gitExecutable: GitExecutable | null, onDidChangeConfiguration: Event<vscode.ConfigurationChangeEvent>, onDidChangeGitExecutable: Event<GitExecutable>, logger: Logger, engine: Engine | null = null, engineError: string | null = null) {
+	constructor(gitExecutable: GitExecutable | null, onDidChangeConfiguration: Event<vscode.ConfigurationChangeEvent>, onDidChangeGitExecutable: Event<GitExecutable>, logger: Logger, engine: Engine | null = null, engineError: string | null = null, remoteHosts: RemoteHosts | null = null) {
 		super();
+		this.remoteHosts = remoteHosts;
 		this.logger = logger;
 		this.engine = engine;
 		this.engineError = engineError;
@@ -151,20 +158,22 @@ export class DataSource extends Disposable {
 	 * @param showRemoteBranches Are remote branches shown.
 	 * @param showStashes Are stashes shown.
 	 * @param hideRemotes An array of hidden remotes.
-	 * @returns The repositories information.
+	 * @returns The repositories information. Its worktrees are the local ones, then each remote host's worktrees from the host's last refresh.
 	 */
 	public getRepoInfo(repo: string, showRemoteBranches: boolean, showStashes: boolean, hideRemotes: ReadonlyArray<string>): Promise<GitRepoInfo> {
 		// One engine crossing reads the four parts, and each part keeps its own Git CLI fallback
 		const repoInfoPart = shareEngineRead((engine) => engine.repoInfo(repo, showRemoteBranches, showStashes ? this.engineFormat : null));
+		// The hosts as they are now: this never waits for the network
+		const hosts = this.getRemoteHosts(repo);
 		return Promise.all([
 			this.getBranches(repo, showRemoteBranches, hideRemotes, repoInfoPart((answer) => answer.branches)),
 			this.getRemotes(repo, repoInfoPart((answer) => answer.remotes)),
 			showStashes ? this.getStashes(repo, repoInfoPart((answer) => answer.stashes !== null ? answer.stashes : { failed: 'the answer has no stashes' })) : Promise.resolve([]),
 			this.getWorktrees(repo, repoInfoPart((answer) => answer.worktrees))
 		]).then((results) => {
-			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], worktrees: results[3], error: null };
+			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], worktrees: results[3].concat(getRemoteHostWorktrees(hosts)), hosts: hosts.map((snapshot) => snapshot.host), error: null };
 		}).catch((errorMessage) => {
-			return { branches: [], head: null, remotes: [], stashes: [], worktrees: [], error: errorMessage };
+			return { branches: [], head: null, remotes: [], stashes: [], worktrees: [], hosts: [], error: errorMessage };
 		});
 	}
 
@@ -181,30 +190,51 @@ export class DataSource extends Disposable {
 	 * @param remotes An array of known remotes.
 	 * @param hideRemotes An array of hidden remotes.
 	 * @param stashes An array of all stashes in the repository.
-	 * @param worktrees An array of all worktrees of the repository. Each other worktree with uncommitted changes gets its own row.
+	 * @param worktrees An array of all worktrees of the repository: the local ones, then the remote hosts'. Each other worktree with uncommitted changes gets its own row.
 	 * @param onlyWorktreeHistory Show only the history of the worktree that `repo` is: its HEAD joins `branches` as a start point (all branches are left out when `branches` is NULL), and other worktrees' uncommitted changes are left out.
+	 * @param onlyHostWorktree A remote host's worktree (one of `worktrees`) whose history alone is shown: its HEAD commit joins `branches` as a start point if it is on this machine, and only its uncommitted changes are shown. `repo` is then the repository. NULL => none.
 	 * @returns The commits in the repository.
 	 */
-	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, worktrees: ReadonlyArray<GitWorktree>, onlyWorktreeHistory: boolean = false): Promise<GitCommitData> {
+	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, worktrees: ReadonlyArray<GitWorktree>, onlyWorktreeHistory: boolean = false, onlyHostWorktree: GitWorktree | null = null): Promise<GitCommitData> {
 		const config = getConfig();
-		// The log runs in the worktree, so HEAD is the worktree's own HEAD, whether it is on a branch or detached
-		const startPoints = onlyWorktreeHistory ? (branches !== null ? branches : []).concat('HEAD') : branches;
-		const logRead = this.getLogRead(startPoints, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes);
+		// The hosts as they are now: their names give the refs to read, and their snapshots the counts of their worktrees' changes
+		const hosts = this.getRemoteHosts(repo);
+		const hostNames = hosts.map((snapshot) => snapshot.host.name).filter((name) => HOST_NAME_REGEXP.test(name));
+		let startPoints: ReadonlyArray<string> | null;
+		if (onlyHostWorktree !== null) {
+			if (onlyHostWorktree.head === null && (branches === null || branches.length === 0)) {
+				// Without a start point, the log would start from HEAD, which isn't the host worktree's history
+				return Promise.resolve({ commits: [], head: null, tags: [], moreCommitsAvailable: false, error: null });
+			}
+			// The log runs in the repository. The host worktree's commit is only here once its host has been fetched, and
+			// --ignore-missing leaves it out until then, as it does for every revision after it.
+			startPoints = (branches !== null ? branches : []).concat(onlyHostWorktree.head !== null ? ['--ignore-missing', onlyHostWorktree.head] : []);
+		} else {
+			// The log runs in the worktree, so HEAD is the worktree's own HEAD, whether it is on a branch or detached
+			startPoints = onlyWorktreeHistory ? (branches !== null ? branches : []).concat('HEAD') : branches;
+		}
+		const logRead = this.getLogRead(startPoints, maxCommits + 1, showTags && config.showCommitsOnlyReferencedByTags, showRemoteBranches, includeCommitsMentionedByReflogs, onlyFollowFirstParent, commitOrdering, remotes, hideRemotes, stashes, hostNames);
 		// One engine crossing reads the log page and the refs, and each keeps its own Git CLI fallback
 		const commitsPart = shareEngineRead((engine) => this.readCommitsWithEngine(engine, repo, showRemoteBranches, logRead.request));
 		const log = this.getLog(repo, logRead, commitsPart((answer) => answer.log));
-		const refs = this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes, commitsPart((answer) => answer.refs)).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage);
+		const refs = this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes, commitsPart((answer) => answer.refs), hostNames).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage);
 		// Git status is often the slowest command in a large repository, so it runs alongside the log instead of after it
-		const uncommittedChanges = config.showUncommittedChanges ? this.getUncommittedChanges(repo) : null;
+		const uncommittedChanges = config.showUncommittedChanges && onlyHostWorktree === null ? this.getUncommittedChanges(repo) : null;
 		if (uncommittedChanges !== null) {
 			// Its result, or error, is only used when HEAD is one of the loaded commits
 			uncommittedChanges.catch(() => { });
 		}
-		// The other worktrees' uncommitted changes, also read alongside the log. The index of each worktree in `worktrees` identifies its row.
-		const otherWorktrees = config.showUncommittedChanges && !onlyWorktreeHistory
-			? worktrees.map((worktree, index) => ({ worktree: worktree, index: index })).filter((item) => !item.worktree.isCurrent && !item.worktree.prunable && item.worktree.head !== null)
+		// The other local worktrees' uncommitted changes, also read alongside the log. The index of each worktree in `worktrees` identifies its row.
+		const indexedWorktrees = worktrees.map((worktree, index) => ({ worktree: worktree, index: index }));
+		const otherWorktrees = config.showUncommittedChanges && !onlyWorktreeHistory && onlyHostWorktree === null
+			? indexedWorktrees.filter((item) => typeof item.worktree.host === 'undefined' && !item.worktree.isCurrent && !item.worktree.prunable && item.worktree.head !== null)
 			: [];
 		const otherUncommittedChanges = Promise.all(otherWorktrees.map((item) => this.getUncommittedChanges(item.worktree.path).catch(() => null)));
+		// The remote hosts' worktrees, whose counts come from each host's last refresh, after the local worktrees' rows
+		const hostWorktrees = config.showUncommittedChanges && !onlyWorktreeHistory
+			? indexedWorktrees.filter((item) => typeof item.worktree.host !== 'undefined' && !item.worktree.prunable && item.worktree.head !== null &&
+				(onlyHostWorktree === null || (item.worktree.host === onlyHostWorktree.host && item.worktree.path === onlyHostWorktree.path)))
+			: [];
 
 		return Promise.all([log, refs]).then(async (results) => {
 			let commits: GitCommitRecord[] = results[0], refData: GitRefData | string = results[1], i;
@@ -219,7 +249,7 @@ export class DataSource extends Disposable {
 					throw refData;
 				} else {
 					// No commits exist, so getRefs() will always return an error. Set refData to the default value
-					refData = { head: null, heads: [], tags: [], remotes: [] };
+					refData = { head: null, heads: [], tags: [], remotes: [], hostBranches: [] };
 				}
 			}
 
@@ -235,15 +265,15 @@ export class DataSource extends Disposable {
 				}
 			}
 
-			if (otherWorktrees.length > 0) {
+			if (otherWorktrees.length > 0 || hostWorktrees.length > 0) {
 				const loadedHashes = new Set(commits.map((commit) => commit.hash));
 				const otherCounts = await otherUncommittedChanges;
 				const otherRows: GitCommitRecord[] = [];
-				for (i = 0; i < otherWorktrees.length; i++) {
-					const worktree = otherWorktrees[i].worktree, count = otherCounts[i];
-					if (!loadedHashes.has(worktree.head!) || count === 0) continue;
-					otherRows.push({
-						hash: UNCOMMITTED + otherWorktrees[i].index,
+				const addRow = (item: { worktree: GitWorktree, index: number }, count: number | null) => {
+					const worktree = item.worktree;
+					if (!loadedHashes.has(worktree.head!) || count === 0) return;
+					const row: GitCommitRecord = {
+						hash: UNCOMMITTED + item.index,
 						parents: [worktree.head!],
 						author: '*',
 						email: '',
@@ -251,7 +281,17 @@ export class DataSource extends Disposable {
 						// When Git status fails, say so, rather than looking like the worktree has no changes
 						message: count !== null ? 'Uncommitted Changes (' + count + ')' : 'Uncommitted Changes (unable to read them)',
 						worktree: worktree.path
-					});
+					};
+					if (typeof worktree.host !== 'undefined') row.host = worktree.host;
+					otherRows.push(row);
+				};
+				for (i = 0; i < otherWorktrees.length; i++) {
+					addRow(otherWorktrees[i], otherCounts[i]);
+				}
+				for (i = 0; i < hostWorktrees.length; i++) {
+					const remoteWorktree = findRemoteWorktree(hosts, hostWorktrees[i].worktree);
+					// A worktree the host's last refresh no longer has gets no row: the view's list is older, and the refresh that changed the host refreshes the view too
+					if (remoteWorktree !== null) addRow(hostWorktrees[i], remoteWorktree.uncommittedChanges);
 				}
 				// The rows go after the viewed worktree's row, which stays first
 				commits.splice(commits.length > 0 && commits[0].hash === UNCOMMITTED ? 1 : 0, 0, ...otherRows);
@@ -319,6 +359,16 @@ export class DataSource extends Disposable {
 					let name = refData.remotes[i].name;
 					let remote = remotes.find(remote => name.startsWith(remote + '/'));
 					commitNodes[commitLookup[refData.remotes[i].hash]].remotes.push({ name: name, remote: remote ? remote : null });
+				}
+			}
+
+			/* Annotate the Remote Hosts' Branches */
+			for (i = 0; i < refData.hostBranches.length; i++) {
+				const hostBranch = refData.hostBranches[i];
+				if (typeof commitLookup[hostBranch.hash] === 'number') {
+					const node = commitNodes[commitLookup[hostBranch.hash]];
+					// The field is only set on the commits that have a host's branch, like the other optional fields
+					(node.hostBranches || (node.hostBranches = [])).push({ host: hostBranch.host, name: hostBranch.name });
 				}
 			}
 
@@ -1660,9 +1710,10 @@ export class DataSource extends Disposable {
 	 * @param remotes An array of the known remotes.
 	 * @param hideRemotes An array of hidden remotes.
 	 * @param stashes An array of all stashes in the repository.
+	 * @param hostNames The names of the repository's remote hosts, whose refs are start points when all branches are shown.
 	 * @returns The read.
 	 */
-	private getLogRead(branches: ReadonlyArray<string> | null, num: number, includeTags: boolean, includeRemotes: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, order: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>): LogRead {
+	private getLogRead(branches: ReadonlyArray<string> | null, num: number, includeTags: boolean, includeRemotes: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, order: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, hostNames: ReadonlyArray<string> = []): LogRead {
 		// The revisions the log starts from, which the Git CLI and the engine both read
 		const revisions: string[] = [];
 		if (branches !== null) {
@@ -1683,6 +1734,9 @@ export class DataSource extends Disposable {
 					});
 				}
 			}
+			// Every ref of each remote host: its branches, and the commits of its detached worktrees. The glob has no glob
+			// characters, so Git and the engine both read it as every ref under refs/git-tree/hosts/<name>/.
+			hostNames.forEach((name) => revisions.push('--glob=' + HOST_REFS_PREFIX + name));
 
 			// Add the unique list of base hashes of stashes, so that commits only referenced by stashes are displayed
 			const stashBaseHashes = stashes.map((stash) => stash.baseHash);
@@ -1727,14 +1781,17 @@ export class DataSource extends Disposable {
 	 * @param showRemoteHeads Are remote heads shown.
 	 * @param hideRemotes An array of hidden remotes.
 	 * @param engineRead Reads the ref records with the engine.
+	 * @param hostNames The names of the repository's remote hosts, whose branches are read too.
 	 * @returns The references data.
 	 */
-	private getRefs(repo: string, showRemoteBranches: boolean, showRemoteHeads: boolean, hideRemotes: ReadonlyArray<string>, engineRead: EngineRead<ShowRefEntry[]>) {
+	private getRefs(repo: string, showRemoteBranches: boolean, showRemoteHeads: boolean, hideRemotes: ReadonlyArray<string>, engineRead: EngineRead<ShowRefEntry[]>, hostNames: ReadonlyArray<string> = []) {
 		let args = ['show-ref'];
-		if (!showRemoteBranches) args.push('--heads', '--tags');
+		// --heads and --tags would leave out the hosts' refs, so with hosts, every ref is listed and the remotes' are left out below
+		if (!showRemoteBranches && hostNames.length === 0) args.push('--heads', '--tags');
 		args.push('-d', '--head');
 
 		const hideRemotePatterns = hideRemotes.map((remote) => 'refs/remotes/' + remote + '/');
+		const hostBranchesPrefixes = hostNames.map((name) => ({ name: name, prefix: getHostBranchesPrefix(name) }));
 
 		return this.readWithEngine('refs', engineRead, () => this.spawnGit(args, repo, (stdout) => {
 			let entries: ShowRefEntry[] = [];
@@ -1748,7 +1805,7 @@ export class DataSource extends Disposable {
 			}
 			return entries;
 		})).then((entries) => {
-			let refData: GitRefData = { head: null, heads: [], tags: [], remotes: [] };
+			let refData: GitRefData = { head: null, heads: [], tags: [], remotes: [], hostBranches: [] };
 			for (let i = 0; i < entries.length; i++) {
 				let hash = entries[i].hash, ref = entries[i].ref;
 
@@ -1758,8 +1815,16 @@ export class DataSource extends Disposable {
 					let annotated = ref.endsWith('^{}');
 					refData.tags.push({ hash: hash, name: (annotated ? ref.substring(10, ref.length - 3) : ref.substring(10)), annotated: annotated });
 				} else if (ref.startsWith('refs/remotes/')) {
-					if (!hideRemotePatterns.some((pattern) => ref.startsWith(pattern)) && (showRemoteHeads || !ref.endsWith('/HEAD'))) {
+					if (showRemoteBranches && !hideRemotePatterns.some((pattern) => ref.startsWith(pattern)) && (showRemoteHeads || !ref.endsWith('/HEAD'))) {
 						refData.remotes.push({ hash: hash, name: ref.substring(13) });
+					}
+				} else if (ref.startsWith(HOST_REFS_PREFIX)) {
+					// Only a configured host's branches are labels. Its other refs (the commits of its detached worktrees) are only start points.
+					const host = hostBranchesPrefixes.find((host) => ref.startsWith(host.prefix));
+					if (typeof host !== 'undefined') {
+						// A branch that points to a tag is listed twice, the second time peeled (^{}), and only that one names a commit
+						const name = ref.substring(host.prefix.length, ref.endsWith('^{}') ? ref.length - 3 : ref.length);
+						refData.hostBranches.push({ hash: hash, host: host.name, name: name });
 					}
 				} else if (ref === 'HEAD') {
 					refData.head = hash;
@@ -1840,6 +1905,15 @@ export class DataSource extends Disposable {
 			lines.pop();
 			return lines;
 		}));
+	}
+
+	/**
+	 * Get the remote hosts of a repository, as they are now. It never waits for the network.
+	 * @param repo The path of the repository (any of its worktrees).
+	 * @returns The snapshot of each host, in the config's order. Empty without RemoteHosts.
+	 */
+	private getRemoteHosts(repo: string): ReadonlyArray<RemoteHostSnapshot> {
+		return this.remoteHosts !== null ? this.remoteHosts.getHosts(repo) : [];
 	}
 
 	/**
@@ -2176,39 +2250,6 @@ export function resolveWorktreePath(worktreePath: string, mainWorktreePath: stri
 }
 
 /**
- * Parse the output of `git worktree list --porcelain`.
- * @param stdout The output of the command.
- * @returns An array of the records, with the main worktree first.
- */
-function parseWorktreeList(stdout: string) {
-	const entries: WorktreeListEntry[] = [];
-	const records = stdout.split(/\r?\n\r?\n/);
-	for (let i = 0; i < records.length; i++) {
-		let worktreePath: string | null = null, head: string | null = null, branch: string | null = null;
-		let bare = false, locked = false, prunable = false;
-		const lines = records[i].split(EOL_REGEX);
-		for (let j = 0; j < lines.length; j++) {
-			const line = lines[j];
-			if (line.startsWith('worktree ')) {
-				worktreePath = line.substring(9);
-			} else if (line.startsWith('HEAD ')) {
-				head = line.substring(5);
-			} else if (line.startsWith('branch ')) {
-				branch = line.substring(7);
-			} else if (line === 'bare') {
-				bare = true;
-			} else if (line === 'locked' || line.startsWith('locked ')) {
-				locked = true;
-			} else if (line === 'prunable' || line.startsWith('prunable ')) {
-				prunable = true;
-			}
-		}
-		entries.push({ path: worktreePath, head: head, branch: branch, bare: bare, locked: locked, prunable: prunable });
-	}
-	return entries;
-}
-
-/**
  * Get the worktrees from the records of `git worktree list --porcelain`.
  * @param entries The records, with the main worktree first.
  * @param viewedRepoPaths The paths of the repository being viewed, used to mark its worktree as the current worktree.
@@ -2233,6 +2274,34 @@ function getWorktreesFromList(entries: ReadonlyArray<WorktreeListEntry>, viewedR
 		});
 	}
 	return worktrees;
+}
+
+/**
+ * Get the worktrees of the remote hosts, from each host's last refresh.
+ * @param hosts The snapshot of each host.
+ * @returns The worktrees, host by host. Each is marked with its host and whether its commit is here, and is never the worktree being viewed.
+ */
+function getRemoteHostWorktrees(hosts: ReadonlyArray<RemoteHostSnapshot>) {
+	const worktrees: GitWorktree[] = [];
+	hosts.forEach((snapshot) => {
+		snapshot.worktrees.forEach((remoteWorktree) => {
+			// The host's name is set here too, so a worktree on a server can never be taken for one on this machine
+			worktrees.push(Object.assign({}, remoteWorktree.worktree, { isCurrent: false, host: snapshot.host.name, hostCommitIsLocal: remoteWorktree.commitIsLocal }));
+		});
+	});
+	return worktrees;
+}
+
+/**
+ * Find a remote host's worktree in the hosts' snapshots.
+ * @param hosts The snapshot of each host.
+ * @param worktree The worktree (with its `host`).
+ * @returns The worktree from the host's last refresh, or NULL if the host or the worktree isn't in it.
+ */
+function findRemoteWorktree(hosts: ReadonlyArray<RemoteHostSnapshot>, worktree: GitWorktree) {
+	const snapshot = hosts.find((snapshot) => snapshot.host.name === worktree.host);
+	if (typeof snapshot === 'undefined') return null;
+	return snapshot.worktrees.find((remoteWorktree) => remoteWorktree.worktree.path === worktree.path) || null;
 }
 
 /**
@@ -2392,6 +2461,7 @@ interface GitCommitRecord {
 	date: number;
 	message: string;
 	worktree?: string;
+	host?: string;
 }
 
 export interface GitCommitData {
@@ -2428,12 +2498,18 @@ interface GitRefData {
 	heads: GitRef[];
 	tags: GitRefTag[];
 	remotes: GitRef[];
+	hostBranches: GitRefHostBranch[];
+}
+
+interface GitRefHostBranch extends GitRef {
+	host: string; // The host's name. `name` is the branch's name on the host.
 }
 
 interface GitRepoInfo extends GitBranchData {
 	remotes: string[];
 	stashes: GitStash[];
 	worktrees: GitWorktree[];
+	hosts: GitRemoteHost[];
 }
 
 interface GitRepoConfigData {

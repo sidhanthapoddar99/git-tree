@@ -28,6 +28,10 @@ run = "npm run test-engine"
 description = "Time each read with the Git CLI and with the engine: mise run bench-engine <repository>."
 run = "npm run bench-engine --"
 
+[tasks.test-remote]
+description = "Test remote hosts against a real SSH server (see CONTRIBUTING.md)."
+run = "npm run test-remote"
+
 [tasks.gate]
 description = "Lint, build and test: run it before a release."
 depends = ["build"]

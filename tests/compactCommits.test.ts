@@ -59,6 +59,21 @@ function sendAndDecode(compact: CompactCommits) {
 	return web.decodeCommits(JSON.parse(JSON.stringify(compact)));
 }
 
+/**
+ * The page of `getPage`, with a remote host's rows: the uncommitted changes of two of its worktrees after the local
+ * worktrees' rows, and its branches as labels on two commits.
+ */
+function getHostPage(): GitCommit[] {
+	const page = getPage();
+	page.splice(2, 0,
+		{ hash: '*2', parents: [HASH1], author: '*', email: '', date: 1587559260, message: 'Uncommitted Changes (3)', heads: [], tags: [], remotes: [], stash: null, worktree: '/home/dev/app', host: 'server' },
+		{ hash: '*3', parents: [HASH2], author: '*', email: '', date: 1587559260, message: 'Uncommitted Changes (unable to read them)', heads: [], tags: [], remotes: [], stash: null, worktree: '/home/dev/app-wt', host: 'server' }
+	);
+	page[5] = { ...page[5], hostBranches: [{ host: 'server', name: 'main' }, { host: 'gpu', name: 'topic/x' }] };
+	page[7] = { ...page[7], hostBranches: [{ host: 'server', name: 'old' }] };
+	return page;
+}
+
 describe('encodeCommits and decodeCommits', () => {
 	it('Should decode the rows that were encoded, exactly', () => {
 		// Setup
@@ -110,6 +125,32 @@ describe('encodeCommits and decodeCommits', () => {
 		expect(result).toStrictEqual({
 			people: ['*', ''],
 			rows: [['*1', [HASH3], 0, 1587559260, 'Uncommitted Changes (unable to read them)', [], [], [], null, '/path/to/repo/.worktrees/review']]
+		});
+	});
+
+	it('Should decode the rows of remote hosts that were encoded, exactly', () => {
+		// Setup
+		const page = getHostPage();
+
+		// Run
+		const result = sendAndDecode(encodeCommits(page));
+
+		// Assert
+		expect(result).toStrictEqual(page);
+		expect('host' in result[0] || 'hostBranches' in result[0]).toBe(false);
+	});
+
+	it('Should put a host row\'s host after its worktree, and the host branches after the host', () => {
+		// Run
+		const result = encodeCommits([getHostPage()[2], { ...getPage()[6], hostBranches: [{ host: 'server', name: 'main' }] }]);
+
+		// Assert
+		expect(result).toStrictEqual({
+			people: ['*', '', 'Other Author', 'other@example.com'],
+			rows: [
+				['*2', [HASH1], 0, 1587559260, 'Uncommitted Changes (3)', [], [], [], null, '/home/dev/app', 'server'],
+				[HASH4, [], 1, 1587559255, 'Root commit', ['feature'], [], [], null, null, null, [['server', 'main']]]
+			]
 		});
 	});
 
@@ -171,6 +212,8 @@ describe('getCommitsToken', () => {
 		['stash untracked files', (page) => page[0].stash = { ...page[0].stash, untrackedFilesHash: null }],
 		['stash base', (page) => page[0].stash = { ...page[0].stash, baseHash: HASH2 }],
 		['worktree', (page) => page[4].worktree = '/path/to/worktree'],
+		['host branches', (page) => page[1].hostBranches = [{ host: 'server', name: 'main' }]],
+		['host of a host branch', (page) => { page[1].hostBranches = [{ host: 'server', name: 'main' }]; page[2].hostBranches = [{ host: 'gpu', name: 'main' }]; }],
 		['number of rows', (page) => page.pop()]
 	];
 	changes.forEach(([field, change]) => {
@@ -242,6 +285,20 @@ describe('createLoadCommitsResponse', () => {
 
 		// Assert
 		expect(result).toStrictEqual({ command: 'loadCommits', refreshId: 2, unchanged: true, uncommitted: encodeCommits(page.slice(0, 1)), token: getPageToken(), error: null });
+	});
+
+	it('Should send a remote host\'s rows of uncommitted changes with the local ones, and give the same token when only they differ', () => {
+		// Setup
+		const page = getHostPage(), token = (<ResponseLoadCommitsPage>createLoadCommitsResponse(1, false, null, data(page))).token!;
+		const changed = getHostPage();
+		changed.splice(2, 2, { ...changed[2], message: 'Uncommitted Changes (4)' });
+
+		// Run
+		const result = createLoadCommitsResponse(2, false, token, data(changed));
+
+		// Assert
+		expect(result).toStrictEqual({ command: 'loadCommits', refreshId: 2, unchanged: true, uncommitted: encodeCommits(changed.slice(0, 3)), token: token, error: null });
+		expect(token).not.toBe(getPageToken());
 	});
 
 	it('Should send the full page when the request\'s token is another page\'s', () => {
@@ -316,6 +373,8 @@ describe('areCommitsIdentical', () => {
 		['stash base', (page) => page[2].stash = { ...page[2].stash, baseHash: HASH2 }],
 		['stash untracked files', (page) => page[2].stash = { ...page[2].stash, untrackedFilesHash: null }],
 		['worktree', (page) => page[1].worktree = '/path/to/worktree'],
+		['host', (page) => page[1].host = 'server'],
+		['host branches', (page) => page[3].hostBranches = [{ host: 'server', name: 'main' }]],
 		['number of rows', (page) => page.pop()]
 	];
 	changes.forEach(([field, change]) => {

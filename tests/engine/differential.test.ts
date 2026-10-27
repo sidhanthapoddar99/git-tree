@@ -6,6 +6,8 @@ jest.mock('../../src/logger');
 import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { DataSource } from '../../src/dataSource';
+import { RemoteHostSnapshot, RemoteHosts } from '../../src/remoteHosts';
 import { CommitOrdering } from '../../src/types';
 import { ROOT, buildLinearRepository, commit, createDataSource, describeWithEngine, engineBuilt, expectAnswers, expectOnlyOkAnswers, git, gitEnv, harness, init, merge, readTwice, useEngineHarness } from './harness';
 
@@ -329,6 +331,88 @@ describeWithEngine('The engine reads what Git reads', () => {
 			git(dir, 'checkout', '-q', 'main');
 			return dir;
 		}
+	});
+
+	describe('A repository with remote hosts', () => {
+		let repo: string, remoteHosts: RemoteHosts, info: Awaited<ReturnType<DataSource['getRepoInfo']>>;
+		const MISSING = '0123456789abcdef0123456789abcdef01234567';
+		beforeAll(async () => {
+			repo = buildLinearRepository(path.join(harness.tmp, 'hosts'), 6);
+			git(repo, 'branch', 'feature', 'HEAD~2');
+			git(repo, 'remote', 'add', 'origin', 'https://example.com/origin.git');
+			git(repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD~1');
+			// The fetched refs of the host "server": branches (one only it has, one nested), a detached worktree's commit,
+			// and a branch that points to an annotated tag
+			const tree = git(repo, 'rev-parse', 'HEAD^{tree}').trim();
+			const commitTree = (message: string, parent: string, date: string) => cp.execFileSync('git', ['commit-tree', tree, '-p', parent, '-m', message], { cwd: repo, env: gitEnv(date) }).toString().trim();
+			const serverOnly = commitTree('Only on the server', 'HEAD~3', '1700000250');
+			const detached = commitTree('Detached on the server', serverOnly, '1700000260');
+			const goneOnly = commitTree('Only on a removed host', 'HEAD~4', '1700000270');
+			git(repo, 'update-ref', 'refs/git-tree/hosts/server/heads/main', 'HEAD~1');
+			git(repo, 'update-ref', 'refs/git-tree/hosts/server/heads/topic/server-only', serverOnly);
+			git(repo, 'update-ref', 'refs/git-tree/hosts/server/detached/0123456789ab', detached);
+			git(repo, 'tag', '-a', '-m', 'Release', 'release', 'HEAD~2');
+			git(repo, 'update-ref', 'refs/git-tree/hosts/server/heads/tagged', git(repo, 'rev-parse', 'release').trim());
+			// The refs of a host that is no longer in the config, which are neither labels nor start points
+			git(repo, 'update-ref', 'refs/git-tree/hosts/gone/heads/old', goneOnly);
+
+			const worktree = (worktreePath: string, head: string, branch: string | null, isMain: boolean, host: string) => ({ path: worktreePath, name: path.posix.basename(worktreePath), head: head, branch: branch, isMain: isMain, isCurrent: false, locked: false, prunable: false, host: host });
+			const snapshots: RemoteHostSnapshot[] = [
+				{
+					host: { name: 'server', ssh: 'gt-test', path: '/home/dev/app', state: 'ok', message: null, lastRefresh: 1700000000000 },
+					worktrees: [
+						{ worktree: worktree('/home/dev/app', git(repo, 'rev-parse', 'HEAD~1').trim(), 'main', true, 'server'), uncommittedChanges: 1, commitIsLocal: true },
+						{ worktree: worktree('/home/dev/app-wt', detached, null, false, 'server'), uncommittedChanges: 0, commitIsLocal: true },
+						{ worktree: worktree('/home/dev/app-far', MISSING, null, false, 'server'), uncommittedChanges: 0, commitIsLocal: false }
+					]
+				},
+				// A host whose branches haven't been fetched yet: its glob matches no ref
+				{ host: { name: 'new', ssh: 'gt-test', path: '/home/dev/app', state: 'loading', message: null, lastRefresh: null }, worktrees: [] }
+			];
+			remoteHosts = <RemoteHosts><unknown>{ getHosts: () => snapshots };
+			const cli = createDataSource(null, remoteHosts);
+			info = await cli.getRepoInfo(repo, true, true, []);
+			cli.dispose();
+		});
+
+		it('Reads the repository info', async () => {
+			for (const showRemoteBranches of [true, false]) {
+				const [expected, actual] = await readTwice((dataSource) => dataSource.getRepoInfo(repo, showRemoteBranches, true, []), remoteHosts);
+				expect(actual).toStrictEqual(expected);
+			}
+			expect(info.worktrees.filter((worktree) => worktree.host === 'server').length).toBe(3);
+			expectOnlyOkAnswers();
+		});
+
+		it('Reads the commits, the hosts\' labels and their start points', async () => {
+			const variants: { branches: string[] | null, showRemoteBranches: boolean, onlyHostWorktree: number | null }[] = [
+				{ branches: null, showRemoteBranches: true, onlyHostWorktree: null },
+				{ branches: null, showRemoteBranches: false, onlyHostWorktree: null },
+				{ branches: ['main'], showRemoteBranches: false, onlyHostWorktree: null },
+				// A host worktree's history: its commit is here, or it isn't and --ignore-missing leaves it out
+				{ branches: null, showRemoteBranches: true, onlyHostWorktree: 2 },
+				{ branches: null, showRemoteBranches: true, onlyHostWorktree: 3 },
+				{ branches: ['feature'], showRemoteBranches: true, onlyHostWorktree: 3 }
+			];
+			for (const ordering of ORDERINGS) {
+				for (const variant of variants) {
+					const label = Object.assign({ ordering: ordering }, variant);
+					const onlyHostWorktree = variant.onlyHostWorktree !== null ? info.worktrees[variant.onlyHostWorktree] : null;
+					const [expected, actual] = await readTwice((dataSource) => dataSource.getCommits(repo, variant.branches, 300, true, variant.showRemoteBranches, false, false, ordering, info.remotes, [], info.stashes, info.worktrees, false, onlyHostWorktree), remoteHosts);
+					expect({ label: label, result: actual }).toStrictEqual({ label: label, result: expected });
+				}
+			}
+			expectOnlyOkAnswers();
+
+			// What both read: the host's branches as labels, its detached worktree's commit, and nothing of the removed host
+			const [result] = await readTwice((dataSource) => dataSource.getCommits(repo, null, 300, true, false, false, false, CommitOrdering.Date, info.remotes, [], info.stashes, info.worktrees), remoteHosts);
+			const messages = result.commits.map((commit) => commit.message);
+			expect(messages).toContain('Only on the server');
+			expect(messages).toContain('Detached on the server');
+			expect(messages).not.toContain('Only on a removed host');
+			expect(([] as string[]).concat(...result.commits.map((commit) => (commit.hostBranches || []).map((branch) => branch.host + '/' + branch.name))).sort()).toStrictEqual(['server/main', 'server/tagged', 'server/topic/server-only']);
+			expect(result.commits.some((commit) => commit.remotes.length > 0)).toBe(false);
+		});
 	});
 
 	describe('Repositories the engine leaves to Git', () => {

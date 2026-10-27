@@ -4,6 +4,17 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-27
+
+### Added
+
+- **Worktrees on SSH servers.** List your servers in `.worktrees/git-tree.yaml`, or add them with *Git Tree: Add Remote Host...*, and their worktrees join the graph: labels such as `build-box:main` in the Worktree column, their own *Uncommitted Changes* rows, a group per host in the Worktree filter, and the server's branches drawn like remote branches under the host's name. The server needs only `git` and `ssh`; nothing is installed there.
+- One SSH call per host reads its worktrees, branches and uncommitted changes, over a shared connection: about 16 ms after the first, against 180 ms for a new connection. Git Tree fetches a server's branches into hidden refs under `refs/git-tree/hosts/`, only when they moved, and asks before the first fetch from each host.
+- A host that's down, needs a password, points at a missing path or at another project says so, and its rows are greyed out. It never looks clean, and it never holds up the local graph.
+- From the graph: open a server worktree in VS Code with Remote-SSH, open a terminal in it, copy its path, remove it, or create a worktree on a server from a commit or a branch.
+- *Git Tree: Remove Remote Host*, and the settings `git-tree.remoteHosts.sshPath` and `git-tree.remoteHosts.refreshInterval`.
+- [An instruction for coding agents](docs/remote-hosts-for-agents.md), so they keep the host list up to date.
+
 ## [0.4.2] - 2026-10-27
 
 ### Changed
@@ -157,6 +168,7 @@ The first version of Git Tree.
 - Telemetry. Git Tree sends no usage data.
 
 [Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[0.5.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.3.5...v0.4.0

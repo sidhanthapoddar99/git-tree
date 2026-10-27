@@ -14,6 +14,7 @@ const GLOBAL_VIEW_STATE = 'globalViewState';
 const IGNORED_REPOS = 'ignoredRepos';
 const LAST_ACTIVE_REPO = 'lastActiveRepo';
 const LAST_KNOWN_GIT_PATH = 'lastKnownGitPath';
+const REMOTE_HOST_FETCH_CONSENT = 'remoteHostFetchConsent';
 const REPO_STATES = 'repoStates';
 const WORKSPACE_VIEW_STATE = 'workspaceViewState';
 
@@ -57,6 +58,9 @@ export interface CodeReviewData {
 	remainingFiles: string[];
 }
 export type CodeReviews = { [repo: string]: { [id: string]: CodeReviewData } };
+
+/** The user's answers to fetching from each remote host, by repository (its main worktree) and host name. */
+type RemoteHostFetchConsents = { [repo: string]: { [host: string]: { ssh: string, path: string, consent: boolean } } };
 
 /**
  * Manages the Git Tree Extension State, which stores data in both the Visual Studio Code Global & Workspace State.
@@ -246,6 +250,58 @@ export class ExtensionState extends Disposable {
 	 */
 	private setLastKnownGitPath(path: string) {
 		this.updateGlobalState(LAST_KNOWN_GIT_PATH, path);
+	}
+
+
+	/* Remote Host Fetch Consent */
+
+	/**
+	 * Get the answer the user gave to fetching from a remote host into a repository. An answer is for one server: it
+	 * doesn't count once the host's SSH alias or path changes.
+	 * @param repo The path of the repository's main worktree.
+	 * @param host The host's name.
+	 * @param ssh The host's SSH alias.
+	 * @param path The path of the repository on the server.
+	 * @returns TRUE => the user agreed, FALSE => the user declined, NULL => not asked yet.
+	 */
+	public getRemoteHostFetchConsent(repo: string, host: string, ssh: string, path: string): boolean | null {
+		const answers = this.globalState.get<RemoteHostFetchConsents>(REMOTE_HOST_FETCH_CONSENT, {});
+		const answer = typeof answers[repo] !== 'undefined' ? answers[repo][host] : undefined;
+		return typeof answer !== 'undefined' && answer.ssh === ssh && answer.path === path ? answer.consent : null;
+	}
+
+	/**
+	 * Remember the answer the user gave to fetching from a remote host into a repository.
+	 * @param repo The path of the repository's main worktree.
+	 * @param host The host's name.
+	 * @param ssh The host's SSH alias.
+	 * @param path The path of the repository on the server.
+	 * @param consent TRUE => the user agreed, FALSE => the user declined.
+	 * @returns A Thenable resolving to the ErrorInfo that resulted from saving the answer.
+	 */
+	public setRemoteHostFetchConsent(repo: string, host: string, ssh: string, path: string, consent: boolean) {
+		const answers = this.globalState.get<RemoteHostFetchConsents>(REMOTE_HOST_FETCH_CONSENT, {});
+		answers[repo] = Object.assign({}, answers[repo], { [host]: { ssh: ssh, path: path, consent: consent } });
+		return this.updateGlobalState(REMOTE_HOST_FETCH_CONSENT, answers);
+	}
+
+	/**
+	 * Forget the answer the user gave to fetching from a remote host into a repository (when the host is removed).
+	 * @param repo The path of the repository's main worktree.
+	 * @param host The host's name.
+	 * @returns A Thenable resolving to the ErrorInfo that resulted from saving the change.
+	 */
+	public clearRemoteHostFetchConsent(repo: string, host: string) {
+		const answers = this.globalState.get<RemoteHostFetchConsents>(REMOTE_HOST_FETCH_CONSENT, {});
+		if (typeof answers[repo] === 'undefined' || typeof answers[repo][host] === 'undefined') return Promise.resolve(null);
+		const repoAnswers = Object.assign({}, answers[repo]);
+		delete repoAnswers[host];
+		if (Object.keys(repoAnswers).length > 0) {
+			answers[repo] = repoAnswers;
+		} else {
+			delete answers[repo];
+		}
+		return this.updateGlobalState(REMOTE_HOST_FETCH_CONSENT, answers);
 	}
 
 

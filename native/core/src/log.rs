@@ -65,7 +65,8 @@ pub enum Order {
 #[serde(rename_all = "camelCase")]
 pub struct LogRequest {
     /// The revision arguments, as the extension passes them to `git log`: `HEAD`, ref names, full
-    /// object IDs, `--branches`, `--tags`, `--remotes`, `--reflog` and `--glob=<pattern>`.
+    /// object IDs, `--branches`, `--tags`, `--remotes`, `--reflog`, `--glob=<pattern>` and
+    /// `--ignore-missing`.
     pub revisions: Vec<String>,
     /// `--max-count`.
     pub max_count: usize,
@@ -173,19 +174,27 @@ fn start_points(repo: &Repo, revisions: &[String]) -> Result<Vec<Start>> {
         Ok(())
     };
     let head = ["HEAD".to_owned()];
-    // Without revisions, git log starts from HEAD
-    let revisions = if revisions.is_empty() { &head[..] } else { revisions };
+    // Without revisions, git log starts from HEAD. `--ignore-missing` isn't a revision, so with only it,
+    // git starts from HEAD too.
+    let revisions = if revisions.iter().all(|revision| revision == "--ignore-missing") { &head[..] } else { revisions };
+    // Git applies --ignore-missing to the revisions after it, as it reads its arguments in order
+    let mut ignore_missing = false;
     for revision in revisions {
         match revision.as_str() {
             "--branches" => add_refs("refs/heads/", &mut pending)?,
             "--tags" => add_refs("refs/tags/", &mut pending)?,
             "--remotes" => add_refs("refs/remotes/", &mut pending)?,
             "--reflog" => pending.extend(reflog_objects(repo)?.into_iter().map(|id| (id, true))),
+            "--ignore-missing" => ignore_missing = true,
             other => {
                 if let Some(pattern) = other.strip_prefix("--glob=") {
                     add_refs(&glob_prefix(pattern)?, &mut pending)?;
                 } else if other.starts_with('-') {
                     unsupported!("the engine doesn't read the option {other}");
+                } else if ignore_missing && repo.names_missing_object(other)? {
+                    // Git leaves out an object it doesn't have. A name that doesn't resolve stays Unsupported,
+                    // so the CLI, which leaves it out too, reads it.
+                    continue;
                 } else {
                     pending.push((repo.resolve_revision(other)?, false));
                 }

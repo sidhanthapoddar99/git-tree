@@ -2,6 +2,9 @@ interface DropdownOption {
 	readonly name: string;
 	readonly value: string;
 	readonly hint?: string;
+	readonly group?: string; // The heading of the group the option is in, shown above the group's first option. Consecutive options with the same heading form a group.
+	readonly disabled?: boolean; // Shown, but can't be chosen
+	readonly action?: () => void; // Run when the option is clicked, instead of choosing it. Only for a dropdown where one option is chosen.
 }
 
 /**
@@ -83,7 +86,7 @@ class Dropdown {
 					this.close();
 				} else {
 					const option = <HTMLElement | null>(<HTMLElement>e.target).closest('.dropdownOption');
-					if (option !== null && option.parentNode === this.optionsElem && typeof option.dataset.id !== 'undefined') {
+					if (option !== null && option.parentNode === this.optionsElem && typeof option.dataset.id !== 'undefined' && !this.options[parseInt(option.dataset.id!)].disabled) {
 						this.onOptionClick(parseInt(option.dataset.id!));
 					}
 				}
@@ -227,8 +230,11 @@ class Dropdown {
 
 		let html = '';
 		for (let i = 0; i < this.options.length; i++) {
-			const escapedName = escapeHtml(this.options[i].name);
-			html += '<div class="dropdownOption' + (this.optionsSelected[i] ? ' ' + CLASS_SELECTED : '') + '" data-id="' + i + '" title="' + escapedName + '">' +
+			const escapedName = escapeHtml(this.options[i].name), group = this.options[i].group;
+			if (typeof group === 'string' && (i === 0 || this.options[i - 1].group !== group)) {
+				html += '<div class="dropdownGroup" data-group="' + i + '" title="' + escapeHtml(group) + '">' + escapeHtml(group) + '</div>';
+			}
+			html += '<div class="dropdownOption' + (this.optionsSelected[i] ? ' ' + CLASS_SELECTED : '') + (this.options[i].disabled ? ' ' + CLASS_DISABLED : '') + '" data-id="' + i + '" title="' + escapedName + '">' +
 				(this.multipleAllowed && this.optionsSelected[i] ? '<div class="dropdownOptionMultiSelected">' + SVG_ICONS.check + '</div>' : '') +
 				escapedName + (typeof this.options[i].hint === 'string' && this.options[i].hint !== '' ? '<span class="dropdownOptionHint">' + escapeHtml(this.options[i].hint!) + '</span>' : '') +
 				(this.showInfo ? '<div class="dropdownOptionInfo" title="' + escapeHtml(this.options[i].value) + '">' + SVG_ICONS.info + '</div>' : '') +
@@ -266,12 +272,23 @@ class Dropdown {
 	 * Filter the options displayed in the dropdown list, based on the filter criteria specified by the user.
 	 */
 	private filter() {
-		let val = this.filterInput.value.toLowerCase(), match, matches = false;
-		for (let i = 0; i < this.options.length; i++) {
-			match = this.options[i].name.toLowerCase().indexOf(val) > -1;
-			(<HTMLElement>this.optionsElem.children[i]).style.display = match ? 'block' : 'none';
-			if (match) matches = true;
+		let val = this.filterInput.value.toLowerCase(), match, matches = false, groupElem: HTMLElement | null = null, groupMatches = false;
+		const elems = <HTMLCollectionOf<HTMLElement>>this.optionsElem.children;
+		for (let i = 0; i < elems.length; i++) {
+			const elem = elems[i];
+			if (elem.classList.contains('dropdownGroup')) {
+				// A group's heading is shown while one of its options is
+				if (groupElem !== null) groupElem.style.display = groupMatches ? 'block' : 'none';
+				groupElem = elem;
+				groupMatches = false;
+				continue;
+			}
+			const option = this.options[parseInt(elem.dataset.id!)];
+			match = option.name.toLowerCase().indexOf(val) > -1 || (typeof option.group === 'string' && option.group.toLowerCase().indexOf(val) > -1);
+			elem.style.display = match ? 'block' : 'none';
+			if (match) matches = groupMatches = true;
 		}
+		if (groupElem !== null) groupElem.style.display = groupMatches ? 'block' : 'none';
 		this.filterInput.style.display = 'block';
 		this.noResultsElem.style.display = matches ? 'none' : 'block';
 	}
@@ -298,6 +315,14 @@ class Dropdown {
 	 * @param option The index of the option to select.
 	 */
 	private onOptionClick(option: number) {
+		const action = this.options[option].action;
+		if (typeof action !== 'undefined' && !this.multipleAllowed) {
+			// An action leaves the choice as it was
+			this.close();
+			action();
+			return;
+		}
+
 		// Note: Show All is always the first option (0 index) when multiple selected items are allowed
 		let change = false;
 		let doubleClick = this.doubleClickTimeout !== null && this.lastClicked === option;

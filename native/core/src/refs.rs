@@ -173,6 +173,16 @@ impl Repo {
         unsupported!("the tag {id} is nested too deeply")
     }
 
+    /// Is `name` a full object ID of an object the repository doesn't have? `git log --ignore-missing`
+    /// leaves such a revision out.
+    pub(crate) fn names_missing_object(&self, name: &str) -> Result<bool> {
+        if name.len() != 40 || !name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return Ok(false);
+        }
+        let id = ObjectId::from_hex(name.as_bytes()).context("Unable to read an object ID")?;
+        Ok(!self.git.has_object(id))
+    }
+
     /// Resolve a revision given to `git log`: `HEAD`, a full object ID, or a ref name that git finds
     /// with its `ref_rev_parse_rules`. Anything else, like `HEAD~2` or an abbreviated ID, is
     /// `Unsupported`, as is a name that doesn't resolve (git fails on it).
@@ -262,14 +272,20 @@ pub(crate) fn is_plain_ref_name(name: &str) -> bool {
 
 /// `git show-ref -d --head`, or `git show-ref --heads --tags -d --head` without `include_remotes`.
 ///
-/// Only HEAD and the refs under `refs/heads/`, `refs/remotes/` and `refs/tags/` are returned: those
-/// are the lines the extension reads. Git lists them in this order, because it sorts all refs by name.
+/// Only HEAD and the refs under `refs/git-tree/hosts/`, `refs/heads/`, `refs/remotes/` and
+/// `refs/tags/` are returned: those are the lines the extension reads. Git lists them in this order,
+/// because it sorts all refs by name. The remote hosts' refs are returned either way: the extension
+/// reads them from `git show-ref -d --head` when a repository has hosts, and leaves them out otherwise.
 pub fn show_refs(repo: &Repo, include_remotes: bool) -> Result<Vec<ShowRefLine>> {
     let mut lines = Vec::new();
     if let Some(id) = repo.head()?.id() {
         lines.push(ShowRefLine { hash: id.to_string(), name: "HEAD".to_owned() });
     }
-    let prefixes: &[&str] = if include_remotes { &["refs/heads/", "refs/remotes/", "refs/tags/"] } else { &["refs/heads/", "refs/tags/"] };
+    let prefixes: &[&str] = if include_remotes {
+        &["refs/git-tree/hosts/", "refs/heads/", "refs/remotes/", "refs/tags/"]
+    } else {
+        &["refs/git-tree/hosts/", "refs/heads/", "refs/tags/"]
+    };
     for prefix in prefixes {
         for reference in repo.refs(prefix)? {
             let (peeled, _, was_tag) = repo.peel(reference.id)?;

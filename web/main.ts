@@ -2,6 +2,7 @@
 interface WorktreeLookup {
 	readonly byBranch: Map<string, GG.GitWorktree>;
 	readonly byDetachedHead: Map<string, GG.GitWorktree[]>;
+	readonly byHostHead: Map<string, GG.GitWorktree[]>; // The remote hosts' worktrees, by the commit they are on: their branches are the host's, not this repository's
 }
 
 const CLASS_COLUMN_WIDTH_ROW = 'columnWidthRow';
@@ -23,7 +24,9 @@ class GitTreeView {
 	private gitRemotes: ReadonlyArray<string> = [];
 	private gitStashes: ReadonlyArray<GG.GitStash> = [];
 	private gitTags: ReadonlyArray<string> = [];
-	private gitWorktrees: ReadonlyArray<GG.GitWorktree> = [];
+	private gitWorktrees: ReadonlyArray<GG.GitWorktree> = []; // The local worktrees, then the remote hosts'
+	private gitRemoteHosts: ReadonlyArray<GG.GitRemoteHost> = [];
+	private refreshRemoteHosts: boolean = false; // Refresh the remote hosts with the next repository info, because the user asked for a refresh
 	private commits: GG.GitCommit[] = [];
 	private commitsToken: { readonly token: string, readonly commits: GG.GitCommit[], readonly tags: ReadonlyArray<string> } | null = null; // The token of the commits shown, with the arrays it describes
 	private commitHead: string | null = null;
@@ -58,6 +61,7 @@ class GitTreeView {
 	private scrollTop = 0;
 	private renderedGitBranchHead: string | null = null;
 	private renderedGitWorktrees: string | null = null;
+	private renderedRemoteHosts: string | null = null;
 
 	private lastScrollToStash: {
 		time: number,
@@ -134,6 +138,7 @@ class GitTreeView {
 		this.refreshBtnElem = document.getElementById('refreshBtn')!;
 		this.refreshBtnElem.addEventListener('click', () => {
 			if (!this.refreshBtnElem.classList.contains(CLASS_REFRESHING)) {
+				this.refreshRemoteHosts = true;
 				this.refresh(true, true);
 			}
 		});
@@ -162,7 +167,7 @@ class GitTreeView {
 			this.expandedCommit = prevState.expandedCommit;
 			this.avatars = prevState.avatars;
 			this.gitConfig = prevState.gitConfig;
-			this.loadRepoInfo(prevState.gitBranches, prevState.gitBranchHead, prevState.gitRemotes, prevState.gitStashes, prevState.gitWorktrees, true);
+			this.loadRepoInfo(prevState.gitBranches, prevState.gitBranchHead, prevState.gitRemotes, prevState.gitStashes, prevState.gitWorktrees, typeof prevState.gitRemoteHosts !== 'undefined' ? prevState.gitRemoteHosts : [], true);
 			this.loadCommits(prevState.commits, prevState.commitHead, prevState.gitTags, prevState.moreCommitsAvailable, prevState.onlyFollowFirstParent, typeof prevState.commitsToken === 'string' ? prevState.commitsToken : null);
 			this.findWidget.restoreState(prevState.findWidget);
 			this.settingsWidget.restoreState(prevState.settingsWidget);
@@ -251,6 +256,7 @@ class GitTreeView {
 		this.gitStashes = [];
 		this.gitTags = [];
 		this.gitWorktrees = [];
+		this.gitRemoteHosts = [];
 		this.currentBranches = null;
 		this.renderFetchButton();
 		this.closeCommitDetails(false);
@@ -268,23 +274,32 @@ class GitTreeView {
 	}
 
 	/**
-	 * Where Git commands run: the chosen worktree, or the repository itself when All is chosen.
+	 * Where Git commands run: the chosen worktree, or the repository itself when All or a remote host's worktree is chosen.
 	 */
 	private get currentWorktree() {
 		const choice = this.worktreeChoice;
-		return choice !== ALL_WORKTREES ? choice : this.currentRepo;
+		return choice !== ALL_WORKTREES && !isHostWorktreeKey(choice) ? choice : this.currentRepo;
 	}
 
 	/**
-	 * Does the graph show only the history of the chosen worktree? A repository with one worktree always shows everything, as with All.
+	 * Does the graph show only the history of the chosen worktree on this machine? A repository with one worktree always shows everything, as with All.
 	 */
 	private isOnlyWorktreeHistory() {
-		return this.worktreeChoice !== ALL_WORKTREES && this.hasMultipleWorktrees();
+		return this.worktreeChoice !== ALL_WORKTREES && !isHostWorktreeKey(this.worktreeChoice) && this.hasMultipleWorktrees();
 	}
 
 	/**
-	 * Choose what the Worktree dropdown shows. A worktree's history is shown, with Git commands running in it. All shows everything, with Git commands running in the repository.
-	 * @param choice ALL_WORKTREES, or the path of a worktree.
+	 * Get the remote host's worktree chosen in the Worktree dropdown, whose history alone the graph shows.
+	 * @returns The worktree, or NULL if a remote host's worktree isn't chosen.
+	 */
+	private getChosenHostWorktree() {
+		const choice = this.worktreeChoice;
+		return isHostWorktreeKey(choice) ? this.gitWorktrees.find((worktree) => !worktree.prunable && getWorktreeKey(worktree) === choice) || null : null;
+	}
+
+	/**
+	 * Choose what the Worktree dropdown shows. A worktree's history is shown, with Git commands running in it (in the repository, for a remote host's worktree). All shows everything, with Git commands running in the repository.
+	 * @param choice ALL_WORKTREES, or the key of a worktree (getWorktreeKey).
 	 * @param showUncommittedChanges Open the worktree's uncommitted changes once it has loaded.
 	 */
 	private chooseWorktree(choice: string, showUncommittedChanges: boolean = false) {
@@ -306,26 +321,49 @@ class GitTreeView {
 	 */
 	private isWorktreeChoiceAvailable() {
 		const choice = this.worktreeChoice;
-		return choice === ALL_WORKTREES || choice === this.currentRepo || this.gitWorktrees.some((worktree) => !worktree.prunable && worktree.path === choice);
+		return choice === ALL_WORKTREES || choice === this.currentRepo || this.gitWorktrees.some((worktree) => !worktree.prunable && getWorktreeKey(worktree) === choice);
 	}
 
 	private renderWorktreeDropdown() {
-		// All first, then Root (the main worktree), then the linked worktrees
-		const worktrees = this.gitWorktrees.filter((worktree) => !worktree.prunable).sort((a, b) => (a.isMain ? 0 : 1) - (b.isMain ? 0 : 1));
-		alterClass(this.controlsElem, 'singleWorktree', !this.hasMultipleWorktrees());
-		this.worktreeDropdown.setOptions([{ name: 'All', value: ALL_WORKTREES, hint: 'every worktree' }].concat(worktrees.map((worktree) => {
+		// All first, then Root (the main worktree), then the linked worktrees, and then each remote host's worktrees in their own group
+		const byMainFirst = (a: GG.GitWorktree, b: GG.GitWorktree) => (a.isMain ? 0 : 1) - (b.isMain ? 0 : 1);
+		const worktrees = this.gitWorktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.prunable).sort(byMainFirst);
+		// With remote hosts, the dropdown is shown even before their worktrees are known, because it says each host's state
+		alterClass(this.controlsElem, 'singleWorktree', !this.hasMultipleWorktrees() && this.gitRemoteHosts.length === 0);
+		const options: DropdownOption[] = [{ name: 'All', value: ALL_WORKTREES, hint: 'every worktree' }].concat(worktrees.map((worktree) => {
 			const branch = worktree.branch !== null ? worktree.branch : 'detached';
 			return worktree.isMain
 				? { name: 'Root', value: worktree.path, hint: worktree.name + ' \u00B7 ' + branch }
 				: { name: worktree.name, value: worktree.path, hint: branch };
-		})), [this.worktreeChoice]);
+		}));
+		this.gitRemoteHosts.forEach((host) => {
+			// The group's heading, and each worktree's hint, say the host's state when it isn't ok
+			const state = host.state !== 'ok' ? getRemoteHostStateText(host) : null;
+			const group = host.name + (state !== null ? ' \u00B7 ' + state : '');
+			const hostWorktrees = this.gitWorktrees.filter((worktree) => worktree.host === host.name && !worktree.prunable).sort(byMainFirst);
+			hostWorktrees.forEach((worktree) => {
+				// A worktree whose commit isn't on this machine has no row or label in the graph, so its hint says why
+				const notHere = worktree.hostCommitIsLocal === false ? ' \u00B7 commit not on this machine' : '';
+				options.push({ name: getWorktreeLabel(worktree), value: getWorktreeKey(worktree), hint: (worktree.branch !== null ? worktree.branch : 'detached') + notHere + (state !== null ? ' \u00B7 ' + state : ''), group: group });
+			});
+			if (host.state === 'needsConsent') {
+				// Its branches are fetched only once the user agrees, and the user may have declined before
+				options.push({ name: 'Allow Fetching' + ELLIPSIS, value: HOST_WORKTREE_KEY_PREFIX + host.name + ':consent', hint: 'fetch its branches', group: group, action: () => this.askFetchConsent(host.name) });
+			}
+			if (hostWorktrees.length === 0) {
+				// The host is listed even before its worktrees are known, so its state is always somewhere to be seen
+				options.push({ name: host.lastRefresh !== null ? 'No worktrees' : 'No worktrees read yet', value: HOST_WORKTREE_KEY_PREFIX + host.name + ':', group: group, disabled: true });
+			}
+		});
+		this.worktreeDropdown.setOptions(options, [this.worktreeChoice]);
 	}
 
-	private loadRepoInfo(branchOptions: ReadonlyArray<string>, branchHead: string | null, remotes: ReadonlyArray<string>, stashes: ReadonlyArray<GG.GitStash>, worktrees: ReadonlyArray<GG.GitWorktree>, isRepo: boolean) {
+	private loadRepoInfo(branchOptions: ReadonlyArray<string>, branchHead: string | null, remotes: ReadonlyArray<string>, stashes: ReadonlyArray<GG.GitStash>, worktrees: ReadonlyArray<GG.GitWorktree>, remoteHosts: ReadonlyArray<GG.GitRemoteHost>, isRepo: boolean) {
 		// Changes to this.gitStashes are reflected as changes to the commits when loadCommits is run
 		this.gitStashes = stashes;
-		// Changes to this.gitWorktrees are reflected when the commits are next rendered
+		// Changes to this.gitWorktrees and this.gitRemoteHosts are reflected when the commits are next rendered
 		this.gitWorktrees = worktrees;
+		this.gitRemoteHosts = remoteHosts;
 		this.renderWorktreeDropdown();
 
 		if (!isRepo || (!this.currentRepoRefreshState.hard && arraysStrictlyEqual(this.gitBranches, branchOptions) && this.gitBranchHead === branchHead && arraysStrictlyEqual(this.gitRemotes, remotes))) {
@@ -393,7 +431,7 @@ class GitTreeView {
 				refreshState.repoInfoChanges = refreshState.repoInfoChanges || repoInfoChanges;
 				refreshState.requestingRepoInfo = false;
 				this.requestLoadCommits();
-			} else if (this.currentWorktree !== this.currentRepo) {
+			} else if (this.currentWorktree !== this.currentRepo || isHostWorktreeKey(this.worktreeChoice)) {
 				// The chosen worktree no longer exists, so show Root
 				refreshState.inProgress = false;
 				delete this.worktreeChoices[this.currentRepo];
@@ -433,7 +471,7 @@ class GitTreeView {
 			arraysEqual(a.remotes, b.remotes, (a, b) => a.name === b.name && a.remote === b.remote) &&
 			arraysStrictlyEqual(a.parents, b.parents) &&
 			((a.stash === null && b.stash === null) || (a.stash !== null && b.stash !== null && a.stash.selector === b.stash.selector))
-		) && this.renderedGitBranchHead === this.gitBranchHead && this.renderedGitWorktrees === JSON.stringify(this.gitWorktrees)) {
+		) && this.renderedGitBranchHead === this.gitBranchHead && this.renderedGitWorktrees === JSON.stringify(this.gitWorktrees) && this.renderedRemoteHosts === this.getRemoteHostsRenderKey()) {
 
 			if (isUncommittedChanges(this.commits[0].hash)) {
 				// Only the rows of uncommitted changes can differ, so update them in place
@@ -612,7 +650,7 @@ class GitTreeView {
 		if (msg.error === null) {
 			const refreshState = this.currentRepoRefreshState;
 			if (refreshState.inProgress && refreshState.loadRepoInfoRefreshId === msg.refreshId) {
-				this.loadRepoInfo(msg.branches, msg.head, msg.remotes, msg.stashes, msg.worktrees, msg.isRepo);
+				this.loadRepoInfo(msg.branches, msg.head, msg.remotes, msg.stashes, msg.worktrees, msg.hosts, msg.isRepo);
 			}
 		} else {
 			this.displayLoadDataError('Unable to load Repository Info', msg.error);
@@ -776,8 +814,10 @@ class GitTreeView {
 			refreshId: ++this.currentRepoRefreshState.loadRepoInfoRefreshId,
 			showRemoteBranches: getShowRemoteBranches(repoState.showRemoteBranchesV2),
 			showStashes: getShowStashes(repoState.showStashes),
-			hideRemotes: repoState.hideRemotes
+			hideRemotes: repoState.hideRemotes,
+			refreshHosts: this.refreshRemoteHosts
 		});
+		this.refreshRemoteHosts = false;
 	}
 
 	private requestLoadCommits() {
@@ -798,6 +838,7 @@ class GitTreeView {
 			stashes: this.gitStashes,
 			worktrees: this.gitWorktrees,
 			onlyWorktreeHistory: this.isOnlyWorktreeHistory(),
+			onlyHostWorktree: this.getChosenHostWorktree(),
 			// A hard refresh, and a repository that is loading, get the full page whatever the extension finds
 			token: !this.currentRepoRefreshState.hard && !this.currentRepoLoading ? this.getCommitsToken() : null
 		});
@@ -902,6 +943,7 @@ class GitTreeView {
 			gitStashes: this.gitStashes,
 			gitTags: this.gitTags,
 			gitWorktrees: this.gitWorktrees,
+			gitRemoteHosts: this.gitRemoteHosts,
 			commits: this.commits,
 			commitsToken: this.getCommitsToken(),
 			commitHead: this.commitHead,
@@ -1055,6 +1097,7 @@ class GitTreeView {
 		this.findWidget.refresh();
 		this.renderedGitBranchHead = this.gitBranchHead;
 		this.renderedGitWorktrees = JSON.stringify(this.gitWorktrees);
+		this.renderedRemoteHosts = this.getRemoteHostsRenderKey();
 
 		if (this.moreCommitsAvailable) {
 			document.getElementById('loadMoreCommitsBtn')!.addEventListener('click', () => {
@@ -1152,7 +1195,7 @@ class GitTreeView {
 			// Few rows have a worktree's label, so all of them are measured
 			const lookup = context.worktreeLookup;
 			this.commits.forEach((commit, i) => {
-				if (isUncommittedChanges(commit.hash) || lookup.byDetachedHead.has(commit.hash) || commit.heads.some((branch) => lookup.byBranch.has(branch))) candidates.add(i);
+				if (isUncommittedChanges(commit.hash) || lookup.byDetachedHead.has(commit.hash) || lookup.byHostHead.has(commit.hash) || commit.heads.some((branch) => lookup.byBranch.has(branch))) candidates.add(i);
 			});
 		}
 		if (this.config.referenceLabels.branchLabelsAlignedToGraph) {
@@ -1162,6 +1205,7 @@ class GitTreeView {
 				let width = 0;
 				labels.heads.forEach((head) => width += 33 + estimator.estimate(head.name) + head.remotes.reduce((sum, remote) => sum + 11 + estimator.estimate(remote), 0));
 				labels.remotes.forEach((remote) => width += 33 + estimator.estimate(remote.name));
+				(commit.hostBranches || []).forEach((branch) => width += 33 + estimator.estimate(branch.host + '/' + branch.name));
 				if (commit.stash !== null) width += 33 + estimator.estimate(commit.stash.selector.substring(5));
 				return width > 0 ? width + this.graph.getWidthAtVertex(this.commitLookup[commit.hash]) : 0;
 			});
@@ -1213,6 +1257,14 @@ class GitTreeView {
 			refName = escapeHtml(branchLabels.remotes[j].name);
 			refBranches += '<span class="gitRef remote" data-name="' + refName + '" data-remote="' + (branchLabels.remotes[j].remote !== null ? escapeHtml(branchLabels.remotes[j].remote!) : '') + '">' + SVG_ICONS.branch + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span></span>';
 		}
+		if (typeof commit.hostBranches !== 'undefined') {
+			// A remote host's branches are drawn like remote branches, under the host's name
+			for (j = 0; j < commit.hostBranches.length; j++) {
+				const hostBranch = commit.hostBranches[j], host = this.getRemoteHost(hostBranch.host);
+				refName = escapeHtml(hostBranch.host + '/' + hostBranch.name);
+				refBranches += '<span class="gitRef ' + CLASS_REF_HOST_BRANCH + (isRemoteHostStale(host) ? ' ' + CLASS_STALE_HOST : '') + '" data-name="' + escapeHtml(hostBranch.name) + '" data-host="' + escapeHtml(hostBranch.host) + '" title="' + escapeHtml('The branch "' + hostBranch.name + '" on the remote host ' + hostBranch.host + '.' + getRemoteHostStateSuffix(host)) + '">' + SVG_ICONS.branch + '<span class="gitRefName" data-fullref="' + refName + '">' + refName + '</span></span>';
+			}
+		}
 
 		for (j = 0; j < commit.tags.length; j++) {
 			refName = escapeHtml(commit.tags[j].name);
@@ -1233,7 +1285,7 @@ class GitTreeView {
 
 		return (columnWidthRow
 			? '<tr class="' + CLASS_COLUMN_WIDTH_ROW + '">'
-			: '<tr class="commit' + (commit.hash === currentHash ? ' current' : '') + (context.mutedCommits[i] ? ' mute' : '') + '"' + (commit.hash !== UNCOMMITTED ? '' : ' id="uncommittedChanges"') + ' data-id="' + i + '" data-color="' + this.graph.getVertexColour(i) + '">') +
+			: '<tr class="commit' + (commit.hash === currentHash ? ' current' : '') + (context.mutedCommits[i] ? ' mute' : '') + (typeof commit.host === 'string' && isRemoteHostStale(this.getRemoteHost(commit.host)) ? ' ' + CLASS_STALE_HOST : '') + '"' + (commit.hash !== UNCOMMITTED ? '' : ' id="uncommittedChanges"') + ' data-id="' + i + '" data-color="' + this.graph.getVertexColour(i) + '">') +
 			(this.config.referenceLabels.branchLabelsAlignedToGraph ? '<td>' + (refBranches !== '' ? '<span style="margin-left:' + (this.graph.getWidthAtVertex(i) - 4) + 'px"' + refBranches.substring(5) : '') + '</td><td><span class="description">' + commitDot : '<td></td><td><span class="description">' + commitDot + refBranches) + (this.config.referenceLabels.tagLabelsOnRight ? message + refTags : refTags + message) + '</span></td>' +
 			(colVisibility.worktree ? this.getWorktreeCellHtml(commit, context.worktreeLookup) : '') +
 			(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
@@ -1296,18 +1348,24 @@ class GitTreeView {
 	 * @returns The lookup.
 	 */
 	private getWorktreeLookup(): WorktreeLookup {
-		const lookup: WorktreeLookup = { byBranch: new Map(), byDetachedHead: new Map() };
+		const lookup: WorktreeLookup = { byBranch: new Map(), byDetachedHead: new Map(), byHostHead: new Map() };
+		const addByHead = (map: Map<string, GG.GitWorktree[]>, head: string, worktree: GG.GitWorktree) => {
+			const worktrees = map.get(head);
+			if (typeof worktrees !== 'undefined') {
+				worktrees.push(worktree);
+			} else {
+				map.set(head, [worktree]);
+			}
+		};
 		this.gitWorktrees.forEach((worktree) => {
 			if (worktree.prunable || worktree.head === null) return;
-			if (worktree.branch !== null) {
+			if (typeof worktree.host !== 'undefined') {
+				// A remote host's worktree is labelled on the commit it is on, which its last refresh read
+				addByHead(lookup.byHostHead, worktree.head, worktree);
+			} else if (worktree.branch !== null) {
 				lookup.byBranch.set(worktree.branch, worktree);
 			} else {
-				const worktrees = lookup.byDetachedHead.get(worktree.head);
-				if (typeof worktrees !== 'undefined') {
-					worktrees.push(worktree);
-				} else {
-					lookup.byDetachedHead.set(worktree.head, [worktree]);
-				}
+				addByHead(lookup.byDetachedHead, worktree.head, worktree);
 			}
 		});
 		return lookup;
@@ -1324,20 +1382,52 @@ class GitTreeView {
 		if (isUncommittedChanges(commit.hash)) {
 			const worktree = this.getWorktreeOfUncommittedChanges(commit);
 			if (worktree !== null) {
-				html = getWorktreeRefHtml(worktree, 'Uncommitted changes in the worktree ' + worktree.path + '.' + (commit.hash !== UNCOMMITTED ? ' Click the row to show this worktree.' : ''));
+				html = this.getWorktreeLabelHtml(worktree, 'Uncommitted changes in the worktree ' + worktree.path + (typeof worktree.host !== 'undefined' ? ' on ' + worktree.host : '') + '.' + (commit.hash !== UNCOMMITTED ? ' Click the row to show this worktree.' : ''));
 			}
 		} else {
 			commit.heads.forEach((branch) => {
 				const worktree = lookup.byBranch.get(branch);
 				if (typeof worktree !== 'undefined') {
-					html += getWorktreeRefHtml(worktree, 'The worktree ' + worktree.path + ' has the branch "' + branch + '" checked out' + (worktree.isCurrent ? ', and this view shows it.' : '.'));
+					html += getWorktreeRefHtml(worktree, 'The worktree ' + worktree.path + ' has the branch "' + branch + '" checked out' + (worktree.isCurrent ? ', and this view shows it.' : '.'), false);
 				}
 			});
 			(lookup.byDetachedHead.get(commit.hash) || []).forEach((worktree) => {
-				html += getWorktreeRefHtml(worktree, 'The worktree ' + worktree.path + ' has this commit checked out (detached HEAD)' + (worktree.isCurrent ? ', and this view shows it.' : '.'));
+				html += getWorktreeRefHtml(worktree, 'The worktree ' + worktree.path + ' has this commit checked out (detached HEAD)' + (worktree.isCurrent ? ', and this view shows it.' : '.'), false);
+			});
+			(lookup.byHostHead.get(commit.hash) || []).forEach((worktree) => {
+				html += this.getWorktreeLabelHtml(worktree, 'The worktree ' + worktree.path + ' on ' + worktree.host + ' has ' + (worktree.branch !== null ? 'the branch "' + worktree.branch + '"' : 'this commit (detached HEAD)') + ' checked out.');
 			});
 		}
 		return '<td class="worktreeCol">' + html + '</td>';
+	}
+
+	/**
+	 * Get the HTML of a worktree's label in the Worktree column. A remote host's worktree says the host's state when it isn't ok, and is greyed out.
+	 * @param worktree The worktree.
+	 * @param title The tooltip of the label.
+	 * @returns The HTML.
+	 */
+	private getWorktreeLabelHtml(worktree: GG.GitWorktree, title: string) {
+		if (typeof worktree.host === 'undefined') return getWorktreeRefHtml(worktree, title, false);
+		const host = this.getRemoteHost(worktree.host);
+		return getWorktreeRefHtml(worktree, title + getRemoteHostStateSuffix(host), isRemoteHostStale(host));
+	}
+
+	/**
+	 * Get a remote host of the repository.
+	 * @param name The host's name.
+	 * @returns The host, or NULL if the repository has no host of that name.
+	 */
+	private getRemoteHost(name: string) {
+		return this.gitRemoteHosts.find((host) => host.name === name) || null;
+	}
+
+	/**
+	 * Get a key for what the table shows of the remote hosts: each host's name and state, and for a host that isn't ok, its message and last good refresh.
+	 * @returns The key.
+	 */
+	private getRemoteHostsRenderKey() {
+		return JSON.stringify(this.gitRemoteHosts.map((host) => host.state === 'ok' ? [host.name] : [host.name, host.state, host.message, host.lastRefresh]));
 	}
 
 	/**
@@ -1346,7 +1436,7 @@ class GitTreeView {
 	 * @returns The worktree, or NULL if it isn't known.
 	 */
 	private getWorktreeOfUncommittedChanges(commit: GG.GitCommit) {
-		return this.gitWorktrees.find((worktree) => commit.hash === UNCOMMITTED ? worktree.isCurrent : worktree.path === commit.worktree) || null;
+		return this.gitWorktrees.find((worktree) => commit.hash === UNCOMMITTED ? worktree.isCurrent : worktree.path === commit.worktree && worktree.host === commit.host) || null;
 	}
 
 	private renderFetchButton() {
@@ -1542,7 +1632,13 @@ class GitTreeView {
 				title: 'Create Worktree' + ELLIPSIS,
 				visible: true,
 				onClick: () => this.createWorktreeAction(hash, false, target)
-			}
+			},
+			// One for each remote host whose entry in the config is valid
+			...this.gitRemoteHosts.map((host): ContextMenuAction => ({
+				title: 'Create Worktree on ' + escapeHtml(host.name) + ELLIPSIS,
+				visible: host.state !== 'configError',
+				onClick: () => this.createWorktreeAction(hash, false, target, host)
+			}))
 		], [
 			{
 				title: 'Checkout' + (globalState.alwaysAcceptCheckoutCommit ? '' : ELLIPSIS),
@@ -1960,44 +2056,77 @@ class GitTreeView {
 	 * @returns The worktree, or NULL if the branch isn't checked out in another worktree.
 	 */
 	private getWorktreeOfBranch(branchName: string) {
-		return this.gitWorktrees.find((worktree) => worktree.branch === branchName && !worktree.isCurrent) || null;
+		return this.gitWorktrees.find((worktree) => typeof worktree.host === 'undefined' && worktree.branch === branchName && !worktree.isCurrent) || null;
 	}
 
 	/**
-	 * If a row is another worktree's uncommitted changes, show that worktree and open its uncommitted changes.
+	 * If a row is another worktree's uncommitted changes, show that worktree and open its uncommitted changes. A remote host's
+	 * worktree is shown without them, because its changed files can't be read from here.
 	 * @param commit The row.
 	 * @returns TRUE => the row is another worktree's uncommitted changes, FALSE => it isn't.
 	 */
 	private showWorktreeOfUncommittedChanges(commit: GG.GitCommit) {
 		if (commit.hash === UNCOMMITTED || !isUncommittedChanges(commit.hash) || typeof commit.worktree === 'undefined') return false;
-		this.chooseWorktree(commit.worktree, true);
+		if (typeof commit.host === 'string') {
+			this.chooseWorktree(getWorktreeKey({ host: commit.host, path: commit.worktree }));
+		} else {
+			this.chooseWorktree(commit.worktree, true);
+		}
 		return true;
 	}
 
+	/**
+	 * Open a worktree in Visual Studio Code: a local one directly, and a remote host's with Remote-SSH.
+	 * @param worktree The worktree.
+	 * @param newWindow Open it in a new window.
+	 */
+	private openWorktree(worktree: { readonly path: string, readonly host?: string }, newWindow: boolean) {
+		if (typeof worktree.host === 'undefined') {
+			sendMessage({ command: 'openWorktree', path: worktree.path, newWindow: newWindow });
+		} else {
+			sendMessage({ command: 'openRemoteWorktree', repo: this.currentRepo, host: worktree.host, path: worktree.path, newWindow: newWindow });
+		}
+	}
+
 	private getWorktreeContextMenuActions(worktree: GG.GitWorktree, target: DialogTarget): ContextMenuActions {
+		const key = getWorktreeKey(worktree), host = worktree.host;
 		return [[
 			{
 				title: 'Show This Worktree',
-				visible: this.worktreeChoice !== worktree.path && !worktree.prunable,
-				onClick: () => this.chooseWorktree(worktree.path)
+				visible: this.worktreeChoice !== key && !worktree.prunable,
+				onClick: () => this.chooseWorktree(key)
 			}
 		], [
 			{
 				title: 'Open Worktree in New Window',
 				visible: true,
-				onClick: () => sendMessage({ command: 'openWorktree', path: worktree.path, newWindow: true })
+				onClick: () => this.openWorktree(worktree, true)
 			}, {
 				title: 'Open Worktree in This Window',
 				visible: true,
-				onClick: () => sendMessage({ command: 'openWorktree', path: worktree.path, newWindow: false })
+				onClick: () => this.openWorktree(worktree, false)
+			}, {
+				title: 'Open Terminal',
+				visible: typeof host !== 'undefined',
+				onClick: () => runAction({ command: 'openRemoteTerminal', repo: this.currentRepo, host: host!, path: worktree.path }, 'Opening Terminal')
+			}
+		], [
+			{
+				title: 'Allow Fetching from ' + escapeHtml(host || '') + ELLIPSIS,
+				visible: typeof host !== 'undefined' && this.getRemoteHost(host) !== null && this.getRemoteHost(host)!.state === 'needsConsent',
+				onClick: () => this.askFetchConsent(host!)
 			}
 		], [
 			{
 				title: 'Remove Worktree' + ELLIPSIS,
 				visible: !worktree.isMain,
 				onClick: () => {
-					dialog.showCheckbox('Are you sure you want to remove the worktree <b><i>' + escapeHtml(worktree.name) + '</i></b>? Git deletes its folder <b><i>' + escapeHtml(worktree.path) + '</i></b>' + (worktree.branch !== null ? ', and keeps the branch <b><i>' + escapeHtml(worktree.branch) + '</i></b>' : '') + '.', 'Force remove, even with uncommitted changes or untracked files', false, 'Yes, remove', (force) => {
-						runAction({ command: 'removeWorktree', repo: this.currentRepo, path: worktree.path, force: force }, 'Removing Worktree');
+					dialog.showCheckbox('Are you sure you want to remove the worktree <b><i>' + escapeHtml(getWorktreeLabel(worktree)) + '</i></b>? Git deletes its folder <b><i>' + escapeHtml(worktree.path) + '</i></b>' + (typeof host !== 'undefined' ? ' on <b><i>' + escapeHtml(host) + '</i></b>' : '') + (worktree.branch !== null ? ', and keeps the branch <b><i>' + escapeHtml(worktree.branch) + '</i></b>' : '') + '.', 'Force remove, even with uncommitted changes or untracked files', false, 'Yes, remove', (force) => {
+						if (typeof host === 'undefined') {
+							runAction({ command: 'removeWorktree', repo: this.currentRepo, path: worktree.path, force: force }, 'Removing Worktree');
+						} else {
+							runAction({ command: 'removeRemoteWorktree', repo: this.currentRepo, host: host, path: worktree.path, force: force }, 'Removing Worktree');
+						}
 					}, target);
 				}
 			}
@@ -2006,6 +2135,32 @@ class GitTreeView {
 				title: 'Copy Worktree Path to Clipboard',
 				visible: true,
 				onClick: () => sendMessage({ command: 'copyToClipboard', type: 'Worktree Path', data: worktree.path })
+			}
+		]];
+	}
+
+	/**
+	 * Ask the user again whether Git Tree may fetch from a host whose state is `needsConsent`. Visual Studio Code asks with a
+	 * modal dialog, and the host refreshes if the user agrees.
+	 * @param host The host's name.
+	 */
+	private askFetchConsent(host: string) {
+		sendMessage({ command: 'askRemoteHostFetchConsent', repo: this.currentRepo, host: host });
+	}
+
+	private getHostBranchContextMenuActions(hostName: string, branchName: string, target: DialogTarget & RefTarget): ContextMenuActions {
+		const host = this.getRemoteHost(hostName);
+		return [[
+			{
+				title: 'Create Worktree on ' + escapeHtml(hostName) + ELLIPSIS,
+				visible: host !== null && host.state !== 'configError',
+				onClick: () => this.createWorktreeAction(branchName, true, target, host)
+			}
+		], [
+			{
+				title: 'Copy Branch Name to Clipboard',
+				visible: this.config.contextMenuActionsVisibility.remoteBranch.copyName,
+				onClick: () => sendMessage({ command: 'copyToClipboard', type: 'Branch Name', data: branchName })
 			}
 		]];
 	}
@@ -2157,24 +2312,40 @@ class GitTreeView {
 		}, target);
 	}
 
-	private createWorktreeAction(commitish: string, isBranch: boolean, target: DialogTarget & (CommitTarget | RefTarget)) {
+	/**
+	 * Show the dialog that creates a worktree, here or on a remote host.
+	 * @param commitish The commit, or the branch (on the host, for a remote host), to check out.
+	 * @param isBranch Is `commitish` a branch.
+	 * @param target The target of the dialog.
+	 * @param host The remote host to create the worktree on. NULL => this machine.
+	 */
+	private createWorktreeAction(commitish: string, isBranch: boolean, target: DialogTarget & (CommitTarget | RefTarget), host: GG.GitRemoteHost | null = null) {
 		const location = this.config.worktreeDefaultLocation;
 		const getFolder = (folderInput: string, name: string) => folderInput.trim() !== '' ? folderInput.trim() : location + '/' + name.replace(/[\\/:*?"<>|\s]+/g, '-');
 		const runCreateWorktree = (path: string, newBranch: string | null, openInNewWindow: boolean) => {
-			runAction({ command: 'createWorktree', repo: this.currentWorktree, path: path, commitish: commitish, newBranch: newBranch, openInNewWindow: openInNewWindow }, 'Creating Worktree');
+			if (host === null) {
+				runAction({ command: 'createWorktree', repo: this.currentWorktree, path: path, commitish: commitish, newBranch: newBranch, openInNewWindow: openInNewWindow }, 'Creating Worktree');
+			} else {
+				runAction({ command: 'createRemoteWorktree', repo: this.currentRepo, host: host.name, path: path, commitish: commitish, newBranch: newBranch, openInNewWindow: openInNewWindow }, 'Creating Worktree on ' + host.name);
+			}
 		};
+		// Git Tree doesn't know the home folder on a server, so ~ is only offered here
+		const folderInfo = host === null
+			? 'Relative to the main worktree, ~ for your home folder, or an absolute path. {repo} stands for the repository\'s folder name. Leave it blank to use the default from the Git Tree settings.'
+			: 'Relative to the main worktree on ' + host.name + ' (' + host.path + '), or an absolute path on it. {repo} stands for its folder name. Leave it blank to use the default from the Git Tree settings.';
+		const where = host !== null ? ' on <b><i>' + escapeHtml(host.name) + '</i></b>' : '';
 
 		if (isBranch) {
-			dialog.showForm('Create a worktree with the branch <b><i>' + escapeHtml(commitish) + '</i></b> checked out:', [
-				{ type: DialogInputType.Text, name: 'Folder', default: '', placeholder: getFolder('', commitish), info: 'Relative to the main worktree, ~ for your home folder, or an absolute path. {repo} stands for the repository\'s folder name. Leave it blank to use the default from the Git Tree settings.' },
+			dialog.showForm('Create a worktree' + where + ' with the branch <b><i>' + escapeHtml(commitish) + '</i></b> checked out:', [
+				{ type: DialogInputType.Text, name: 'Folder', default: '', placeholder: getFolder('', commitish), info: folderInfo },
 				{ type: DialogInputType.Checkbox, name: 'Open in a new window', value: false }
 			], 'Create Worktree', (values) => {
 				runCreateWorktree(getFolder(<string>values[0], commitish), null, <boolean>values[1]);
 			}, target);
 		} else {
-			dialog.showForm('Create a worktree at commit <b><i>' + abbrevCommit(commitish) + '</i></b>:', [
+			dialog.showForm('Create a worktree' + where + ' at commit <b><i>' + abbrevCommit(commitish) + '</i></b>:', [
 				{ type: DialogInputType.Text, name: 'New Branch', default: '', placeholder: 'Leave blank for a detached HEAD', info: 'Git creates this branch at the commit, and checks it out in the worktree.' },
-				{ type: DialogInputType.Text, name: 'Folder', default: '', placeholder: location + '/<branch name>', info: 'Relative to the main worktree, ~ for your home folder, or an absolute path. {repo} stands for the repository\'s folder name. Leave it blank to use the default from the Git Tree settings.' },
+				{ type: DialogInputType.Text, name: 'Folder', default: '', placeholder: location + '/<branch name>', info: folderInfo },
 				{ type: DialogInputType.Checkbox, name: 'Open in a new window', value: false }
 			], 'Create Worktree', (values) => {
 				const newBranch = (<string>values[0]).trim();
@@ -2748,7 +2919,7 @@ class GitTreeView {
 				}
 				if (eventElem.classList.contains(CLASS_REF_WORKTREE) && (e.ctrlKey || e.metaKey) && e.detail < 2) {
 					// Ctrl/Cmd+Click opens the worktree in a new window, once: the second click of a double click is skipped
-					sendMessage({ command: 'openWorktree', path: unescapeHtml(eventElem.dataset.path!), newWindow: true });
+					this.openWorktree(getWorktreeOfLabel(eventElem), true);
 				}
 
 			} else if ((eventElem = eventTarget.closest('.commit')) !== null) {
@@ -2792,7 +2963,7 @@ class GitTreeView {
 				if (eventElem.classList.contains(CLASS_REF_WORKTREE)) {
 					// With Ctrl/Cmd, the first click already opened the worktree
 					if (!e.ctrlKey && !e.metaKey) {
-						sendMessage({ command: 'openWorktree', path: unescapeHtml(eventElem.dataset.path!), newWindow: true });
+						this.openWorktree(getWorktreeOfLabel(eventElem), true);
 					}
 				} else if (eventElem.classList.contains(CLASS_REF_HEAD) || eventElem.classList.contains(CLASS_REF_REMOTE)) {
 					let sourceElem = <HTMLElement>eventElem.children[1];
@@ -2840,10 +3011,12 @@ class GitTreeView {
 
 				let actions: ContextMenuActions;
 				if (eventElem.classList.contains(CLASS_REF_WORKTREE)) {
-					const worktreePath = unescapeHtml(eventElem.dataset.path!);
-					const worktree = this.gitWorktrees.find((worktree) => worktree.path === worktreePath);
+					const label = getWorktreeOfLabel(eventElem);
+					const worktree = this.gitWorktrees.find((worktree) => worktree.path === label.path && worktree.host === label.host);
 					if (typeof worktree === 'undefined') return;
 					actions = this.getWorktreeContextMenuActions(worktree, target);
+				} else if (eventElem.classList.contains(CLASS_REF_HOST_BRANCH)) {
+					actions = this.getHostBranchContextMenuActions(unescapeHtml(eventElem.dataset.host!), target.ref, target);
 				} else if (eventElem.classList.contains(CLASS_REF_STASH)) {
 					actions = this.getStashContextMenuActions(target);
 				} else if (eventElem.classList.contains(CLASS_REF_TAG)) {
@@ -3594,7 +3767,7 @@ class GitTreeView {
 			const file = getFileOfFileElem(expandedCommit.fileChanges, fileElem);
 			const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
 			const isUncommitted = commitOrder.to === UNCOMMITTED;
-			const otherWorktrees = this.gitWorktrees.filter((worktree) => !worktree.isCurrent && !worktree.prunable);
+			const otherWorktrees = this.gitWorktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.isCurrent && !worktree.prunable);
 
 			GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 			expandedCommit.contextMenuOpen.fileView = parseInt(fileElem.dataset.index!);
@@ -3776,6 +3949,9 @@ window.addEventListener('load', () => {
 			case 'addRemote':
 				refreshOrDisplayError(msg.error, 'Unable to Add Remote', true);
 				break;
+			case 'askRemoteHostFetchConsent':
+				finishOrDisplayError(msg.error, 'Unable to Ask for Permission to Fetch');
+				break;
 			case 'addTag':
 				if (msg.pushToRemote !== null && msg.errors.length === 2 && msg.errors[0] === null && isExtensionErrorInfo(msg.errors[1], GG.ErrorInfoExtensionPrefix.PushTagCommitNotOnRemote)) {
 					gitTree.refresh(false);
@@ -3831,6 +4007,9 @@ window.addEventListener('load', () => {
 				refreshAndDisplayErrors(msg.errors, 'Unable to Create Branch');
 				break;
 			case 'createWorktree':
+				refreshAndDisplayErrors(msg.errors, 'Unable to Create Worktree');
+				break;
+			case 'createRemoteWorktree':
 				refreshAndDisplayErrors(msg.errors, 'Unable to Create Worktree');
 				break;
 			case 'createPullRequest':
@@ -3911,6 +4090,12 @@ window.addEventListener('load', () => {
 			case 'openTerminal':
 				finishOrDisplayError(msg.error, 'Unable to Open Terminal', true);
 				break;
+			case 'openRemoteTerminal':
+				finishOrDisplayError(msg.error, 'Unable to Open Terminal', true);
+				break;
+			case 'openRemoteWorktree':
+				finishOrDisplayError(msg.error, 'Unable to Open Worktree');
+				break;
 			case 'openWorktree':
 				finishOrDisplayError(msg.error, 'Unable to Open Worktree');
 				break;
@@ -3950,6 +4135,7 @@ window.addEventListener('load', () => {
 			case 'refresh':
 				gitTree.refresh(false);
 				break;
+			case 'removeRemoteWorktree':
 			case 'removeWorktree':
 				refreshOrDisplayError(msg.error, 'Unable to Remove Worktree');
 				break;
@@ -4119,11 +4305,98 @@ window.addEventListener('load', () => {
  * Get the HTML of a worktree label, as shown in the Worktree column.
  * @param worktree The worktree.
  * @param title The tooltip of the label.
+ * @param stale Is the worktree on a remote host that isn't ok, so the label is greyed out.
  * @returns The HTML.
  */
-function getWorktreeRefHtml(worktree: GG.GitWorktree, title: string) {
-	const path = escapeHtml(worktree.path);
-	return '<span class="gitRef worktree' + (worktree.isCurrent ? ' current' : '') + '" data-name="' + path + '" data-path="' + path + '" title="' + escapeHtml(title + ' Ctrl/Cmd+Click to open it in a new window.') + '">' + SVG_ICONS.worktree + '<span class="gitRefName" data-fullref="' + path + '">' + escapeHtml(worktree.name) + '</span></span>';
+function getWorktreeRefHtml(worktree: GG.GitWorktree, title: string, stale: boolean) {
+	const path = escapeHtml(worktree.path), isHost = typeof worktree.host !== 'undefined';
+	return '<span class="gitRef worktree' + (worktree.isCurrent ? ' current' : '') + (stale ? ' ' + CLASS_STALE_HOST : '') + '" data-name="' + path + '" data-path="' + path + '"' + (isHost ? ' data-host="' + escapeHtml(worktree.host!) + '"' : '') + ' title="' + escapeHtml(title + ' Ctrl/Cmd+Click to open it in a new window' + (isHost ? ', with Remote-SSH.' : '.')) + '">' + SVG_ICONS.worktree + '<span class="gitRefName" data-fullref="' + path + '">' + escapeHtml(getWorktreeLabel(worktree)) + '</span></span>';
+}
+
+/**
+ * Get the worktree a worktree label in the Worktree column is for.
+ * @param elem The label's element.
+ * @returns The worktree's path, and its remote host's name if it is on one.
+ */
+function getWorktreeOfLabel(elem: HTMLElement): { readonly path: string, readonly host?: string } {
+	const path = unescapeHtml(elem.dataset.path!);
+	return typeof elem.dataset.host === 'string' ? { path: path, host: unescapeHtml(elem.dataset.host) } : { path: path };
+}
+
+/**
+ * Get the key that identifies a worktree, as the Worktree dropdown's value: the path of a worktree on this machine, and
+ * `host:<host>:<path>` for a remote host's worktree, whose path can also be a path on this machine.
+ * @param worktree The worktree.
+ * @returns The key.
+ */
+function getWorktreeKey(worktree: { readonly path: string, readonly host?: string }) {
+	return typeof worktree.host === 'string' ? HOST_WORKTREE_KEY_PREFIX + worktree.host + ':' + worktree.path : worktree.path;
+}
+
+/**
+ * Is a Worktree dropdown choice a remote host's worktree?
+ * @param key The choice.
+ * @returns TRUE => a remote host's worktree, FALSE => All, or a worktree on this machine.
+ */
+function isHostWorktreeKey(key: string) {
+	return key.startsWith(HOST_WORKTREE_KEY_PREFIX);
+}
+
+/**
+ * Get the label of a worktree: its folder name, and `<host>:<folder name>` on a remote host.
+ * @param worktree The worktree.
+ * @returns The label.
+ */
+function getWorktreeLabel(worktree: GG.GitWorktree) {
+	return typeof worktree.host === 'string' ? worktree.host + ':' + worktree.name : worktree.name;
+}
+
+/**
+ * Is what the view shows of a remote host from an older refresh: the host isn't ok, or isn't known.
+ * @param host The host, or NULL if it isn't known.
+ * @returns TRUE => greyed out, FALSE => current.
+ */
+function isRemoteHostStale(host: GG.GitRemoteHost | null) {
+	return host === null || host.state !== 'ok';
+}
+
+/**
+ * Get a remote host's state in words, as the Worktree dropdown shows it.
+ * @param host The host.
+ * @returns The state.
+ */
+function getRemoteHostStateText(host: GG.GitRemoteHost) {
+	switch (host.state) {
+		case 'ok':
+			return 'ok';
+		case 'loading':
+			return 'loading';
+		case 'needsConsent':
+			return 'waiting for permission to fetch';
+		case 'unreachable':
+			return 'unreachable' + (host.lastRefresh !== null ? ', last refreshed ' + formatShortDate(Math.floor(host.lastRefresh / 1000)).formatted : '');
+		case 'needsAuthentication':
+			return 'needs authentication';
+		case 'notARepository':
+			return 'not a repository';
+		case 'differentRepository':
+			return 'different repository';
+		case 'configError':
+			return 'config error';
+	}
+}
+
+/**
+ * Get what a tooltip adds about a remote host: nothing while it is ok, and otherwise its state and its message.
+ * @param host The host, or NULL if it isn't known.
+ * @returns The sentences, each starting with a space.
+ */
+function getRemoteHostStateSuffix(host: GG.GitRemoteHost | null) {
+	if (host === null) return ' The host is no longer in .worktrees/git-tree.yaml.';
+	if (host.state === 'ok') return '';
+	// Loading and waiting for permission are not failures; the others mean the host couldn't be read
+	const notAFailure = host.state === 'loading' || host.state === 'needsConsent';
+	return ' The host is ' + getRemoteHostStateText(host) + (host.message !== null ? ': ' + host.message.replace(/\.$/, '') : '') + '.' + (notAFailure ? '' : ' What the view shows of it is from its last good refresh.');
 }
 
 function generateFileViewHtml(folder: FileTreeFolder, gitFiles: ReadonlyArray<GG.GitFileChange>, lastViewedFile: string | null, fileContextMenuOpen: number, type: GG.FileViewType, isUncommitted: boolean) {

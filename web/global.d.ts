@@ -56,6 +56,7 @@ declare global {
 		readonly gitStashes: ReadonlyArray<GG.GitStash>;
 		readonly gitTags: ReadonlyArray<string>;
 		readonly gitWorktrees: ReadonlyArray<GG.GitWorktree>;
+		readonly gitRemoteHosts?: ReadonlyArray<GG.GitRemoteHost>; // Missing in state saved by older versions
 		readonly commits: GG.GitCommit[];
 		readonly commitsToken?: string | null; // The token of the commits. Missing in state saved by older versions
 		readonly commitHead: string | null;

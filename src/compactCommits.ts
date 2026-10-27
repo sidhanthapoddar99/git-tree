@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { GitCommitData } from './dataSource';
-import { CompactCommit, CompactCommitRemote, CompactCommitTag, CompactCommits, GitCommit, ResponseLoadCommits } from './types';
+import { CompactCommit, CompactCommitHostBranch, CompactCommitRemote, CompactCommitTag, CompactCommits, GitCommit, ResponseLoadCommits } from './types';
 import { UNCOMMITTED } from './utils';
 
 /**
@@ -30,13 +30,17 @@ export function encodeCommits(commits: ReadonlyArray<GitCommit>): CompactCommits
 
 		// The optional fields go up to the last one that is set, and the ones before it hold their empty value
 		const worktree = typeof commit.worktree === 'string' ? commit.worktree : null;
-		const last = worktree !== null ? 9 : commit.stash !== null ? 8 : commit.remotes.length > 0 ? 7 : commit.tags.length > 0 ? 6 : commit.heads.length > 0 ? 5 : 4;
+		const host = typeof commit.host === 'string' ? commit.host : null;
+		const hostBranches = typeof commit.hostBranches !== 'undefined' ? commit.hostBranches : [];
+		const last = hostBranches.length > 0 ? 11 : host !== null ? 10 : worktree !== null ? 9 : commit.stash !== null ? 8 : commit.remotes.length > 0 ? 7 : commit.tags.length > 0 ? 6 : commit.heads.length > 0 ? 5 : 4;
 		const row: (CompactCommit[number])[] = [commit.hash, parents, person, commit.date, commit.message];
 		if (last >= 5) row.push(commit.heads);
 		if (last >= 6) row.push(commit.tags.map((tag): CompactCommitTag => [tag.name, tag.annotated ? 1 : 0]));
 		if (last >= 7) row.push(commit.remotes.map((remote): CompactCommitRemote => [remote.name, remote.remote]));
 		if (last >= 8) row.push(commit.stash !== null ? [commit.stash.selector, commit.stash.baseHash, commit.stash.untrackedFilesHash] : null);
 		if (last >= 9) row.push(worktree);
+		if (last >= 10) row.push(host);
+		if (last >= 11) row.push(hostBranches.map((branch): CompactCommitHostBranch => [branch.host, branch.name]));
 		rows[i] = <CompactCommit><unknown>row;
 	}
 	return { people: people, rows: rows };

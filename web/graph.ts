@@ -847,11 +847,14 @@ class Graph {
 		}
 
 		const children = this.getAllChildren(id);
-		let heads: string[] = [], remotes: GG.GitCommitRemote[] = [], stashes: string[] = [], tags: string[] = [], childrenIncludesHead = false;
+		let heads: string[] = [], remotes: GG.GitCommitRemote[] = [], hostBranches: string[] = [], stashes: string[] = [], tags: string[] = [], childrenIncludesHead = false;
 		for (let i = 0; i < children.length; i++) {
 			let commit = this.commits[children[i]];
 			for (let j = 0; j < commit.heads.length; j++) heads.push(commit.heads[j]);
 			for (let j = 0; j < commit.remotes.length; j++) remotes.push(commit.remotes[j]);
+			if (typeof commit.hostBranches !== 'undefined') {
+				for (let j = 0; j < commit.hostBranches.length; j++) hostBranches.push(commit.hostBranches[j].host + '/' + commit.hostBranches[j].name);
+			}
 			for (let j = 0; j < commit.tags.length; j++) tags.push(commit.tags[j].name);
 			if (commit.stash !== null) stashes.push(commit.stash.selector.substring(5));
 			if (commit.hash === this.commitHead) childrenIncludesHead = true;
@@ -866,13 +869,14 @@ class Graph {
 		if (this.commitHead !== null && typeof this.commitLookup[this.commitHead] === 'number') {
 			html += '<div class="graphTooltipSection">This commit is ' + (childrenIncludesHead ? '' : '<b><i>not</i></b> ') + 'included in <span class="graphTooltipRef">HEAD</span></div>';
 		}
-		if (heads.length > 0 || remotes.length > 0) {
+		if (heads.length > 0 || remotes.length > 0 || hostBranches.length > 0) {
 			let branchLabels = getBranchLabels(heads, remotes), htmlRefs: string[] = [];
 			branchLabels.heads.forEach((head) => {
 				let html = head.remotes.reduce((prev, remote) => prev + '<span class="graphTooltipCombinedRef">' + escapeHtml(remote) + '</span>', '');
 				htmlRefs.push('<span class="graphTooltipRef">' + escapeHtml(head.name) + html + '</span>');
 			});
 			branchLabels.remotes.forEach((remote) => htmlRefs.push('<span class="graphTooltipRef">' + escapeHtml(remote.name) + '</span>'));
+			hostBranches.forEach((name) => htmlRefs.push('<span class="graphTooltipRef">' + escapeHtml(name) + '</span>'));
 			html += '<div class="graphTooltipSection">Branches: ' + getLimitedRefs(htmlRefs) + '</div>';
 		}
 		if (tags.length > 0) {

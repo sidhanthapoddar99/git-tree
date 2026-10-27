@@ -7,6 +7,7 @@ jest.mock('../src/diffDocProvider');
 jest.mock('../src/engine');
 jest.mock('../src/extensionState');
 jest.mock('../src/logger');
+jest.mock('../src/remoteHosts');
 jest.mock('../src/repoManager');
 jest.mock('../src/statusBarItem');
 
@@ -67,7 +68,7 @@ describe('activate', () => {
 		const { logger } = await activateGitTree();
 
 		// Assert
-		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/git', version: '2.31.0' }, expect.anything(), expect.anything(), expect.anything(), engine, null);
+		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/git', version: '2.31.0' }, expect.anything(), expect.anything(), expect.anything(), engine, null, expect.anything());
 		expect(logger.log).toHaveBeenCalledWith('Using /path/to/git (version: 2.31.0)');
 		expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
 		expect(logger.logError).not.toHaveBeenCalled();
@@ -81,7 +82,7 @@ describe('activate', () => {
 		const { logger } = await activateGitTree();
 
 		// Assert
-		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/old-git', version: '2.30.9' }, expect.anything(), expect.anything(), expect.anything(), engine, null);
+		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/old-git', version: '2.30.9' }, expect.anything(), expect.anything(), expect.anything(), engine, null, expect.anything());
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(OLD_GIT_MSG);
 		expect(logger.logError).toHaveBeenCalledWith(OLD_GIT_MSG);
@@ -95,7 +96,7 @@ describe('activate', () => {
 		const { logger } = await activateGitTree();
 
 		// Assert
-		expect(DataSource).toHaveBeenCalledWith(null, expect.anything(), expect.anything(), expect.anything(), engine, null);
+		expect(DataSource).toHaveBeenCalledWith(null, expect.anything(), expect.anything(), expect.anything(), engine, null, expect.anything());
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(utils.UNABLE_TO_FIND_GIT_MSG);
 		expect(logger.logError).toHaveBeenCalledWith(utils.UNABLE_TO_FIND_GIT_MSG);
@@ -110,7 +111,7 @@ describe('activate', () => {
 		const { logger } = await activateGitTree();
 
 		// Assert
-		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/git', version: '2.31.0' }, expect.anything(), expect.anything(), expect.anything(), null, ENGINE_ERROR_MSG);
+		expect(DataSource).toHaveBeenCalledWith({ path: '/path/to/git', version: '2.31.0' }, expect.anything(), expect.anything(), expect.anything(), null, ENGINE_ERROR_MSG, expect.anything());
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(ENGINE_ERROR_MSG);
 		expect(logger.logError).toHaveBeenCalledWith(ENGINE_ERROR_MSG);

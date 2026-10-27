@@ -13,7 +13,8 @@ import * as path from 'path';
 import { ConfigurationChangeEvent } from 'vscode';
 import { DataSource, GitConfigKey, resolveWorktreePath } from '../src/dataSource';
 import { Logger } from '../src/logger';
-import { CommitOrdering, GitConfigLocation, GitPushBranchMode, GitResetMode, GitSignature, GitSignatureStatus, MergeActionOn, RebaseActionOn, TagType } from '../src/types';
+import { RemoteHostSnapshot, RemoteHosts } from '../src/remoteHosts';
+import { CommitOrdering, GitConfigLocation, GitPushBranchMode, GitRemoteHostState, GitResetMode, GitSignature, GitSignatureStatus, GitWorktree, MergeActionOn, RebaseActionOn, TagType } from '../src/types';
 import * as utils from '../src/utils';
 import { EventEmitter } from '../src/utils/event';
 
@@ -186,7 +187,7 @@ describe('DataSource', () => {
 			const result = await dataSource.getRepoInfo('/path/to/repo', true, true, []);
 
 			// Assert
-			expect(result).toStrictEqual({ branches: [], head: null, remotes: [], stashes: [], worktrees: [], error: OLD_GIT_MSG });
+			expect(result).toStrictEqual({ branches: [], head: null, remotes: [], stashes: [], worktrees: [], hosts: [], error: OLD_GIT_MSG });
 			expect(spyOnSpawn).not.toHaveBeenCalled();
 			expect(engine.branches).not.toHaveBeenCalled();
 			expect(engine.remotes).not.toHaveBeenCalled();
@@ -444,6 +445,7 @@ describe('DataSource', () => {
 			remotes: ['origin'],
 			stashes: [{ hash: '98adab72e57a098a45cc36e43a6c0fda95c44f8b', baseHash: HASH1, untrackedFilesHash: null, selector: 'refs/stash@{0}', author: 'Test Author', email: 'test@example.com', date: 1592306634, message: 'WIP on develop: 1a2b3c4 y' }],
 			worktrees: [{ path: '/path/to/repo', name: 'repo', head: HASH1, branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+			hosts: [],
 			error: null
 		};
 		const log = () => ({ ok: [{ hash: HASH1, parents: [HASH2], author: 'Test Name', email: 'test@example.com', date: 1587559258, message: 'Commit Message 2' }, { hash: HASH2, parents: [], author: 'Test Name', email: 'test@example.com', date: 1587559257, message: 'Commit Message 1' }] });
@@ -714,6 +716,212 @@ describe('DataSource', () => {
 		});
 	});
 
+	describe('Remote hosts', () => {
+		const SEP = 'XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb';
+		const LOG_FORMAT = '--format=%H' + SEP + '%P' + SEP + '%an' + SEP + '%ae' + SEP + '%at' + SEP + '%s';
+		const H1 = '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', H2 = '2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c', H9 = '9f8e7d6c5b4a9f8e7d6c5b4a9f8e7d6c5b4a9f8e';
+		const logOutput = (H1 + SEP + H2 + SEP + 'Test Name' + SEP + 'test@example.com' + SEP + '1587559258' + SEP + 'Commit Message 2\n') +
+			(H2 + SEP + SEP + 'Test Name' + SEP + 'test@example.com' + SEP + '1587559257' + SEP + 'Commit Message 1\n');
+		const serverWorktree = (worktreePath: string, head: string, branch: string | null, isMain: boolean) => ({ path: worktreePath, name: worktreePath.substring(worktreePath.lastIndexOf('/') + 1), head: head, branch: branch, isMain: isMain, isCurrent: false, locked: false, prunable: false, host: 'server' });
+		const hostSnapshot = (state: GitRemoteHostState): RemoteHostSnapshot => ({
+			host: { name: 'server', ssh: 'gt-test', path: '/home/dev/app', state: state, message: state === 'ok' ? null : 'ssh: connect to host 127.0.0.1 port 2222: Connection refused', lastRefresh: 1587559000000 },
+			worktrees: [
+				{ worktree: serverWorktree('/home/dev/app', H1, 'main', true), uncommittedChanges: 2, commitIsLocal: true },
+				{ worktree: serverWorktree('/home/dev/app-wt', H2, null, false), uncommittedChanges: null, commitIsLocal: true },
+				{ worktree: serverWorktree('/home/dev/app-clean', H1, 'clean', false), uncommittedChanges: 0, commitIsLocal: true },
+				{ worktree: serverWorktree('/home/dev/app-far', H9, 'far', false), uncommittedChanges: 3, commitIsLocal: false }
+			]
+		});
+		const localWorktree: GitWorktree = { path: '/path/to/repo', name: 'repo', head: H1, branch: 'master', isMain: true, isCurrent: true, locked: false, prunable: false };
+		let snapshots: RemoteHostSnapshot[];
+		let getHosts: jest.Mock;
+
+		beforeEach(() => {
+			snapshots = [hostSnapshot('ok')];
+			getHosts = jest.fn(() => snapshots);
+			dataSource.dispose();
+			dataSource = new DataSource({ path: '/path/to/git', version: '2.31.0' }, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger, null, null, { getHosts: getHosts } as unknown as RemoteHosts);
+		});
+
+		const getHostWorktrees = () => snapshots[0].worktrees.map((remoteWorktree) => Object.assign({}, remoteWorktree.worktree, { hostCommitIsLocal: remoteWorktree.commitIsLocal }));
+
+		const mockHostRefs = () => {
+			mockGitSuccessOnce(
+				H1 + ' HEAD\n' +
+				H1 + ' refs/git-tree/hosts/old/heads/gone\n' +
+				H1 + ' refs/git-tree/hosts/server/detached/0123456789ab\n' +
+				H1 + ' refs/git-tree/hosts/server/heads/main\n' +
+				H2 + ' refs/git-tree/hosts/server/heads/topic/x\n' +
+				H1 + ' refs/heads/master\n' +
+				H2 + ' refs/remotes/origin/master\n'
+			);
+		};
+
+		it('Should append each host\'s worktrees to the local ones, and return the hosts', async () => {
+			// Setup
+			mockGitSuccessOnce('* master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + H1 + '\nbranch refs/heads/master\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, []);
+
+			// Assert
+			expect(getHosts).toHaveBeenCalledWith('/path/to/repo');
+			expect(result.worktrees).toStrictEqual([localWorktree, ...getHostWorktrees()]);
+			expect(result.hosts).toStrictEqual([snapshots[0].host]);
+		});
+
+		it('Should mark the worktrees of a host that isn\'t ok with the host, and keep them', async () => {
+			// Setup
+			snapshots = [hostSnapshot('unreachable')];
+			mockGitSuccessOnce('* master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + H1 + '\nbranch refs/heads/master\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, []);
+
+			// Assert
+			expect(result.worktrees.slice(1).every((worktree) => worktree.host === 'server' && !worktree.isCurrent)).toBe(true);
+			expect(result.hosts).toStrictEqual([snapshots[0].host]);
+			expect(result.hosts[0].state).toBe('unreachable');
+		});
+
+		it('Should label the hosts\' branches, start the log from every host ref, and give each host worktree with changes a row', async () => {
+			// Setup
+			mockGitSuccessOnce(logOutput);
+			mockHostRefs();
+			mockGitSuccessOnce('');
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
+			date.setCurrentTime(1587559259);
+			const worktrees = [localWorktree, ...getHostWorktrees()];
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], worktrees);
+
+			// Assert
+			expect(result.commits.map((commit) => ({ hash: commit.hash, parents: commit.parents, message: commit.message, worktree: commit.worktree, host: commit.host, heads: commit.heads, remotes: commit.remotes, hostBranches: commit.hostBranches }))).toStrictEqual([
+				{ hash: '*1', parents: [H1], message: 'Uncommitted Changes (2)', worktree: '/home/dev/app', host: 'server', heads: [], remotes: [], hostBranches: undefined },
+				{ hash: '*2', parents: [H2], message: 'Uncommitted Changes (unable to read them)', worktree: '/home/dev/app-wt', host: 'server', heads: [], remotes: [], hostBranches: undefined },
+				{ hash: H1, parents: [H2], message: 'Commit Message 2', worktree: undefined, host: undefined, heads: ['master'], remotes: [], hostBranches: [{ host: 'server', name: 'main' }] },
+				{ hash: H2, parents: [], message: 'Commit Message 1', worktree: undefined, host: undefined, heads: [], remotes: [], hostBranches: [{ host: 'server', name: 'topic/x' }] }
+			]);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', LOG_FORMAT, '--date-order', '--branches', '--tags', '--glob=refs/git-tree/hosts/server', 'HEAD', '--'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			// Every ref is read, because --heads and --tags would leave out the hosts' refs, and the remotes' refs are then dropped
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['show-ref', '-d', '--head'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			// A host worktree's count comes from its host's snapshot, so only the local worktree's status is read
+			expect(spyOnSpawn).toHaveBeenCalledTimes(3);
+		});
+
+		it('Should start the log from the hosts\' refs after the remotes\' (showRemoteBranches === TRUE)', async () => {
+			// Setup
+			mockGitSuccessOnce(logOutput);
+			mockHostRefs();
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', false);
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, true, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, ...getHostWorktrees()]);
+
+			// Assert
+			expect(result.commits.map((commit) => commit.hash)).toStrictEqual([H1, H2]);
+			expect(result.commits[1].remotes).toStrictEqual([{ name: 'origin/master', remote: 'origin' }]);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', LOG_FORMAT, '--date-order', '--branches', '--tags', '--remotes', '--glob=refs/git-tree/hosts/server', 'HEAD', '--'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should only start the log from the chosen branches (branches !== NULL)', async () => {
+			// Setup
+			mockGitSuccessOnce(logOutput);
+			mockHostRefs();
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', false);
+
+			// Run
+			await dataSource.getCommits('/path/to/repo', ['master'], 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, ...getHostWorktrees()]);
+
+			// Assert
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', LOG_FORMAT, '--date-order', 'master', '--'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should show only a host worktree\'s history and its row when it is chosen (onlyHostWorktree)', async () => {
+			// Setup
+			mockGitSuccessOnce(logOutput.substring(logOutput.indexOf('\n') + 1));
+			mockHostRefs();
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
+			const worktrees = [localWorktree, ...getHostWorktrees()];
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, [], [], [], worktrees, false, worktrees[2]);
+
+			// Assert
+			expect(result.commits.map((commit) => ({ hash: commit.hash, message: commit.message, host: commit.host }))).toStrictEqual([
+				{ hash: '*2', message: 'Uncommitted Changes (unable to read them)', host: 'server' },
+				{ hash: H2, message: 'Commit Message 1', host: undefined }
+			]);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', LOG_FORMAT, '--date-order', '--ignore-missing', H2, '--'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			// The local worktrees' changes aren't read, since only the host worktree's are shown
+			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
+		});
+
+		it('Should return no commits for a chosen host worktree with no commit and no chosen branches', async () => {
+			// Setup
+			const empty = Object.assign({}, serverWorktree('/home/dev/app-empty', H1, null, false), { head: null });
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, [], [], [], [localWorktree, empty], false, empty);
+
+			// Assert
+			expect(result).toStrictEqual({ commits: [], head: null, tags: [], moreCommitsAvailable: false, error: null });
+			expect(spyOnSpawn).not.toHaveBeenCalled();
+		});
+
+		it('Should give no row to a host worktree that the host\'s last refresh no longer has', async () => {
+			// Setup
+			mockGitSuccessOnce(logOutput);
+			mockHostRefs();
+			mockGitSuccessOnce('');
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
+			const worktrees = [localWorktree, ...getHostWorktrees()];
+			snapshots = [{ host: snapshots[0].host, worktrees: snapshots[0].worktrees.slice(1) }];
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, [], [], [], worktrees);
+
+			// Assert
+			expect(result.commits.map((commit) => commit.hash)).toStrictEqual(['*2', H1, H2]);
+		});
+
+		it('Should read the refs and the log as without hosts when the repository has none', async () => {
+			// Setup
+			snapshots = [];
+			mockGitSuccessOnce(logOutput);
+			mockGitSuccessOnce(H1 + ' HEAD\n' + H1 + ' refs/heads/master\n');
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', false);
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, [], [], [], [localWorktree]);
+
+			// Assert
+			expect(result.commits.map((commit) => ({ hash: commit.hash, hostBranches: commit.hostBranches }))).toStrictEqual([{ hash: H1, hostBranches: undefined }, { hash: H2, hostBranches: undefined }]);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', LOG_FORMAT, '--date-order', '--branches', '--tags', 'HEAD', '--'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['show-ref', '--heads', '--tags', '-d', '--head'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
+		it('Should return no hosts when the repository has none', async () => {
+			// Setup
+			snapshots = [];
+			mockGitSuccessOnce('* master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + H1 + '\nbranch refs/heads/master\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, []);
+
+			// Assert
+			expect(result.worktrees).toStrictEqual([localWorktree]);
+			expect(result.hosts).toStrictEqual([]);
+		});
+	});
+
 	describe('getRepoInfo', () => {
 		it('Should return the repository info', async () => {
 			// Setup
@@ -763,6 +971,7 @@ describe('DataSource', () => {
 					}
 				],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-a', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -791,6 +1000,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -825,6 +1035,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -859,6 +1070,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -893,6 +1105,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -927,6 +1140,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -953,6 +1167,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-a', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -1016,6 +1231,7 @@ describe('DataSource', () => {
 				remotes: [],
 				stashes: [],
 				worktrees: [],
+				hosts: [],
 				error: 'error message'
 			});
 		});
@@ -1044,6 +1260,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-a', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -1075,6 +1292,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['branch', '-a', '--no-color', '--no-column'], expect.objectContaining({ cwd: '/path/to/repo' }));
@@ -1100,6 +1318,7 @@ describe('DataSource', () => {
 				remotes: [],
 				stashes: [],
 				worktrees: [],
+				hosts: [],
 				error: 'error message'
 			});
 		});
@@ -1125,6 +1344,7 @@ describe('DataSource', () => {
 				remotes: [],
 				stashes: [],
 				worktrees: [],
+				hosts: [],
 				error: 'error message'
 			});
 		});
@@ -1150,6 +1370,7 @@ describe('DataSource', () => {
 				remotes: ['origin'],
 				stashes: [],
 				worktrees: [{ path: '/path/to/repo', name: 'repo', head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: 'develop', isMain: true, isCurrent: true, locked: false, prunable: false }],
+				hosts: [],
 				error: null
 			});
 		});

@@ -38,6 +38,7 @@ Converting screenshots needs ImageMagick 7 (`magick`) built with WebP support.
 │   ├── gitTreeView.ts        # one Git Tree tab: answers the messages its webview sends
 │   ├── dataSource.ts         # runs Git and parses its output (log, refs, status, worktrees…)
 │   ├── engine.ts             # loads the Rust engine for this platform
+│   ├── remoteHosts.ts        # the SSH servers in .worktrees/git-tree.yaml: status, fetch, actions
 │   ├── compactCommits.ts     # encodes the commits for the webview, and their token
 │   ├── repoManager.ts        # finds the repositories in the workspace
 │   ├── repoFileWatcher.ts    # refreshes a tab when files in its repository or worktrees change
@@ -54,7 +55,8 @@ Converting screenshots needs ImageMagick 7 (`magick`) built with WebP support.
 │   ├── node/                 # the Node-API module that src/engine.ts loads
 │   └── bin/                  # the built modules, git-tree-engine.<platform>.node (not committed)
 ├── tests/                    ← Jest tests, with mocks of the vscode API and of Git
-│   └── engine/               # the engine's differential tests, which run real Git
+│   ├── engine/               # the engine's differential tests, which run real Git
+│   └── remote/               # the remote host tests, which run real SSH against a test server
 ├── resources/                ← the logo and icons
 ├── dev-workspace/            ← what the Extension Development Host opens
 │   └── demo.code-workspace   # opens demo-repo/, which scripts/make-demo-repo.sh builds
@@ -62,6 +64,7 @@ Converting screenshots needs ImageMagick 7 (`magick`) built with WebP support.
 │   ├── make-demo-repo.sh     # builds the demo repository
 │   ├── build-engine.js       # builds the engine into native/bin/
 │   ├── bench-engine.js       # times each read with the Git CLI and with the engine
+│   ├── test-ssh-server.sh    # starts the throwaway SSH server for the remote host tests
 │   └── convert-screenshots.sh
 ├── docs/images/              ← README screenshots, as WebP
 ├── dist/                     ← packaged .vsix files (not committed)
@@ -138,6 +141,16 @@ mise run test-engine   # npm run test-engine
 They read the demo repository (built in a temporary folder), this repository, and repositories built for edge cases, with each ordering and option the view uses. `tests/engine/differential.test.ts` covers the view load, `tests/engine/viewLoad.test.ts` the combined `repoInfo` and `commits` reads and when the token changes, and `tests/engine/details.test.ts` reads every commit's details, diff, subject and changed files, comparisons, stashes, tags, remote URLs and the configuration. `tests/engine/harness.ts` holds what they share. A Git Tree without the engine and one with it must return the same results, and the engine must answer each read itself, apart from the reads it hands to Git on purpose. Without a built engine, the tests are skipped.
 
 The tests give Git and the engine an empty home folder, which `tests/engine/home-setup.js` makes before Jest starts its workers. It can't be set in a test file: the engine reads the process's environment, and Jest gives each test file its own copy of `process.env`, which only Git sees.
+
+The remote host tests in `tests/remote/` run real SSH and Git against a throwaway server, so they have their own configuration too (`jest.remote.config.js`):
+
+```bash
+scripts/test-ssh-server.sh   # starts the server in Docker, on 127.0.0.1:2222 (needs Docker)
+mise run test-remote         # npm run test-remote
+docker rm -f git-tree-test-sshd
+```
+
+The script writes a key and an SSH configuration with `Host gt-test` to `/tmp/gt-ssh`, and the tests reach the server through a wrapper that passes that configuration (`git-tree.remoteHosts.sshPath`), so they never read or change `~/.ssh`. Without `/tmp/gt-ssh/ssh_config`, or `GIT_TREE_TEST_SSH_CONFIG`, the tests are skipped. The unit tests (`tests/remoteHosts*.test.ts`) mock `ssh` and Git, and run with `npx jest`.
 
 The benchmark times each read, and the view load, as the median of several runs:
 

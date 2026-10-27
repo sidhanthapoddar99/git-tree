@@ -21,4 +21,6 @@ CONTRIBUTING.md
 native/**
 !native/bin/*.node
 jest.engine.config.js
+jest.remote.config.js
 .worktrees/
+node_modules/yaml/browser/**

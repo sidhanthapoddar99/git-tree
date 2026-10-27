@@ -45,7 +45,7 @@ Git Tree started from [Git Graph](https://github.com/mhutchie/vscode-git-graph) 
 | Elements on the page, 5,000 commits | as Git Tree 0.3 | about 48,000 | **about 1,600** |
 | View memory, 2,000 / 5,000 commits | as Git Tree 0.3 | 199 / 277 MB | **145 / 153 MB** |
 | Extension memory after 30 view loads | 31 MB | 33 MB | **28 MB** |
-| Download size | 346 KB | 336 KB | 8.2 MB, with the engine for every platform |
+| Download size | 346 KB | 336 KB | 8.4 MB, with the engine for every platform |
 
 How these were measured, on Linux x64 with Git 2.55:
 
@@ -131,6 +131,29 @@ New worktrees go in the `.worktrees` folder of the main worktree by default, for
 
 A file has a different absolute path in each worktree. In Commit Details, Open File and Copy Absolute File Path use the worktree you're viewing. To copy the path in another worktree, right-click the file and choose *Copy Absolute File Path in Another Worktree...*.
 
+### Worktrees on SSH servers
+
+Git Tree can show the worktrees on your SSH servers in the same graph as your local ones. Each server worktree gets a label in the Worktree column, such as `build-box:main`, its own *Uncommitted Changes* row, and a place in the Worktree filter. The server's branches are drawn like remote branches, under the host's name. The server needs only `git`; Git Tree installs nothing there.
+
+Run *Git Tree: Add Remote Host...*, or write `.worktrees/git-tree.yaml` in the main worktree yourself:
+
+```yaml
+version: 1
+hosts:
+  build-box:                          # the name shown in the graph
+    ssh: build-box                    # a Host alias from ~/.ssh/config
+    path: /home/ubuntu/projects/app   # the repository's main worktree on the server
+    worktrees: true                   # include its linked worktrees (default: true)
+```
+
+User names, ports, keys and jump hosts stay in `~/.ssh/config`. The file lives in `.worktrees/`, which Git Tree excludes from Git, so it's never committed.
+
+On each refresh, Git Tree reads every host over one SSH call: its worktrees, their branches and how many uncommitted changes each has. It reuses one SSH connection per host (OpenSSH's connection sharing), so a refresh after the first costs about one network round trip; Windows' OpenSSH can't share connections, so there each refresh connects again. When a server's branches moved, Git Tree fetches them into hidden refs under `refs/git-tree/hosts/<name>/`, which don't show up in `git branch -a`. Git Tree asks before the first fetch from each host. A slow or unreachable host never holds up the local graph: it shows *unreachable*, with the time of its last good refresh, and never looks clean.
+
+Right-click a server worktree's label to open it in VS Code with [Remote-SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh), open a terminal there, copy its path or remove it. Right-click a commit to create a worktree on a server. *Git Tree: Remove Remote Host* removes a host and its hidden refs.
+
+Coding agents can keep the host list up to date: copy [the agent instruction](docs/remote-hosts-for-agents.md) into your agent's instructions, for example `CLAUDE.md` or `AGENTS.md`.
+
 ## Everyday use
 
 ### Commit details and comparisons
@@ -170,6 +193,8 @@ All settings start with `git-tree.`. Search for "Git Tree" in the Settings edito
 | --- | --- | --- |
 | `git-tree.worktree.defaultLocation` | `.worktrees` | The folder new worktrees go in. See [Where new worktrees go](#where-new-worktrees-go). |
 | `git-tree.repository.writeCommitGraph` | on | Writes Git's [commit-graph](https://git-scm.com/docs/git-commit-graph) file in the background when a repository has none. |
+| `git-tree.remoteHosts.sshPath` | `ssh` | The `ssh` executable for [remote hosts](#worktrees-on-ssh-servers), if it isn't on the PATH. |
+| `git-tree.remoteHosts.refreshInterval` | 0 (off) | Refresh remote hosts every so many seconds, as well as when the view opens, regains focus or is refreshed. |
 
 If `git-tree.graph.colours` isn't set, the graph uses a darker palette on light themes. A repository's shared Git Tree configuration lives in `.vscode/vscode-git-tree.json`.
 
@@ -182,6 +207,8 @@ If `git-tree.graph.colours` isn't set, the graph uses a darker palette on light 
 | Git Tree: Fetch from Remote(s) | Opens the graph and fetches |
 | Git Tree: Add Git Repository... | Adds a repository that wasn't found automatically |
 | Git Tree: Remove Git Repository... | Removes a repository from Git Tree |
+| Git Tree: Add Remote Host... | Adds an SSH server's worktrees to the graph, after checking the connection |
+| Git Tree: Remove Remote Host | Removes a server and its hidden refs |
 | Git Tree: Resume a specific Code Review in Workspace... | Reopens a code review in progress |
 | Git Tree: End a specific Code Review in Workspace... | Ends one code review |
 | Git Tree: End All Code Reviews in Workspace | Ends every code review |

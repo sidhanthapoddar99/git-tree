@@ -75,7 +75,8 @@ function isUncommittedChanges(hash: string) {
 	return hash.startsWith(UNCOMMITTED);
 }
 const SHOW_ALL_BRANCHES = '';
-const ALL_WORKTREES = ''; // The Worktree dropdown's All option. Its other options are the paths of worktrees.
+const ALL_WORKTREES = ''; // The Worktree dropdown's All option. Its other options are the paths of worktrees, and the keys of remote hosts' worktrees.
+const HOST_WORKTREE_KEY_PREFIX = 'host:'; // The start of a remote host's worktree's key (getWorktreeKey). A path on this machine is absolute, so it never starts with it.
 
 const COLUMN_HIDDEN = -100;
 const COLUMN_AUTO = -101;
@@ -103,11 +104,13 @@ const CLASS_LOADING = 'loading';
 const CLASS_PENDING_REVIEW = 'pendingReview';
 const CLASS_REFRESHING = 'refreshing';
 const CLASS_REF_HEAD = 'head';
+const CLASS_REF_HOST_BRANCH = 'hostBranch';
 const CLASS_REF_REMOTE = 'remote';
 const CLASS_REF_STASH = 'stash';
 const CLASS_REF_TAG = 'tag';
 const CLASS_REF_WORKTREE = 'worktree';
 const CLASS_SELECTED = 'selected';
+const CLASS_STALE_HOST = 'staleHost';
 const CLASS_TAG_LABELS_RIGHT_ALIGNED = 'tagLabelsRightAligned';
 const CLASS_TRANSITION = 'transition';
 

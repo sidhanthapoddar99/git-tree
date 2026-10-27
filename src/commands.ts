@@ -7,6 +7,7 @@ import { DiffDocProvider, decodeDiffDocUri } from './diffDocProvider';
 import { CodeReviewData, CodeReviews, ExtensionState } from './extensionState';
 import { GitTreeView } from './gitTreeView';
 import { Logger } from './logger';
+import { CONFIG_FILE, validateHostName, validateServerPath, validateSshAlias } from './remoteHosts/config';
 import { RepoManager } from './repoManager';
 import { GitExecutable, VsCodeVersionRequirement, abbrevCommit, abbrevText, copyToClipboard, doesVersionMeetRequirement, getExtensionVersion, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openFile, resolveToSymbolicPath, showErrorMessage, showInformationMessage } from './utils';
 import { Disposable } from './utils/disposable';
@@ -50,6 +51,8 @@ export class CommandManager extends Disposable {
 		this.registerCommand('git-tree.viewInNewTab', () => this.viewInNewTab());
 		this.registerCommand('git-tree.addGitRepository', () => this.addGitRepository());
 		this.registerCommand('git-tree.removeGitRepository', () => this.removeGitRepository());
+		this.registerCommand('git-tree.addRemoteHost', () => this.addRemoteHost());
+		this.registerCommand('git-tree.removeRemoteHost', () => this.removeRemoteHost());
 		this.registerCommand('git-tree.clearAvatarCache', () => this.clearAvatarCache());
 		this.registerCommand('git-tree.fetch', () => this.fetch());
 		this.registerCommand('git-tree.endAllWorkspaceCodeReviews', () => this.endAllWorkspaceCodeReviews());
@@ -208,6 +211,85 @@ export class CommandManager extends Disposable {
 				}
 			}
 		}, () => { });
+	}
+
+	/**
+	 * The method run when the `git-tree.addRemoteHost` command is invoked. It asks for the host's name, SSH alias and
+	 * path, and RemoteHosts checks the connection and the project before it writes `.worktrees/git-tree.yaml`.
+	 */
+	private async addRemoteHost() {
+		const remoteHosts = this.dataSource.remoteHosts;
+		const repo = await this.pickRepoForRemoteHosts('Select the repository to add a remote host to:');
+		if (remoteHosts === null || repo === null) return;
+
+		const existing = (await remoteHosts.loadHosts(repo)).map((snapshot) => snapshot.host.name.toLowerCase());
+		const name = await vscode.window.showInputBox({
+			title: 'Add Remote Host (1/3)',
+			prompt: 'The host\'s name, shown in the graph: letters, digits, - and _.',
+			placeHolder: 'build-box',
+			ignoreFocusOut: true,
+			validateInput: (value) => validateHostName(value) || (existing.indexOf(value.toLowerCase()) > -1 ? 'The repository already has a host named "' + value + '".' : null)
+		});
+		if (typeof name === 'undefined') return;
+
+		const ssh = await this.pickSshAlias(remoteHosts.getSshAliases());
+		if (ssh === null) return;
+
+		const serverPath = await vscode.window.showInputBox({
+			title: 'Add Remote Host (3/3)',
+			prompt: 'The absolute path of the repository\'s main worktree on "' + ssh + '".',
+			placeHolder: '/home/user/projects/app',
+			ignoreFocusOut: true,
+			validateInput: (value) => validateServerPath(value)
+		});
+		if (typeof serverPath === 'undefined') return;
+
+		const errorInfo = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Checking ' + ssh + ':' + serverPath + '...' }, () => remoteHosts.addHost(repo, name, ssh, serverPath));
+		if (errorInfo === null) {
+			showInformationMessage('The remote host "' + name + '" was added to ' + CONFIG_FILE + '.');
+		} else {
+			showErrorMessage('The remote host "' + name + '" wasn\'t added: ' + errorInfo);
+		}
+	}
+
+	/**
+	 * The method run when the `git-tree.removeRemoteHost` command is invoked. It removes the host's entry from
+	 * `.worktrees/git-tree.yaml`, and deletes its refs under `refs/git-tree/hosts/<name>/`, after a confirmation.
+	 */
+	private async removeRemoteHost() {
+		const remoteHosts = this.dataSource.remoteHosts;
+		const repo = await this.pickRepoForRemoteHosts('Select the repository to remove a remote host from:');
+		if (remoteHosts === null || repo === null) return;
+
+		const hosts = await remoteHosts.loadHosts(repo);
+		const configError = remoteHosts.getConfigError(repo);
+		if (configError !== null) {
+			showErrorMessage('Fix ' + CONFIG_FILE + ' before removing a host: ' + configError);
+			return;
+		}
+		if (hosts.length === 0) {
+			showErrorMessage('The repository has no remote hosts in ' + CONFIG_FILE + '.');
+			return;
+		}
+
+		const item = await vscode.window.showQuickPick(hosts.map((snapshot) => ({ label: snapshot.host.name, description: snapshot.host.ssh + ':' + snapshot.host.path })), {
+			placeHolder: 'Select the remote host to remove:',
+			canPickMany: false
+		});
+		if (typeof item === 'undefined') return;
+
+		const confirmed = await vscode.window.showWarningMessage('Remove the remote host "' + item.label + '"?', {
+			modal: true,
+			detail: 'Git Tree removes its entry from ' + CONFIG_FILE + ', and deletes the refs it fetched from it, under refs/git-tree/hosts/' + item.label + '/. Nothing on the server changes.'
+		}, 'Remove');
+		if (confirmed !== 'Remove') return;
+
+		const errorInfo = await remoteHosts.removeHost(repo, item.label);
+		if (errorInfo === null) {
+			showInformationMessage('The remote host "' + item.label + '" was removed.');
+		} else {
+			showErrorMessage(errorInfo);
+		}
 	}
 
 	/**
@@ -374,6 +456,71 @@ export class CommandManager extends Disposable {
 		} else {
 			return showErrorMessage('Unable to Open File: The command was not called with the required arguments.');
 		}
+	}
+
+
+	/**
+	 * Pick the repository a remote host command acts on: the only one, or one the user picks (the last active first).
+	 * @param placeHolder The Quick Pick's placeholder.
+	 * @returns The repository's path. NULL => there's none, remote hosts aren't available, or the user cancelled.
+	 */
+	private async pickRepoForRemoteHosts(placeHolder: string): Promise<string | null> {
+		if (this.dataSource.remoteHosts === null) {
+			showErrorMessage('Remote hosts aren\'t available.');
+			return null;
+		}
+		const gitExecutableError = this.dataSource.getGitExecutableError();
+		if (gitExecutableError !== null) {
+			showErrorMessage(gitExecutableError);
+			return null;
+		}
+
+		const repos = this.repoManager.getRepos();
+		const repoPaths = getSortedRepositoryPaths(repos, getConfig().repoDropdownOrder).slice();
+		if (repoPaths.length === 0) {
+			showErrorMessage('Git Tree has no repositories in this workspace.');
+			return null;
+		} else if (repoPaths.length === 1) {
+			return repoPaths[0];
+		}
+
+		const lastActiveRepo = this.extensionState.getLastActiveRepo();
+		const lastActiveIndex = lastActiveRepo !== null ? repoPaths.indexOf(lastActiveRepo) : -1;
+		if (lastActiveIndex > 0) repoPaths.unshift(repoPaths.splice(lastActiveIndex, 1)[0]);
+		const item = await vscode.window.showQuickPick(repoPaths.map((path) => ({ label: repos[path].name || getRepoName(path), description: path })), {
+			placeHolder: placeHolder,
+			canPickMany: false
+		});
+		return typeof item !== 'undefined' && typeof item.description === 'string' ? item.description : null;
+	}
+
+	/**
+	 * Pick the SSH alias of a new remote host: one of the Host aliases in ~/.ssh/config, or one the user types.
+	 * @param aliases The Host aliases in ~/.ssh/config.
+	 * @returns The alias. NULL => the user cancelled.
+	 */
+	private async pickSshAlias(aliases: Promise<string[]>): Promise<string | null> {
+		const other = 'Enter another alias...';
+		const known = await aliases;
+		if (known.length > 0) {
+			const item = await vscode.window.showQuickPick(known.map((alias) => ({ label: alias })).concat([{ label: other }]), {
+				title: 'Add Remote Host (2/3)',
+				placeHolder: 'Select the Host alias from ~/.ssh/config that reaches the server:',
+				canPickMany: false,
+				ignoreFocusOut: true
+			});
+			if (typeof item === 'undefined') return null;
+			if (item.label !== other) return item.label;
+		}
+
+		const alias = await vscode.window.showInputBox({
+			title: 'Add Remote Host (2/3)',
+			prompt: 'A Host alias from ~/.ssh/config (ssh -G <alias> prints it). Its user, port and key stay in ~/.ssh/config.',
+			placeHolder: 'build-box',
+			ignoreFocusOut: true,
+			validateInput: (value) => validateSshAlias(value)
+		});
+		return typeof alias !== 'undefined' ? alias : null;
 	}
 
 

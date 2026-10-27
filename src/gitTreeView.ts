@@ -7,10 +7,13 @@ import { DataSource, GitConfigKey } from './dataSource';
 import { ExtensionState } from './extensionState';
 import { Logger } from './logger';
 import { RepoFileWatcher } from './repoFileWatcher';
+import { resolveServerWorktreePath } from './remoteHosts';
 import { RepoManager } from './repoManager';
 import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewConfig, GitTreeViewInitialState, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
 import { UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, escapeHtml, getNonce, getRepoName, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
+
+const REMOTE_HOSTS_UNAVAILABLE = 'Remote hosts aren\'t available.';
 
 /**
  * Manages the Git Tree View.
@@ -198,6 +201,16 @@ export class GitTreeView extends Disposable {
 			// Respond to messages sent from the Webview
 			this.panel.webview.onDidReceiveMessage((msg) => this.respondToMessage(msg)),
 
+			// When a remote host of the repository this view shows has changed, refresh the view softly. A hidden view
+			// catches up when it is next shown.
+			dataSource.remoteHosts
+				? dataSource.remoteHosts.onDidChange((repo) => {
+					if (this.panel.visible && this.currentRepo !== null && (repo === this.currentRepo || repo === this.shownWorktree)) {
+						this.sendMessage({ command: 'refresh' });
+					}
+				})
+				: toDisposable(() => { }),
+
 			// Dispose the Webview Panel when disposed
 			this.panel
 		);
@@ -228,6 +241,16 @@ export class GitTreeView extends Disposable {
 				this.sendMessage({
 					command: 'addRemote',
 					error: await this.dataSource.addRemote(msg.repo, msg.name, msg.url, msg.pushUrl, msg.fetch)
+				});
+				break;
+			case 'askRemoteHostFetchConsent':
+				// The question is a modal dialog, so the view isn't kept waiting for the answer. The host refreshes if the user agrees, and onDidChange then refreshes the view.
+				if (this.dataSource.remoteHosts) {
+					this.dataSource.remoteHosts.askFetchConsent(msg.repo, msg.host).catch((error) => this.logger.logError('Remote hosts: ' + error));
+				}
+				this.sendMessage({
+					command: 'askRemoteHostFetchConsent',
+					error: this.dataSource.remoteHosts ? null : REMOTE_HOSTS_UNAVAILABLE
 				});
 				break;
 			case 'addTag':
@@ -349,6 +372,12 @@ export class GitTreeView extends Disposable {
 				});
 				break;
 			}
+			case 'createRemoteWorktree':
+				this.sendMessage({
+					command: 'createRemoteWorktree',
+					errors: await this.createRemoteWorktree(msg.repo, msg.host, msg.path, msg.commitish, msg.newBranch, msg.openInNewWindow)
+				});
+				break;
 			case 'createPullRequest':
 				errorInfos = [msg.push ? await this.dataSource.pushBranch(msg.repo, msg.sourceBranch, msg.sourceRemote, true, GitPushBranchMode.Normal) : null];
 				if (errorInfos[0] === null) {
@@ -469,7 +498,7 @@ export class GitTreeView extends Disposable {
 			case 'loadCommits':
 				this.loadCommitsRefreshId = msg.refreshId;
 				this.sendMessage(createLoadCommitsResponse(msg.refreshId, msg.onlyFollowFirstParent, msg.token,
-					await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees, msg.onlyWorktreeHistory)
+					await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees, msg.onlyWorktreeHistory, msg.onlyHostWorktree)
 				));
 				break;
 			case 'loadConfig':
@@ -506,8 +535,8 @@ export class GitTreeView extends Disposable {
 						});
 					}
 				}
-				// Watch the repository and every worktree of it, so changes in any worktree refresh the view
-				const watchedWorktrees = repoInfo.worktrees.filter((worktree) => !worktree.prunable).map((worktree) => worktree.path);
+				// Watch the repository and every worktree of it on this machine, so changes in any worktree refresh the view
+				const watchedWorktrees = repoInfo.worktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.prunable).map((worktree) => worktree.path);
 				if (repoChanged || watchedWorktrees.join('\0') !== this.watchedWorktrees) {
 					this.repoFileWatcher.start(msg.repo, watchedWorktrees);
 					this.watchedWorktrees = watchedWorktrees.join('\0');
@@ -515,6 +544,11 @@ export class GitTreeView extends Disposable {
 				if (repoChanged || msg.worktree !== this.shownWorktree) {
 					this.shownWorktree = msg.worktree;
 					this.updateTitle();
+				}
+				// The remote hosts refresh in the background when the view loads the repository, which it also does when it
+				// becomes visible again (currentRepo is reset while it is hidden), and when the user refreshes it
+				if ((repoChanged || msg.refreshHosts) && this.dataSource.remoteHosts) {
+					this.dataSource.remoteHosts.refresh(msg.repo);
 				}
 				break;
 			case 'loadRepos':
@@ -564,6 +598,18 @@ export class GitTreeView extends Disposable {
 				this.sendMessage({
 					command: 'openWorktree',
 					error: await openWorktree(msg.path, msg.newWindow)
+				});
+				break;
+			case 'openRemoteTerminal':
+				this.sendMessage({
+					command: 'openRemoteTerminal',
+					error: this.dataSource.remoteHosts ? this.dataSource.remoteHosts.openTerminal(msg.repo, msg.host, msg.path) : REMOTE_HOSTS_UNAVAILABLE
+				});
+				break;
+			case 'openRemoteWorktree':
+				this.sendMessage({
+					command: 'openRemoteWorktree',
+					error: this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.openWorktree(msg.repo, msg.host, msg.path, msg.newWindow) : REMOTE_HOSTS_UNAVAILABLE
 				});
 				break;
 			case 'popStash':
@@ -619,6 +665,12 @@ export class GitTreeView extends Disposable {
 				this.sendMessage({
 					command: 'removeWorktree',
 					error: await this.dataSource.removeWorktree(msg.repo, msg.path, msg.force)
+				});
+				break;
+			case 'removeRemoteWorktree':
+				this.sendMessage({
+					command: 'removeRemoteWorktree',
+					error: this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.removeWorktree(msg.repo, msg.host, msg.path, msg.force) : REMOTE_HOSTS_UNAVAILABLE
 				});
 				break;
 			case 'renameBranch':
@@ -717,6 +769,30 @@ export class GitTreeView extends Disposable {
 		}
 
 		this.repoFileWatcher.unmute();
+	}
+
+	/**
+	 * Create a worktree on a remote host, and open it with Remote-SSH if asked to. RemoteHosts refreshes the host afterwards, so the view shows the new worktree.
+	 * @param repo The path of the repository.
+	 * @param host The host's name.
+	 * @param worktreePath The path entered for the new worktree: absolute on the server, or relative to the host's main worktree.
+	 * @param commitish The commit, or the host's branch, to check out.
+	 * @param newBranch The name of a new branch to create at `commitish`, or NULL.
+	 * @param openInNewWindow Open the new worktree in a new window.
+	 * @returns The errors of each step.
+	 */
+	private async createRemoteWorktree(repo: string, host: string, worktreePath: string, commitish: string, newBranch: string | null, openInNewWindow: boolean): Promise<ErrorInfo[]> {
+		const remoteHosts = this.dataSource.remoteHosts;
+		if (!remoteHosts) return [REMOTE_HOSTS_UNAVAILABLE];
+		const snapshot = remoteHosts.getHosts(repo).find((snapshot) => snapshot.host.name === host);
+		if (typeof snapshot === 'undefined') return ['The host "' + host + '" isn\'t in .worktrees/git-tree.yaml.'];
+		// The path is resolved here as RemoteHosts resolves it, so the new worktree can be opened by its absolute path
+		const resolved = resolveServerWorktreePath(worktreePath, snapshot.host.path);
+		if ('error' in resolved) return [resolved.error];
+
+		const errors: ErrorInfo[] = [await remoteHosts.createWorktree(repo, host, resolved.path, commitish, newBranch)];
+		if (errors[0] === null && openInNewWindow) errors.push(await remoteHosts.openWorktree(repo, host, resolved.path, true));
+		return errors;
 	}
 
 	/**

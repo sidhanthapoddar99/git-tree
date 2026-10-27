@@ -259,6 +259,7 @@ class FindWidget {
 						|| test(commit.message)
 						|| branchLabels.heads.some(head => test(head.name) || head.remotes.some(remote => test(remote)))
 						|| branchLabels.remotes.some(remote => test(remote.name))
+						|| (typeof commit.hostBranches !== 'undefined' && commit.hostBranches.some((branch) => test(branch.host + '/' + branch.name)))
 						|| commit.tags.some(tag => test(tag.name))
 						|| (colVisibility.date && test(formatShortDate(commit.date).formatted))
 						|| (commit.stash !== null && test(commit.stash.selector))

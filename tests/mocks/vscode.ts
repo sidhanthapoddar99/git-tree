@@ -173,7 +173,8 @@ export const window = {
 	showInformationMessage: jest.fn(),
 	showOpenDialog: jest.fn(),
 	showQuickPick: jest.fn(),
-	showSaveDialog: jest.fn()
+	showSaveDialog: jest.fn(),
+	showWarningMessage: jest.fn(() => Promise.resolve())
 };
 
 export const workspace = {

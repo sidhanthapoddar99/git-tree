@@ -12,6 +12,13 @@ export interface GitCommit {
 	readonly remotes: ReadonlyArray<GitCommitRemote>;
 	readonly stash: GitCommitStash | null; // null => not a stash, otherwise => stash info
 	readonly worktree?: string; // Only set on a row of uncommitted changes in another worktree: the path of that worktree
+	readonly host?: string; // Only set on a row of uncommitted changes in a remote host's worktree: the host's name (`worktree` is then the path on the server)
+	readonly hostBranches?: ReadonlyArray<GitCommitHostBranch>; // The remote hosts' branches at this commit. Absent => none.
+}
+
+export interface GitCommitHostBranch {
+	readonly host: string; // The host's name
+	readonly name: string; // The branch's name on the host. The label is `<host>/<name>`.
 }
 
 export interface GitCommitTag {
@@ -154,6 +161,30 @@ export interface GitWorktree {
 	readonly isCurrent: boolean; // Is the worktree of the repository being viewed
 	readonly locked: boolean;
 	readonly prunable: boolean; // The worktree's folder no longer exists
+	readonly host?: string; // The name of the remote host the worktree is on (`.worktrees/git-tree.yaml`). Absent => this machine.
+	readonly hostCommitIsLocal?: boolean; // Only on a remote host's worktree: its HEAD commit is in this repository. FALSE => it can't be drawn, so the view says the commit isn't on this machine.
+}
+
+/**
+ * The state of a remote host, from its last refresh:
+ * - `ok`: read, and its branches fetched.
+ * - `loading`: not read yet since Git Tree started.
+ * - `needsConsent`: read, but its branches aren't fetched until the user agrees to the first fetch.
+ * - `unreachable`: SSH couldn't connect, or timed out.
+ * - `needsAuthentication`: SSH needs a password, a passphrase or a host key confirmation.
+ * - `notARepository`: the path isn't a Git repository on the server, or Git is missing there.
+ * - `differentRepository`: the server's repository shares no root commit with this one.
+ * - `configError`: the host's entry in the config is invalid.
+ */
+export type GitRemoteHostState = 'ok' | 'loading' | 'needsConsent' | 'unreachable' | 'needsAuthentication' | 'notARepository' | 'differentRepository' | 'configError';
+
+export interface GitRemoteHost {
+	readonly name: string; // The host's name in the config, shown in the graph
+	readonly ssh: string; // The SSH alias
+	readonly path: string; // The path of the repository's main worktree on the server
+	readonly state: GitRemoteHostState;
+	readonly message: string | null; // What went wrong, in words, for every state but `ok` and `loading`
+	readonly lastRefresh: number | null; // When the last good refresh finished (milliseconds since 1970). NULL => none yet.
 }
 
 /**
@@ -166,14 +197,15 @@ export interface CompactCommits {
 }
 
 /**
- * One GitCommit: [hash, parents, person, date, message, heads, tags, remotes, stash, worktree]. A parent in the rows is its
- * index in them, and a parent outside them is its hash. The optional fields are left out from the end of the row while they
- * are empty or NULL (or, for the worktree, missing), so most rows have only the first five.
+ * One GitCommit: [hash, parents, person, date, message, heads, tags, remotes, stash, worktree, host, hostBranches]. A parent
+ * in the rows is its index in them, and a parent outside them is its hash. The optional fields are left out from the end of
+ * the row while they are empty or NULL (or, for the worktree and the host, missing), so most rows have only the first five.
  */
-export type CompactCommit = readonly [string, ReadonlyArray<number | string>, number, number, string, ReadonlyArray<string>?, ReadonlyArray<CompactCommitTag>?, ReadonlyArray<CompactCommitRemote>?, (CompactCommitStash | null)?, string?];
+export type CompactCommit = readonly [string, ReadonlyArray<number | string>, number, number, string, ReadonlyArray<string>?, ReadonlyArray<CompactCommitTag>?, ReadonlyArray<CompactCommitRemote>?, (CompactCommitStash | null)?, (string | null)?, (string | null)?, ReadonlyArray<CompactCommitHostBranch>?];
 export type CompactCommitTag = readonly [string, 0 | 1]; // [name, annotated]
 export type CompactCommitRemote = readonly [string, string | null]; // [name, remote]
 export type CompactCommitStash = readonly [string, string, string | null]; // [selector, baseHash, untrackedFilesHash]
+export type CompactCommitHostBranch = readonly [string, string]; // [host, name]
 
 
 /* Git Repo State */
@@ -648,6 +680,14 @@ export interface ResponseAddTag extends ResponseWithMultiErrorInfo {
 	readonly commitHash: string;
 }
 
+export interface RequestAskRemoteHostFetchConsent extends RepoRequest {
+	readonly command: 'askRemoteHostFetchConsent';
+	readonly host: string; // The host's name
+}
+export interface ResponseAskRemoteHostFetchConsent extends ResponseWithErrorInfo {
+	readonly command: 'askRemoteHostFetchConsent';
+}
+
 export interface RequestApplyStash extends RepoRequest {
 	readonly command: 'applyStash';
 	readonly selector: string;
@@ -792,6 +832,19 @@ export interface RequestCreateWorktree extends RepoRequest {
 }
 export interface ResponseCreateWorktree extends ResponseWithMultiErrorInfo {
 	readonly command: 'createWorktree';
+}
+
+/** Create a worktree on a remote host. `repo` is the repository. */
+export interface RequestCreateRemoteWorktree extends RepoRequest {
+	readonly command: 'createRemoteWorktree';
+	readonly host: string; // The host's name
+	readonly path: string; // An absolute path on the server, or a path relative to the host's main worktree
+	readonly commitish: string; // The commit, or the host's branch, to check out in the worktree
+	readonly newBranch: string | null; // null => check out `commitish` without creating a branch
+	readonly openInNewWindow: boolean; // Open it with Remote-SSH once it is created
+}
+export interface ResponseCreateRemoteWorktree extends ResponseWithMultiErrorInfo {
+	readonly command: 'createRemoteWorktree';
 }
 
 export interface RequestCreatePullRequest extends RepoRequest {
@@ -958,6 +1011,7 @@ export interface RequestLoadCommits extends RepoRequest {
 	readonly stashes: ReadonlyArray<GitStash>;
 	readonly worktrees: ReadonlyArray<GitWorktree>;
 	readonly onlyWorktreeHistory: boolean; // TRUE => only the history of the worktree that repo is: its HEAD joins branches as a start point, and no other worktree's uncommitted changes are read
+	readonly onlyHostWorktree: GitWorktree | null; // A remote host's worktree (one of `worktrees`) => only its history: its HEAD commit joins branches as a start point, if it is on this machine, and only its uncommitted changes are shown. Repo is then the repository.
 	readonly token: string | null; // The token of the commits the view shows, from the response that loaded them. NULL => it shows none, or must get the full page
 }
 /**
@@ -1005,6 +1059,7 @@ export interface RequestLoadRepoInfo extends RepoRequest {
 	readonly showRemoteBranches: boolean;
 	readonly showStashes: boolean;
 	readonly hideRemotes: ReadonlyArray<string>;
+	readonly refreshHosts: boolean; // TRUE => the user asked for a refresh, so the remote hosts are refreshed too (they also are when the view loads the repository)
 }
 export interface ResponseLoadRepoInfo extends ResponseWithErrorInfo {
 	readonly command: 'loadRepoInfo';
@@ -1013,7 +1068,8 @@ export interface ResponseLoadRepoInfo extends ResponseWithErrorInfo {
 	readonly head: string | null;
 	readonly remotes: ReadonlyArray<string>;
 	readonly stashes: ReadonlyArray<GitStash>;
-	readonly worktrees: ReadonlyArray<GitWorktree>;
+	readonly worktrees: ReadonlyArray<GitWorktree>; // The local worktrees, then each remote host's, in the order of `hosts`
+	readonly hosts: ReadonlyArray<GitRemoteHost>; // The repository's remote hosts, in the config's order
 	readonly isRepo: boolean;
 }
 
@@ -1095,6 +1151,27 @@ export interface RequestOpenWorktree extends BaseMessage {
 }
 export interface ResponseOpenWorktree extends ResponseWithErrorInfo {
 	readonly command: 'openWorktree';
+}
+
+/** Open a terminal on a remote host, in one of its worktrees. `repo` is the repository. */
+export interface RequestOpenRemoteTerminal extends RepoRequest {
+	readonly command: 'openRemoteTerminal';
+	readonly host: string; // The host's name
+	readonly path: string; // The worktree's path on the server
+}
+export interface ResponseOpenRemoteTerminal extends ResponseWithErrorInfo {
+	readonly command: 'openRemoteTerminal';
+}
+
+/** Open a remote host's worktree in Visual Studio Code, with Remote-SSH. `repo` is the repository. */
+export interface RequestOpenRemoteWorktree extends RepoRequest {
+	readonly command: 'openRemoteWorktree';
+	readonly host: string; // The host's name
+	readonly path: string; // The worktree's path on the server
+	readonly newWindow: boolean;
+}
+export interface ResponseOpenRemoteWorktree extends ResponseWithErrorInfo {
+	readonly command: 'openRemoteWorktree';
 }
 
 export interface RequestPopStash extends RepoRequest {
@@ -1199,6 +1276,17 @@ export interface RequestRemoveWorktree extends RepoRequest {
 }
 export interface ResponseRemoveWorktree extends ResponseWithErrorInfo {
 	readonly command: 'removeWorktree';
+}
+
+/** Remove a worktree on a remote host. `repo` is the repository. */
+export interface RequestRemoveRemoteWorktree extends RepoRequest {
+	readonly command: 'removeRemoteWorktree';
+	readonly host: string; // The host's name
+	readonly path: string; // The worktree's path on the server
+	readonly force: boolean;
+}
+export interface ResponseRemoveRemoteWorktree extends ResponseWithErrorInfo {
+	readonly command: 'removeRemoteWorktree';
 }
 
 export interface RequestRescanForRepos extends BaseMessage {
@@ -1337,6 +1425,7 @@ export type RequestMessage =
 	RequestAddRemote
 	| RequestAddTag
 	| RequestApplyStash
+	| RequestAskRemoteHostFetchConsent
 	| RequestBranchFromStash
 	| RequestCheckoutBranch
 	| RequestCheckoutCommit
@@ -1349,6 +1438,7 @@ export type RequestMessage =
 	| RequestCreateArchive
 	| RequestCreateBranch
 	| RequestCreateWorktree
+	| RequestCreateRemoteWorktree
 	| RequestCreatePullRequest
 	| RequestDeleteBranch
 	| RequestDeleteRemote
@@ -1375,6 +1465,8 @@ export type RequestMessage =
 	| RequestOpenFile
 	| RequestOpenTerminal
 	| RequestOpenWorktree
+	| RequestOpenRemoteTerminal
+	| RequestOpenRemoteWorktree
 	| RequestPopStash
 	| RequestPruneRemote
 	| RequestPullBranch
@@ -1383,6 +1475,7 @@ export type RequestMessage =
 	| RequestPushTag
 	| RequestRebase
 	| RequestRemoveWorktree
+	| RequestRemoveRemoteWorktree
 	| RequestRenameBranch
 	| RequestRescanForRepos
 	| RequestResetFileToRevision
@@ -1404,6 +1497,7 @@ export type ResponseMessage =
 	ResponseAddRemote
 	| ResponseAddTag
 	| ResponseApplyStash
+	| ResponseAskRemoteHostFetchConsent
 	| ResponseBranchFromStash
 	| ResponseCheckoutBranch
 	| ResponseCheckoutCommit
@@ -1416,6 +1510,7 @@ export type ResponseMessage =
 	| ResponseCreateArchive
 	| ResponseCreateBranch
 	| ResponseCreateWorktree
+	| ResponseCreateRemoteWorktree
 	| ResponseCreatePullRequest
 	| ResponseDeleteBranch
 	| ResponseDeleteRemote
@@ -1441,6 +1536,8 @@ export type ResponseMessage =
 	| ResponseOpenFile
 	| ResponseOpenTerminal
 	| ResponseOpenWorktree
+	| ResponseOpenRemoteTerminal
+	| ResponseOpenRemoteWorktree
 	| ResponsePopStash
 	| ResponsePruneRemote
 	| ResponsePullBranch
@@ -1450,6 +1547,7 @@ export type ResponseMessage =
 	| ResponseRebase
 	| ResponseRefresh
 	| ResponseRemoveWorktree
+	| ResponseRemoveRemoteWorktree
 	| ResponseRenameBranch
 	| ResponseResetFileToRevision
 	| ResponseResetToCommit

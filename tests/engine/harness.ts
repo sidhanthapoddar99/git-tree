@@ -8,6 +8,7 @@ import { ConfigurationChangeEvent } from 'vscode';
 import { DataSource } from '../../src/dataSource';
 import { Engine, EngineAnswer, getEnginePath, getEnginePlatform, loadEngine } from '../../src/engine';
 import { Logger } from '../../src/logger';
+import { RemoteHosts } from '../../src/remoteHosts';
 import { GitExecutable, getGitExecutable } from '../../src/utils';
 import { EventEmitter } from '../../src/utils/event';
 
@@ -80,10 +81,11 @@ export function useEngineHarness() {
 
 /**
  * Run a read with Git, and then with the engine.
+ * @param remoteHosts The remote hosts both DataSources read, or NULL for none.
  * @returns The result with Git, and the result with the engine.
  */
-export async function readTwice<T>(read: (dataSource: DataSource) => Promise<T>) {
-	const cli = createDataSource(null), withEngine = createDataSource(harness.engine);
+export async function readTwice<T>(read: (dataSource: DataSource) => Promise<T>, remoteHosts: RemoteHosts | null = null) {
+	const cli = createDataSource(null, remoteHosts), withEngine = createDataSource(harness.engine, remoteHosts);
 	try {
 		const expected = await read(cli);
 		const before = harness.answers.length;
@@ -96,8 +98,8 @@ export async function readTwice<T>(read: (dataSource: DataSource) => Promise<T>)
 	}
 }
 
-export function createDataSource(engine: Engine | null) {
-	return new DataSource(gitExecutable, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger, engine);
+export function createDataSource(engine: Engine | null, remoteHosts: RemoteHosts | null = null) {
+	return new DataSource(gitExecutable, onDidChangeConfiguration.subscribe, onDidChangeGitExecutable.subscribe, logger, engine, null, remoteHosts);
 }
 
 /**
