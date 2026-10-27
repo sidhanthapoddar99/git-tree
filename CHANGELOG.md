@@ -15,12 +15,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - *Git Tree: Remove Remote Host*, and the settings `git-tree.remoteHosts.sshPath` and `git-tree.remoteHosts.refreshInterval`.
 - [An instruction for coding agents](docs/remote-hosts-for-agents.md), so they keep the host list up to date.
 
+### Performance
+
+Against a test SSH server on the same machine, median of 9 runs. Across a network, add one round trip with a shared connection, and about three without.
+
+| | Shared connection | New connection each time |
+| --- | ---: | ---: |
+| Reading a server's worktrees and changes | 16 ms | 178 ms |
+| A refresh where nothing changed | 19 ms, about 3.3 KB | 175 ms, about 13 KB |
+| A refresh after one new commit, with its fetch | 130 ms, about 8.3 KB | 360 ms, about 30 KB |
+
+| Against 0.4.2 | 0.4.2 | 0.5.0 |
+| --- | ---: | ---: |
+| Opening the view with two hosts of three worktrees each (569 commits) | 5.8 ms (no hosts) | 6.2 ms, within noise |
+| Data sent to the view with those two hosts | 39.5 KB | 40.5 KB |
+| Download size | 8.2 MB | 8.4 MB |
+
 ## [0.4.2] - 2026-10-27
 
 ### Changed
 
 - **A refresh where nothing changed costs about 1 ms.** The engine checks whether anything the commits depend on has changed, and if not, it skips the log walk: about 0.7 ms instead of 7 ms on a 6,750-commit repository. The view then gets only its *Uncommitted Changes* rows, in a message of about 160 bytes instead of 97 KB.
 - **Opening the view sends half the data.** The engine answers the view load in two calls instead of six, and the commits reach the view in a compact form: each author once, and each parent as a row number. 300 commits take 40 KB instead of 97 KB. Under Remote-SSH, where the extension runs on the server, this is the data that crosses the network.
+
+### Performance
+
+Against 0.4.1, on a 6,750-commit repository with 300 commits loaded, on Linux x64 with Git 2.55. The machine was busy, so the times are rough; the ratios hold.
+
+| | 0.4.1 | 0.4.2 |
+| --- | ---: | ---: |
+| Engine calls to open the view | 6 | 2 |
+| Data from the engine to the extension | 86.7 KB | 44.4 KB |
+| The engine's time to open the view | 7.8 ms | 6.3 ms |
+| A refresh where nothing changed, reading the commits | 6.95 ms | 0.69 ms |
+| Data sent to the view | 96.7 KB | 40.4 KB |
+| Data sent to the view when nothing changed | 96.7 KB | 158 bytes |
+| The view reading that data | 0.20 ms | 0.07 ms |
+| Download size | 7.9 MB | 8.2 MB |
 
 ### Fixed
 
@@ -35,8 +66,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Changed
 
 - **The engine reads the Commit Details View.** A commit's details and changed files, a stash's, a comparison of two commits, a file at a commit, a commit's subject, a remote's URL, an annotated tag's details and the configuration come from the engine instead of 2 to 5 `git` processes each. On a 6,750-commit repository, opening a small commit's details takes about 1 ms instead of 14 ms, and reading the configuration 0.4 ms instead of 26 ms. When Git might find a rename of a file that changed, or a diff depends on attributes or settings the engine doesn't model, Git reads it instead.
-- **The engine reads the commit log incrementally, as Git does.** With a commit-graph file, a page of commits costs about the commits on it, in every order: 301 commits in author-date order take about 4 ms instead of 47 ms on a 6,750-commit repository. Without a commit-graph file, the engine reads each commit once, so the whole log takes about 57 ms instead of 85 ms, where Git takes 83 ms.
+- **The engine reads the commit log incrementally, as Git does.** With a commit-graph file, a page of commits costs about the commits on it, in every order: 301 commits in author-date order take about 5 ms instead of 45 ms on a 6,750-commit repository. Without a commit-graph file, the engine reads each commit once, so the whole log takes about 64 ms instead of 88 ms, where Git takes 85 ms.
 - **Git Tree needs its engine.** If the engine is missing or can't load, Git Tree shows a message that says why, instead of reading everything with `git`.
+
+### Performance
+
+Against 0.4.0, on a 6,750-commit repository, on Linux x64 with Git 2.55, median of 21 runs. 0.4.0 read the Commit Details View with `git`.
+
+| | 0.4.0 | 0.4.1 |
+| --- | ---: | ---: |
+| Commit details, small commit | 14.3 ms | 0.8 ms |
+| Configuration (Repository Settings) | 26.4 ms | 0.4 ms |
+| Commit subject | 10.6 ms | 0.6 ms |
+| A file at a commit | 6.0 ms | 0.6 ms |
+| A remote's URL | 6.1 ms | 0.3 ms |
+| Commit details, 30,841-line diff | 93.5 ms | 82.2 ms |
+| Log, 301 commits, author-date order | 44.9 ms | 4.8 ms (Git: 55.2 ms) |
+| Log, 301 commits, topological order | 5.7 ms | 3.8 ms (Git: 9.3 ms) |
+| Whole log, no commit-graph file | 88.1 ms | 64.0 ms (Git: 85.4 ms) |
+| Engine, Linux x64 | 1.9 MB | 2.1 MB |
+| Download size | 1.2 MB, Linux x64 only | 7.9 MB, all eight platforms |
+
+The subject, file and remote URL times come from a second run on a busy machine, which slows `git` more than the engine.
 
 ## [0.4.0] - 2026-10-27
 
@@ -49,6 +100,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **The graph draws only the rows on screen.** With 5,000 commits loaded, drawing takes about 24 ms instead of 400 ms, the page holds about 1,600 elements instead of 48,000, and the view uses about 120 MB less memory.
 - Find searches the loaded commits' data, so it finds commits whose rows aren't drawn yet.
 - **Git Tree needs Git 2.31 or later**, released in March 2021. With an older Git, it shows a message that says which Git it found and how to fix it, instead of the graph.
+
+### Performance
+
+Against 0.3.5, on Linux x64 with Git 2.55. Opening the view is the median of 25 runs, with the versions taking turns.
+
+| | 0.3.5 | 0.4.0 |
+| --- | ---: | ---: |
+| Opening the view, 6,750 commits | 19.4 ms | 7.0 ms |
+| Opening the view, 6,750 commits, no commit-graph file | 63.9 ms | 45.3 ms |
+| Opening the view, 63 commits | 10.6 ms | 3.2 ms |
+| `git` processes started to open the view | 6 | 0 |
+| Drawing 300 / 2,000 / 5,000 commits | 33 / 162 / about 400 ms | 24 / 22 / 24 ms |
+| Elements on the page, 5,000 commits | about 48,000 | about 1,600 |
+| View memory, 2,000 / 5,000 commits | 199 / 277 MB | 145 / 153 MB |
+| Extension memory after 30 view loads | 33 MB | 28 MB |
+| Download size | 336 KB | 1.2 MB, Linux x64 only |
 
 ## [0.3.5] - 2026-10-27
 

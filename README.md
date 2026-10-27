@@ -27,34 +27,41 @@ And everything you expect from a Git graph: branches, merges, tags, stashes and 
 
 ## Git Tree compared with Git Graph
 
-Git Tree started from [Git Graph](https://github.com/mhutchie/vscode-git-graph) 1.30.0, and keeps all of its features. Git Tree 0.3 is written in TypeScript and reads the repository by running `git`, as Git Graph does. Git Tree 0.4 reads it with a Rust engine, and draws only the rows on screen.
+Git Tree started from [Git Graph](https://github.com/mhutchie/vscode-git-graph) 1.30.0, and keeps all of its features. Git Tree 0.3 is written in TypeScript and reads the repository by running `git`, as Git Graph does. From 0.4, Git Tree reads it with a Rust engine, and draws only the rows on screen.
 
 ### Performance
 
-| | Git Graph 1.30.0 | Git Tree 0.3 (TypeScript) | Git Tree 0.4 (Rust) |
+| | Git Graph 1.30.0 | Git Tree 0.3 (TypeScript) | Git Tree 0.5 (Rust) |
 | --- | --- | --- | --- |
 | Opening the view, 6,750 commits | 17.5 ms | 19.4 ms | **7.0 ms** (2.5× faster) |
 | Opening the view, 6,750 commits, no commit-graph file | 62.9 ms | 63.9 ms, then 19.4 ms once Git Tree writes the file | **45.3 ms**, then **7.0 ms** once Git Tree writes the file |
 | Opening the view, a small repository (63 commits) | 10.1 ms | 10.6 ms | **3.2 ms** (3× faster) |
 | `git` processes started to open the view | 5 | 6 | **0** |
+| A refresh where nothing changed, 6,750 commits | reads everything again (about 17 ms) | reads everything again (about 19 ms) | **1.6 ms** |
+| Data sent to the view for 300 commits | about 97 KB | about 97 KB | **40 KB** |
+| Data sent to the view when nothing changed | about 97 KB | about 97 KB | **158 bytes** |
 | Opening a small commit's details, 6,750 commits | not measured | 14.3 ms | **0.8 ms** |
+| A commit's subject / a file at a commit / a remote's URL | not measured | 10.6 / 6.0 / 6.1 ms | **0.6 / 0.6 / 0.3 ms** |
 | Reading the settings for the Repository Settings dialog | not measured | 26.4 ms | **0.4 ms** |
+| 300 commits in author-date order, 6,750 commits | not measured | 55.2 ms | **4.8 ms** |
 | `git status` for uncommitted changes | after `git log` | alongside `git log` | alongside the engine |
 | Coming back to a hidden tab | reloads the whole view | refreshes the data only | refreshes the data only |
 | Drawing 300 / 2,000 / 5,000 commits | as Git Tree 0.3 | 33 / 162 / about 400 ms | **24 / 22 / 24 ms** |
 | Elements on the page, 5,000 commits | as Git Tree 0.3 | about 48,000 | **about 1,600** |
 | View memory, 2,000 / 5,000 commits | as Git Tree 0.3 | 199 / 277 MB | **145 / 153 MB** |
 | Extension memory after 30 view loads | 31 MB | 33 MB | **28 MB** |
+| Worktrees on SSH servers | — | — | **16 ms** a server per refresh, over a shared connection |
 | Download size | 346 KB | 336 KB | 8.4 MB, with the engine for every platform |
 
 How these were measured, on Linux x64 with Git 2.55:
 
 - *Opening the view* is the time to read the repository's branches, remotes, stashes, worktrees and refs, and the first 300 commits, through each version's own code. It's the median of 25 runs, with the three versions taking turns. `git status` runs in all three and is left out. The 6,750-commit repository is a copy of a real project.
+- A *refresh where nothing changed* is what a file save or a return to the tab costs when the history is the same. Git Graph and Git Tree 0.3 read the repository again, as when opening the view; Git Tree 0.5 checks a fingerprint of everything the commits depend on, and sends the view only its *Uncommitted Changes* rows. The 0.5 figures for refreshes, single reads and the author-date log were measured on a busy machine, so they are rough; the ratios hold.
 - *Drawing* is the time from the commits reaching the view to the painted frame, in Chromium, as the median of several runs. Git Graph and Git Tree 0.3 share the same drawing code.
 - *View memory* is the memory of the view's page; an empty page takes about 135 MB. *Extension memory* is the extension's own memory, not counting the `git` processes it starts.
-- Git Tree 0.4 ships one package that holds the Rust engine for Windows, macOS and Linux, on x64 and arm64. VS Code loads only the engine for its own platform.
+- Git Tree 0.4.1 and later ship one package that holds the Rust engine for Windows, macOS and Linux, on x64 and arm64. VS Code loads only the engine for its own platform.
 
-Starting a `git` process costs about 2 ms on Linux, and 40–70 ms on Windows. Git Tree 0.4 starts none to open the view, so it gains the most on Windows and macOS. Those gains haven't been measured yet.
+Starting a `git` process costs about 2 ms on Linux, and 40–70 ms on Windows. Git Tree 0.4 and later start none to open the view, so it gains the most on Windows and macOS. Those gains haven't been measured yet.
 
 Git writes the commit-graph file during `git gc`, so many long-lived repositories already have one. Git Tree writes it for repositories that don't.
 
