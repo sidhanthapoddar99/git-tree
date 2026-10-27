@@ -890,6 +890,39 @@ describe('DataSource', () => {
 			expect(result.commits.map((commit) => commit.hash)).toStrictEqual(['*2', H1, H2]);
 		});
 
+		it('Should leave a hidden host\'s worktrees out of the repository info, and still return the host', async () => {
+			// Setup
+			mockGitSuccessOnce('* master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + H1 + '\nbranch refs/heads/master\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, [], ['server']);
+
+			// Assert
+			expect(result.worktrees).toStrictEqual([localWorktree]);
+			expect(result.hosts).toStrictEqual([snapshots[0].host]);
+		});
+
+		it('Should neither start the log from a hidden host\'s refs, nor label its branches, nor give its worktrees rows', async () => {
+			// Setup
+			mockGitSuccessOnce(logOutput);
+			mockGitSuccessOnce(H1 + ' HEAD\n' + H1 + ' refs/heads/master\n');
+			mockGitSuccessOnce('');
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, ...getHostWorktrees()], false, null, ['server']);
+
+			// Assert
+			expect(result.commits.map((commit) => ({ hash: commit.hash, host: commit.host, hostBranches: commit.hostBranches }))).toStrictEqual([
+				{ hash: H1, host: undefined, hostBranches: undefined },
+				{ hash: H2, host: undefined, hostBranches: undefined }
+			]);
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['-c', 'log.showSignature=false', 'log', '--max-count=301', LOG_FORMAT, '--date-order', '--branches', '--tags', 'HEAD', '--'], expect.objectContaining({ cwd: '/path/to/repo' }));
+			expect(spyOnSpawn).toBeCalledWith('/path/to/git', ['show-ref', '--heads', '--tags', '-d', '--head'], expect.objectContaining({ cwd: '/path/to/repo' }));
+		});
+
 		it('Should read the refs and the log as without hosts when the repository has none', async () => {
 			// Setup
 			snapshots = [];

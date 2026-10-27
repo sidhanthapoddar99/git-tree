@@ -329,14 +329,15 @@ class GitTreeView {
 		const byMainFirst = (a: GG.GitWorktree, b: GG.GitWorktree) => (a.isMain ? 0 : 1) - (b.isMain ? 0 : 1);
 		const worktrees = this.gitWorktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.prunable).sort(byMainFirst);
 		// With remote hosts, the dropdown is shown even before their worktrees are known, because it says each host's state
-		alterClass(this.controlsElem, 'singleWorktree', !this.hasMultipleWorktrees() && this.gitRemoteHosts.length === 0);
+		const shownHosts = this.getShownRemoteHosts();
+		alterClass(this.controlsElem, 'singleWorktree', !this.hasMultipleWorktrees() && shownHosts.length === 0);
 		const options: DropdownOption[] = [{ name: 'All', value: ALL_WORKTREES, hint: 'every worktree' }].concat(worktrees.map((worktree) => {
 			const branch = worktree.branch !== null ? worktree.branch : 'detached';
 			return worktree.isMain
 				? { name: 'Root', value: worktree.path, hint: worktree.name + ' \u00B7 ' + branch }
 				: { name: worktree.name, value: worktree.path, hint: branch };
 		}));
-		this.gitRemoteHosts.forEach((host) => {
+		shownHosts.forEach((host) => {
 			// The group's heading, and each worktree's hint, say the host's state when it isn't ok
 			const state = host.state !== 'ok' ? getRemoteHostStateText(host) : null;
 			const group = host.name + (state !== null ? ' \u00B7 ' + state : '');
@@ -348,7 +349,7 @@ class GitTreeView {
 			});
 			if (host.state === 'needsConsent') {
 				// Its branches are fetched only once the user agrees, and the user may have declined before
-				options.push({ name: 'Allow Fetching' + ELLIPSIS, value: HOST_WORKTREE_KEY_PREFIX + host.name + ':consent', hint: 'fetch its branches', group: group, action: () => this.askFetchConsent(host.name) });
+				options.push({ name: 'Allow Fetching\u2026', value: HOST_WORKTREE_KEY_PREFIX + host.name + ':consent', hint: 'fetch its branches', group: group, action: () => this.askFetchConsent(host.name) });
 			}
 			if (hostWorktrees.length === 0) {
 				// The host is listed even before its worktrees are known, so its state is always somewhere to be seen
@@ -365,6 +366,8 @@ class GitTreeView {
 		this.gitWorktrees = worktrees;
 		this.gitRemoteHosts = remoteHosts;
 		this.renderWorktreeDropdown();
+		// The hosts were just read again, so Repository Settings shows their new states
+		this.settingsWidget.requestRemoteHosts();
 
 		if (!isRepo || (!this.currentRepoRefreshState.hard && arraysStrictlyEqual(this.gitBranches, branchOptions) && this.gitBranchHead === branchHead && arraysStrictlyEqual(this.gitRemotes, remotes))) {
 			this.saveState();
@@ -682,6 +685,15 @@ class GitTreeView {
 		}
 	}
 
+	/**
+	 * Pass a response for the Remote Hosts card of Repository Settings to it.
+	 * @param msg The response.
+	 * @returns TRUE => the card handled it, FALSE => the card didn't send it.
+	 */
+	public processRemoteHostsResponse(msg: RemoteHostsResponse) {
+		return this.settingsWidget.processRemoteHostsResponse(msg);
+	}
+
 	public processLoadConfig(msg: GG.ResponseLoadConfig) {
 		this.currentRepoRefreshState.requestingConfig = false;
 		if (msg.config !== null && this.currentRepo === msg.repo) {
@@ -815,6 +827,7 @@ class GitTreeView {
 			showRemoteBranches: getShowRemoteBranches(repoState.showRemoteBranchesV2),
 			showStashes: getShowStashes(repoState.showStashes),
 			hideRemotes: repoState.hideRemotes,
+			hideHosts: repoState.hideHosts,
 			refreshHosts: this.refreshRemoteHosts
 		});
 		this.refreshRemoteHosts = false;
@@ -835,6 +848,7 @@ class GitTreeView {
 			commitOrdering: getCommitOrdering(repoState.commitOrdering),
 			remotes: this.gitRemotes,
 			hideRemotes: repoState.hideRemotes,
+			hideHosts: repoState.hideHosts,
 			stashes: this.gitStashes,
 			worktrees: this.gitWorktrees,
 			onlyWorktreeHistory: this.isOnlyWorktreeHistory(),
@@ -1423,6 +1437,15 @@ class GitTreeView {
 	}
 
 	/**
+	 * Get the remote hosts the view shows: all but those hidden in Repository Settings (hideHosts).
+	 * @returns The hosts.
+	 */
+	private getShownRemoteHosts() {
+		const hideHosts = this.gitRepos[this.currentRepo].hideHosts;
+		return this.gitRemoteHosts.filter((host) => !hideHosts.includes(host.name));
+	}
+
+	/**
 	 * Get a key for what the table shows of the remote hosts: each host's name and state, and for a host that isn't ok, its message and last good refresh.
 	 * @returns The key.
 	 */
@@ -1633,8 +1656,8 @@ class GitTreeView {
 				visible: true,
 				onClick: () => this.createWorktreeAction(hash, false, target)
 			},
-			// One for each remote host whose entry in the config is valid
-			...this.gitRemoteHosts.map((host): ContextMenuAction => ({
+			// One for each remote host whose entry in the config is valid, and that isn't hidden
+			...this.getShownRemoteHosts().map((host): ContextMenuAction => ({
 				title: 'Create Worktree on ' + escapeHtml(host.name) + ELLIPSIS,
 				visible: host.state !== 'configError',
 				onClick: () => this.createWorktreeAction(hash, false, target, host)
@@ -2110,7 +2133,13 @@ class GitTreeView {
 				visible: typeof host !== 'undefined',
 				onClick: () => runAction({ command: 'openRemoteTerminal', repo: this.currentRepo, host: host!, path: worktree.path }, 'Opening Terminal')
 			}
-		], [
+		], (<GG.RemoteHostGitAction[]>['fetch', 'pull', 'push']).map((action): ContextMenuAction => ({
+			title: REMOTE_HOST_GIT_ACTIONS[action].title + (action === 'push' ? ELLIPSIS : ''),
+			visible: typeof host !== 'undefined' && !worktree.prunable && this.getRemoteHost(host) !== null && this.getRemoteHost(host)!.state !== 'configError',
+			onClick: () => confirmRemoteHostGit(host!, worktree.path, action, () => {
+				runAction({ command: 'runRemoteHostGit', repo: this.currentRepo, host: host!, worktreePath: worktree.path, action: action }, REMOTE_HOST_GIT_ACTIONS[action].running + ' (' + host! + ')');
+			})
+		})), [
 			{
 				title: 'Allow Fetching from ' + escapeHtml(host || '') + ELLIPSIS,
 				visible: typeof host !== 'undefined' && this.getRemoteHost(host) !== null && this.getRemoteHost(host)!.state === 'needsConsent',
@@ -2802,7 +2831,7 @@ class GitTreeView {
 					this.branchDropdown.close();
 					handledEvent(e);
 				} else if (this.settingsWidget.isVisible()) {
-					this.settingsWidget.close();
+					if (!this.settingsWidget.handleEscape()) this.settingsWidget.close();
 					handledEvent(e);
 				} else if (this.findWidget.isVisible()) {
 					this.findWidget.close();
@@ -3951,6 +3980,21 @@ window.addEventListener('load', () => {
 				break;
 			case 'askRemoteHostFetchConsent':
 				finishOrDisplayError(msg.error, 'Unable to Ask for Permission to Fetch');
+				break;
+			case 'browseRemoteHost':
+			case 'checkRemoteHost':
+			case 'loadRemoteHosts':
+				gitTree.processRemoteHostsResponse(msg);
+				break;
+			case 'createRemoteHostRepository':
+			case 'removeRemoteHost':
+			case 'saveRemoteHost':
+				// Repository Settings sent it. If it has closed since, the view reports it.
+				if (!gitTree.processRemoteHostsResponse(msg)) refreshOrDisplayError(msg.error, 'Unable to Change the Remote Hosts');
+				break;
+			case 'runRemoteHostGit':
+				// The Remote Hosts card reports what it started, and the worktree menu's commands are reported here
+				if (!gitTree.processRemoteHostsResponse(msg)) refreshOrDisplayError(msg.error, REMOTE_HOST_GIT_ACTIONS[msg.action].failed + ' (' + msg.host + ')');
 				break;
 			case 'addTag':
 				if (msg.pushToRemote !== null && msg.errors.length === 2 && msg.errors[0] === null && isExtensionErrorInfo(msg.errors[1], GG.ErrorInfoExtensionPrefix.PushTagCommitNotOnRemote)) {

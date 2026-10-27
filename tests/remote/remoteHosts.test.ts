@@ -17,7 +17,7 @@ import { ExtensionState } from '../../src/extensionState';
 import { Logger } from '../../src/logger';
 import { RemoteHosts, getHostBranchesPrefix, getHostDetachedRef } from '../../src/remoteHosts';
 import { CONFIG_FILE } from '../../src/remoteHosts/config';
-import { CommitOrdering } from '../../src/types';
+import { CommitOrdering, RemoteHostEntry } from '../../src/types';
 import { GitExecutable, getGitExecutable } from '../../src/utils';
 import { EventEmitter } from '../../src/utils/event';
 
@@ -29,6 +29,12 @@ import { EventEmitter } from '../../src/utils/event';
  *
  * The tests copy the configuration into a temporary folder, add aliases that fail (a closed port, and no key), and point
  * `git-tree.remoteHosts.sshPath` at a wrapper that runs `ssh -F <the copy>`, so ~/.ssh is never read or changed.
+ *
+ * The user's SSH agent is never used: the wrapper unsets SSH_AUTH_SOCK. The agent forwarding tests start a private
+ * ssh-agent that holds only the test key, and write its socket to a file that the wrapper reads (Jest gives each test
+ * file its own copy of process.env, which the processes Git Tree starts don't see). They kill it afterwards. They need
+ * the server's own ssh client to trust localhost, as scripts/test-ssh-server.sh sets it up: a clone on the server from
+ * dev@localhost then works only with the agent forwarded.
  */
 
 const SSH_CONFIG = process.env.GIT_TREE_TEST_SSH_CONFIG || '/tmp/gt-ssh/ssh_config';
@@ -45,6 +51,7 @@ describeWithServer('Remote hosts, against a test SSH server', () => {
 	let gitExecutable: GitExecutable, logger: Logger, extensionState: ExtensionState, remoteHosts: RemoteHosts;
 	let onDidChangeGitExecutable: EventEmitter<GitExecutable>, changes: string[];
 	const consents: { [key: string]: boolean } = {};
+	let agentFile: string, agentPid: number | null = null;
 
 	beforeAll(async () => {
 		if (!process.env.GIT_TREE_ENGINE_TEST_HOME || process.env.HOME !== process.env.GIT_TREE_ENGINE_TEST_HOME) {
@@ -61,7 +68,13 @@ describeWithServer('Remote hosts, against a test SSH server', () => {
 			+ getAlias(original, 'gt-test-down', ['Port 1']) + '\n'
 			+ getAlias(original, 'gt-test-nokey', ['User git-tree-no-such-user', 'IdentityFile ' + path.join(tmp, 'no-such-key'), 'PubkeyAuthentication no', 'PasswordAuthentication no', 'KbdInteractiveAuthentication no']));
 		wrapper = path.join(tmp, 'ssh');
-		fs.writeFileSync(wrapper, '#!/bin/sh\nexec ssh -F \'' + sshConfig + '\' "$@"\n', { mode: 0o755 });
+		agentFile = path.join(tmp, 'agent-socket');
+		fs.writeFileSync(wrapper, [
+			'#!/bin/sh',
+			'if [ -s \'' + agentFile + '\' ]; then SSH_AUTH_SOCK=$(cat \'' + agentFile + '\'); export SSH_AUTH_SOCK; else unset SSH_AUTH_SOCK; fi',
+			'exec ssh -F \'' + sshConfig + '\' "$@"',
+			''
+		].join('\n'), { mode: 0o755 });
 		vscode.mockExtensionSettingReturnValue('remoteHosts.sshPath', wrapper);
 
 		// The server: a repository with a main worktree and a detached linked worktree that has a commit on no branch,
@@ -112,6 +125,11 @@ describeWithServer('Remote hosts, against a test SSH server', () => {
 			clearRemoteHostFetchConsent: (repo: string, host: string) => {
 				delete consents[repo + ':' + host];
 				return Promise.resolve(null);
+			},
+			moveRemoteHostFetchConsent: (repo: string, from: string, to: string) => {
+				if (typeof consents[repo + ':' + from] === 'boolean') consents[repo + ':' + to] = consents[repo + ':' + from];
+				delete consents[repo + ':' + from];
+				return Promise.resolve(null);
 			}
 		};
 	});
@@ -119,6 +137,7 @@ describeWithServer('Remote hosts, against a test SSH server', () => {
 	afterAll(() => {
 		if (typeof remoteHosts !== 'undefined') remoteHosts.dispose();
 		onDidChangeGitExecutable.dispose();
+		stopAgent();
 		try {
 			ssh(serverScript('rm -rf "$1"'), serverRoot);
 			cp.spawnSync(wrapper, ['-O', 'exit', '-o', 'ControlPath=' + path.join(tmp, 'cm-%C'), 'gt-test'], { stdio: 'ignore' });
@@ -155,7 +174,7 @@ describeWithServer('Remote hosts, against a test SSH server', () => {
 		expect(hosts[1].worktrees).toStrictEqual([]);
 		expect(hosts[2].host.message).toMatch(/shares no root commit with this one/);
 		expect(hosts[3].host.message).toBe('gt-test:' + serverRoot + '/missing doesn\'t exist, or isn\'t a folder Git Tree can enter.');
-		expect(hosts[4].host.message).toBe('Line 18: Unknown key "paht" in the host "typo". A host may only hold "ssh", "path" and "worktrees".');
+		expect(hosts[4].host.message).toBe('Line 18: Unknown key "paht" in the host "typo". A host may only hold "ssh", "path", "worktrees" and "forwardAgent".');
 		expect(changes.length).toBeGreaterThan(0);
 		expect(changes.every((repo) => repo === local)).toBe(true);
 		expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1); // The consent, for the only host that got that far
@@ -297,8 +316,8 @@ describeWithServer('Remote hosts, against a test SSH server', () => {
 
 	it('Should add a host after checking it, keeping the file\'s comments, and remove it with its refs', async () => {
 		// Run
-		const wrongProject = await remoteHosts.addHost(local, 'second', 'gt-test', serverOther);
-		const added = await remoteHosts.addHost(local, 'second', 'gt-test', serverRepo);
+		const wrongProject = await remoteHosts.saveHost(local, null, entry('second', serverOther));
+		const added = await remoteHosts.saveHost(local, null, entry('second', serverRepo));
 		await refresh();
 
 		// Assert
@@ -320,6 +339,150 @@ describeWithServer('Remote hosts, against a test SSH server', () => {
 		expect(fs.readFileSync(path.join(local, CONFIG_FILE), 'utf8')).toBe(configText);
 	});
 
+	it('Should list the folders on the server, each with its kind', async () => {
+		// Setup
+		ssh(serverScript(
+			'mkdir -p "$1/browse/plain" "$1/browse/.hidden" "$1/browse/linked" "$1/browse/it\'s here"',
+			'git init -q "$1/browse/repo"',
+			'echo "gitdir: $1/app/.git/worktrees/linked" > "$1/browse/linked/.git"',
+			'touch "$1/browse/file"',
+			'ln -s "$1/browse" "$1/browse-link"'
+		), serverRoot);
+
+		// Run
+		const listing = await remoteHosts.browse('gt-test', serverRoot + '/browse-link');
+		const home = await remoteHosts.browse('gt-test', null);
+		const missing = await remoteHosts.browse('gt-test', serverRoot + '/missing');
+		const down = await remoteHosts.browse('gt-test-down', null);
+
+		// Assert
+		expect(listing).toStrictEqual({
+			path: serverRoot + '/browse',
+			parent: serverRoot,
+			entries: [
+				{ name: '.hidden', kind: 'folder' },
+				{ name: 'it\'s here', kind: 'folder' },
+				{ name: 'linked', kind: 'worktree' },
+				{ name: 'plain', kind: 'folder' },
+				{ name: 'repo', kind: 'repository' }
+			],
+			truncated: false
+		});
+		expect(home).toStrictEqual(expect.objectContaining({ path: '/home/dev', parent: '/home' }));
+		expect(missing).toStrictEqual({ error: 'gt-test:' + serverRoot + '/missing doesn\'t exist, or isn\'t a folder Git Tree can enter.' });
+		expect(down).toStrictEqual({ error: expect.stringMatching(/^Git Tree couldn't connect to "gt-test-down"\. .*Connection refused/) });
+	});
+
+	it('Should check a host: the main worktree of the same project', async () => {
+		// Run
+		ssh(serverScript('git -C "$1" worktree add -q --detach "$2" HEAD'), serverRepo, serverRoot + '/linked');
+		const linked = await remoteHosts.checkHost(local, 'gt-test', serverRoot + '/linked');
+		const inside = await remoteHosts.checkHost(local, 'gt-test', serverRepo + '/.git');
+		const other = await remoteHosts.checkHost(local, 'gt-test', serverOther);
+		const good = await remoteHosts.checkHost(local, 'gt-test', serverRepo);
+		ssh(serverScript('git -C "$1" worktree remove --force "$2"'), serverRepo, serverRoot + '/linked');
+
+		// Assert
+		expect(linked).toBe('gt-test:' + serverRoot + '/linked isn\'t the main worktree of its repository. Use the main worktree\'s path, ' + serverRepo + ', and Git Tree shows the linked worktrees with it.');
+		expect(inside).toMatch(/isn't the main worktree of its repository/);
+		expect(other).toMatch(/shares no root commit with this one/);
+		expect(good).toBeNull();
+	});
+
+	it('Should create a repository on the server by pushing this one\'s branches, which checks out the current branch', async () => {
+		// Setup
+		const pushed = serverRoot + '/new/pushed';
+		git(local, ['branch', 'extra', 'HEAD']);
+
+		// Run
+		const full = await remoteHosts.createRepository(local, entry('pushed', serverRoot + '/browse'), { kind: 'push' });
+		const result = await remoteHosts.createRepository(local, entry('pushed', pushed), { kind: 'push' });
+		await refresh();
+
+		// Assert
+		expect(full).toBe('gt-test:' + serverRoot + '/browse already exists, and isn\'t an empty folder. Choose a new folder, or add the repository that\'s there.');
+		expect(result).toBeNull();
+		expect(ssh(serverScript('cd "$1"', 'git symbolic-ref HEAD', 'git rev-parse HEAD', 'git status --porcelain', 'git for-each-ref --format="%(refname)" refs/heads', 'cat a', 'git config --get receive.denyCurrentBranch || echo unset'), pushed))
+			.toBe('refs/heads/main\n' + git(local, ['rev-parse', 'main']) + '\nrefs/heads/extra\nrefs/heads/main\none\nunset\n');
+		expect(fs.readFileSync(path.join(local, CONFIG_FILE), 'utf8')).toBe(configText + '  pushed:\n    ssh: gt-test\n    path: ' + pushed + '\n');
+		expect(remoteHosts.getHosts(local).find((host) => host.host.name === 'pushed')!.host.state).toBe('ok');
+
+		// Clean up
+		expect(await remoteHosts.removeHost(local, 'pushed')).toBeNull();
+		git(local, ['branch', '-D', 'extra']);
+	});
+
+	it('Should clone on the server only with the agent forwarded, and run fetch and pull there with it', async () => {
+		// Setup: a private agent with the test key, and a remote that the server reaches as dev@localhost
+		const cloned = serverRoot + '/cloned';
+		startAgent();
+		git(local, ['remote', 'add', 'server-local', 'dev@localhost:' + serverRepo]);
+
+		// Run
+		const withoutAgent = await remoteHosts.createRepository(local, entry('cloned', cloned), { kind: 'clone', remote: 'server-local' });
+		const withAgent = await remoteHosts.createRepository(local, entry('cloned', cloned, true), { kind: 'clone', remote: 'server-local' });
+		await refresh();
+
+		// Assert
+		expect(withoutAgent).toMatch(/^Git Tree couldn't clone server-local into gt-test:.*\/cloned: .*Permission denied/);
+		expect(withAgent).toBeNull();
+		expect(ssh(serverScript('git -C "$1" rev-parse HEAD'), cloned).trim()).toBe(serverHash(serverRepo, 'main'));
+		expect(fs.readFileSync(path.join(local, CONFIG_FILE), 'utf8')).toBe(configText + '  cloned:\n    ssh: gt-test\n    path: ' + cloned + '\n    forwardAgent: true\n');
+		expect(remoteHosts.getHosts(local).find((host) => host.host.name === 'cloned')!.host.state).toBe('ok');
+
+		// Run: a new commit where the clone came from, then a fetch and a pull in the clone
+		ssh(serverScript('cd "$1" && git commit -q --allow-empty -m four'), serverRepo);
+		const fetched = await remoteHosts.runGitOnHost(local, 'cloned', cloned, 'fetch');
+		const originMain = ssh(serverScript('git -C "$1" rev-parse origin/main'), cloned).trim();
+		const pulled = await remoteHosts.runGitOnHost(local, 'cloned', cloned, 'pull');
+		await refresh();
+
+		// Assert
+		expect(fetched).toBeNull();
+		expect(originMain).toBe(serverHash(serverRepo, 'main'));
+		expect(pulled).toBeNull();
+		expect(ssh(serverScript('git -C "$1" rev-parse HEAD'), cloned).trim()).toBe(serverHash(serverRepo, 'main'));
+		expect(git(local, ['rev-parse', getHostBranchesPrefix('cloned') + 'main'])).toBe(serverHash(serverRepo, 'main'));
+
+		// Run: the same fetch with forwardAgent off fails, because the server has no key of its own
+		stopAgent();
+		startAgent();
+		expect(await remoteHosts.saveHost(local, 'cloned', entry('cloned', cloned, false))).toBeNull();
+		const unforwarded = await remoteHosts.runGitOnHost(local, 'cloned', cloned, 'fetch');
+
+		// Assert
+		expect(unforwarded).toMatch(/^Git Tree couldn't run git fetch --all --prune in .*\/cloned on "cloned": .*Permission denied/);
+
+		// Clean up
+		stopAgent();
+		expect(await remoteHosts.removeHost(local, 'cloned')).toBeNull();
+		git(local, ['remote', 'remove', 'server-local']);
+	});
+
+	it('Should refuse to pull when it isn\'t a fast-forward, and push from the server', async () => {
+		// Setup: the box host gets a remote on the server itself, so no agent is needed
+		ssh(serverScript('git clone -q --bare "$1" "$2"', 'cd "$1" && git remote add up "$2" && git fetch -q up && git branch -q -u up/main main'), serverRepo, serverRoot + '/up.git');
+		await refresh();
+		ssh(serverScript('cd "$1" && git commit -q --allow-empty -m local-only'), serverRepo);
+		ssh(serverScript('git clone -q "$1" "$2"', 'cd "$2" && git commit -q --allow-empty -m upstream-only && git push -q origin HEAD:main'), serverRoot + '/up.git', serverRoot + '/up-work');
+
+		// Run
+		const pulled = await remoteHosts.runGitOnHost(local, 'box', serverRepo, 'pull');
+		const fetched = await remoteHosts.runGitOnHost(local, 'box', serverRepo, 'fetch');
+
+		// Assert
+		expect(pulled).toMatch(/^Git Tree couldn't run git pull --ff-only in .*\/app on "box": .*(Not possible to fast-forward|diverging)/i);
+		expect(fetched).toBeNull();
+
+		// Run
+		ssh(serverScript('cd "$1" && git reset -q --hard up/main && git commit -q --allow-empty -m to-push'), serverRepo);
+		const pushed = await remoteHosts.runGitOnHost(local, 'box', serverRepo, 'push');
+
+		// Assert
+		expect(pushed).toBeNull();
+		expect(serverHash(serverRoot + '/up.git', 'main')).toBe(serverHash(serverRepo, 'main'));
+	});
+
 	it('Should show a host whose key the server refuses as needing authentication', async () => {
 		// Setup (last, because the server may refuse new connections from this machine for a while after a failed login)
 		fs.writeFileSync(path.join(local, CONFIG_FILE), configText + '  nokey:\n    ssh: gt-test-nokey\n    path: ' + serverRepo + '\n');
@@ -335,6 +498,37 @@ describeWithServer('Remote hosts, against a test SSH server', () => {
 
 
 	/* Helpers */
+
+	function entry(name: string, serverPath: string, forwardAgent: boolean = false): RemoteHostEntry {
+		return { name: name, ssh: 'gt-test', path: serverPath, worktrees: true, forwardAgent: forwardAgent };
+	}
+
+	/**
+	 * Start a private ssh-agent that holds only the test key, and point the wrapper's SSH_AUTH_SOCK at it.
+	 */
+	function startAgent() {
+		const socket = path.join(tmp, 'agent-' + Date.now() + '.sock');
+		const output = cp.execFileSync('ssh-agent', ['-s', '-a', socket], { encoding: 'utf8' });
+		const pid = output.match(/SSH_AGENT_PID=(\d+)/);
+		if (pid === null) throw new Error('ssh-agent didn\'t print its PID.');
+		agentPid = parseInt(pid[1], 10);
+		const key = path.join(path.dirname(SSH_CONFIG), 'id_test');
+		cp.execFileSync('ssh-add', ['-q', key], { env: Object.assign({}, process.env, { SSH_AUTH_SOCK: socket }), stdio: 'ignore' });
+		fs.writeFileSync(agentFile, socket);
+	}
+
+	/**
+	 * Kill the private ssh-agent, and leave the wrapper without an agent.
+	 */
+	function stopAgent() {
+		if (agentPid !== null) {
+			try {
+				process.kill(agentPid);
+			} catch (_) { }
+			agentPid = null;
+		}
+		if (typeof agentFile === 'string') fs.writeFileSync(agentFile, '');
+	}
 
 	/**
 	 * Refresh the local repository's hosts, and wait until every refresh finished.

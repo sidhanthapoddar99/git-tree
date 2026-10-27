@@ -1,6 +1,6 @@
 import * as cp from 'child_process';
 import * as fs from 'fs';
-import { ProcessResult, classifySshFailure, getErrorLines, getGitSshCommand, getSshOptions, isAuthenticationError, parseSshConfigHosts, quotePosix, runProcess } from '../src/remoteHosts/ssh';
+import { ProcessResult, classifySshFailure, getErrorLines, getForwardingSshOptions, getGitSshCommand, getSshOptions, isAuthenticationError, quotePosix, runProcess } from '../src/remoteHosts/ssh';
 
 const PATHS = [
 	'/home/dev/app',
@@ -53,12 +53,12 @@ describe('quotePosix', () => {
 });
 
 describe('getSshOptions', () => {
-	it('Should share the connection, and never prompt', () => {
-		expect(getSshOptions('/tmp/git-tree-1000', true)).toStrictEqual(['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ControlMaster=auto', '-o', 'ControlPersist=120', '-o', 'ControlPath=/tmp/git-tree-1000/%C']);
+	it('Should share the connection, never prompt, and never forward the SSH agent', () => {
+		expect(getSshOptions('/tmp/git-tree-1000', true)).toStrictEqual(['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ForwardAgent=no', '-o', 'ControlMaster=auto', '-o', 'ControlPersist=120', '-o', 'ControlPath=/tmp/git-tree-1000/%C']);
 	});
 
 	it('Should leave out connection sharing without a folder for it (Windows)', () => {
-		expect(getSshOptions(null, true)).toStrictEqual(['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']);
+		expect(getSshOptions(null, true)).toStrictEqual(['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ForwardAgent=no']);
 	});
 
 	it('Should leave out BatchMode for an interactive terminal', () => {
@@ -66,8 +66,8 @@ describe('getSshOptions', () => {
 	});
 
 	it('Should quote each word of the command Git runs for SSH', () => {
-		expect(getGitSshCommand('/opt/my ssh/ssh', '/tmp/git-tree-1000')).toBe('\'/opt/my ssh/ssh\' \'-o\' \'BatchMode=yes\' \'-o\' \'ConnectTimeout=10\' \'-o\' \'ControlMaster=auto\' \'-o\' \'ControlPersist=120\' \'-o\' \'ControlPath=/tmp/git-tree-1000/%C\'');
-		expect(getGitSshCommand('ssh', null)).toBe('\'ssh\' \'-o\' \'BatchMode=yes\' \'-o\' \'ConnectTimeout=10\'');
+		expect(getGitSshCommand('/opt/my ssh/ssh', '/tmp/git-tree-1000')).toBe('\'/opt/my ssh/ssh\' \'-o\' \'BatchMode=yes\' \'-o\' \'ConnectTimeout=10\' \'-o\' \'ForwardAgent=no\' \'-o\' \'ControlMaster=auto\' \'-o\' \'ControlPersist=120\' \'-o\' \'ControlPath=/tmp/git-tree-1000/%C\'');
+		expect(getGitSshCommand('ssh', null)).toBe('\'ssh\' \'-o\' \'BatchMode=yes\' \'-o\' \'ConnectTimeout=10\' \'-o\' \'ForwardAgent=no\'');
 	});
 });
 
@@ -121,26 +121,9 @@ describe('classifySshFailure', () => {
 	});
 });
 
-describe('parseSshConfigHosts', () => {
-	it('Should get the aliases, without patterns', () => {
-		// Run
-		const aliases = parseSshConfigHosts([
-			'# A comment',
-			'Include ~/.ssh/config.d/*',
-			'Host build-box gpu-01 # two aliases',
-			'  HostName 10.0.0.2',
-			'  User ubuntu',
-			'',
-			'host=lowercase',
-			'Host *.example.com !bad.example.com prod-?',
-			'\tHost "quoted"',
-			'Host build-box',
-			'Match host foo',
-			'Hostname not-an-alias'
-		].join('\r\n'));
-
-		// Assert
-		expect(aliases).toStrictEqual(['build-box', 'gpu-01', 'lowercase', 'quoted']);
+describe('getForwardingSshOptions', () => {
+	it('Should forward the SSH agent on a connection of its own, and never prompt', () => {
+		expect(getForwardingSshOptions()).toStrictEqual(['-A', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ControlMaster=no', '-o', 'ControlPath=none']);
 	});
 });
 

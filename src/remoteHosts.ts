@@ -6,10 +6,13 @@ import * as vscode from 'vscode';
 import { getConfig } from './config';
 import { ExtensionState } from './extensionState';
 import { Logger } from './logger';
-import { CONFIG_FILE, ParsedConfig, RemoteHostConfig, addHostToConfig, parseConfig, removeHostFromConfig, validateHostName, validateServerPath, validateSshAlias } from './remoteHosts/config';
-import { ProcessResult, SshFailure, classifySshFailure, getErrorLines, getGitSshCommand, getSshOptions, isAuthenticationError, parseSshConfigHosts, quotePosix, runProcess } from './remoteHosts/ssh';
+import { AGENT_INSTRUCTION } from './remoteHosts/agentInstruction';
+import { BROWSE_SCRIPT, parseBrowseOutput } from './remoteHosts/browse';
+import { CONFIG_FILE, ParsedConfig, RemoteHostConfig, parseConfig, removeHostFromConfig, setHostInConfig, validateHostName, validateServerPath, validateSshAlias } from './remoteHosts/config';
+import { ProcessResult, SshFailure, classifySshFailure, getErrorLines, getForwardingSshOptions, getGitSshCommand, getSshOptions, isAuthenticationError, quotePosix, runProcess } from './remoteHosts/ssh';
+import { readSshAliases } from './remoteHosts/sshConfig';
 import { BranchTip, STATUS_SCRIPT, ServerWorktree, StatusOutput, getServerWorktrees, getStatusScriptArgs, parseStatusOutput } from './remoteHosts/status';
-import { ErrorInfo, GitRemoteHost, GitRemoteHostState, GitWorktree } from './types';
+import { ErrorInfo, GitRemoteHost, GitRemoteHostSettings, GitRemoteHostState, GitWorktree, RemoteFolderEntry, RemoteHostEntry, RemoteHostGitAction, RemoteRepositorySource, SshAlias } from './types';
 import { GitExecutable, getPathFromStr } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
 import { Event, EventEmitter } from './utils/event';
@@ -85,6 +88,23 @@ export interface RemoteWorktree {
 	readonly worktree: GitWorktree; // `path` is the path on the server, `host` the host's name, `isCurrent` FALSE
 	readonly uncommittedChanges: number | null; // The number of `git status --porcelain` lines. NULL => the status couldn't be read.
 	readonly commitIsLocal: boolean; // The worktree's HEAD commit is in this repository. FALSE => its rows say the commit isn't on this machine.
+}
+
+/** What Repository Settings shows of a repository's remote hosts. */
+export interface RemoteHostsSettings {
+	readonly hosts: GitRemoteHostSettings[];
+	readonly configFile: string | null; // NULL => the repository has no main worktree Git Tree can find
+	readonly configError: string | null;
+	readonly sshAliases: SshAlias[];
+	readonly agentInstruction: string;
+}
+
+/** A folder on a server, as the folder browser lists it. */
+export interface RemoteFolderListing {
+	readonly path: string; // The physical path that was listed
+	readonly parent: string | null; // NULL => the path is the root
+	readonly entries: RemoteFolderEntry[];
+	readonly truncated: boolean; // The folder holds more folders than BROWSE_LIMIT, and only that many are listed
 }
 
 /** What Git Tree knows of a remote host: its state, and its worktrees from the last good refresh. */
@@ -225,10 +245,11 @@ export class RemoteHosts extends Disposable {
 	 * Start a refresh of each of a repository's hosts in the background, unless one is already running for that host.
 	 * Each host refreshes on its own, with a time limit, and `onDidChange` fires when one changed something.
 	 * @param repo The path of the repository.
+	 * @param skip The names of the hosts not to refresh: those the view hides, so they cost no SSH call.
 	 */
-	public refresh(repo: string): void {
+	public refresh(repo: string, skip: ReadonlyArray<string> = []): void {
 		this.loadEntry(repo).then((entry) => {
-			if (entry !== null) this.refreshEntry(entry);
+			if (entry !== null) this.refreshEntry(entry, skip);
 		}, (error) => this.logger.logError('Remote hosts: ' + error));
 	}
 
@@ -282,8 +303,8 @@ export class RemoteHosts extends Disposable {
 		if (commitOrBranch === '' || commitOrBranch.startsWith('-')) return 'The commit or branch "' + commitOrBranch + '" isn\'t valid.';
 
 		const args = [trimTrailingSlashes(found.host.config.path), resolved.path, commitOrBranch, newBranch !== null ? newBranch : ''];
-		const result = await this.runOnHost(found.host.config, CREATE_WORKTREE_SCRIPT, args, LONG_TIMEOUT);
-		return this.finishAction(found.entry, found.host, result, 'create the worktree');
+		const result = await this.runOnHost(found.host.config.ssh, CREATE_WORKTREE_SCRIPT, args, LONG_TIMEOUT, false);
+		return this.finishAction(found.entry, found.host, result, 'create the worktree', { 7: 'The worktree was created, but Git Tree couldn\'t add its folder to info/exclude on the server' });
 	}
 
 	/**
@@ -299,7 +320,7 @@ export class RemoteHosts extends Disposable {
 		const pathError = validateServerPath(worktreePath);
 		if (pathError !== null) return pathError;
 
-		const result = await this.runOnHost(found.host.config, REMOVE_WORKTREE_SCRIPT, [found.host.config.path, worktreePath, force ? 'yes' : 'no'], LONG_TIMEOUT);
+		const result = await this.runOnHost(found.host.config.ssh, REMOVE_WORKTREE_SCRIPT, [found.host.config.path, worktreePath, force ? 'yes' : 'no'], LONG_TIMEOUT, false);
 		return this.finishAction(found.entry, found.host, result, 'remove the worktree');
 	}
 
@@ -328,49 +349,202 @@ export class RemoteHosts extends Disposable {
 		return null;
 	}
 
+	/**
+	 * Run Git on a remote host, in one of its worktrees: `git fetch --all --prune`, `git pull --ff-only` or `git push`,
+	 * with no terminal prompt, so a missing credential is an error instead of a hang. A host with `forwardAgent` runs it
+	 * on its own connection with the SSH agent forwarded. The host refreshes afterwards.
+	 * @param repo The path of the repository.
+	 * @param host The host's name.
+	 * @param worktreePath The worktree's path on the server: the host's path, or one of the worktrees of its last refresh.
+	 * @param action The Git command.
+	 * @returns The ErrorInfo, with Git's error lines when the command failed.
+	 */
+	public async runGitOnHost(repo: string, host: string, worktreePath: string, action: RemoteHostGitAction): Promise<ErrorInfo> {
+		const found = await this.findHost(repo, host);
+		if (typeof found === 'string') return found;
+		const command = Object.prototype.hasOwnProperty.call(SERVER_GIT_COMMANDS, action) ? SERVER_GIT_COMMANDS[action] : undefined;
+		if (typeof command !== 'string') return 'Git Tree doesn\'t run "' + action + '" on a server.';
+		const pathError = validateServerPath(worktreePath);
+		if (pathError !== null) return pathError;
+		const known = [found.host.config.path].concat(found.host.worktrees.map((worktree) => worktree.worktree.path)).map(trimTrailingSlashes);
+		if (known.indexOf(trimTrailingSlashes(worktreePath)) === -1) {
+			return worktreePath + ' isn\'t a worktree of "' + host + '" that Git Tree knows. Refresh the view, then try again.';
+		}
+
+		const result = await this.runOnHost(found.host.config.ssh, SERVER_GIT_SCRIPT, [worktreePath, action], LONG_TIMEOUT, found.host.config.forwardAgent);
+		return this.finishAction(found.entry, found.host, result, 'run ' + command + ' in ' + worktreePath);
+	}
+
+
+	/* Repository Settings */
+
+	/**
+	 * Get what Repository Settings shows of a repository's remote hosts: each host's entry and state, the config file,
+	 * the SSH aliases, and the instruction for coding agents. It reads only local files, and never waits for a server:
+	 * each host's state is from its last refresh.
+	 * @param repo The path of the repository.
+	 * @returns The settings.
+	 */
+	public async loadSettings(repo: string): Promise<RemoteHostsSettings> {
+		const results = await Promise.all([this.loadEntry(repo), this.getSshAliases()]);
+		const entry = results[0];
+		return {
+			hosts: entry !== null ? entry.hosts.map((host) => ({
+				name: host.config.name,
+				ssh: host.config.ssh,
+				path: host.config.path,
+				worktrees: host.config.worktrees,
+				forwardAgent: host.config.forwardAgent,
+				state: host.state,
+				message: host.message,
+				lastRefresh: host.lastRefresh,
+				worktreeCount: host.worktrees.length
+			})) : [],
+			configFile: entry !== null ? entry.main + '/' + CONFIG_FILE : null,
+			configError: entry !== null ? entry.configError : null,
+			sshAliases: results[1],
+			agentInstruction: AGENT_INSTRUCTION
+		};
+	}
+
+	/**
+	 * Get the Host aliases of ~/.ssh/config and the files it includes, to offer when a host is added. The files are only read.
+	 * @returns The literal aliases, each with its block's HostName and User. Empty when there's no file.
+	 */
+	public getSshAliases(): Promise<SshAlias[]> {
+		const home = os.homedir();
+		return readSshAliases(path.join(home, '.ssh', 'config'), home).catch((error) => {
+			this.logger.logError('Remote hosts: Git Tree couldn\'t read the SSH configuration (' + error + ').');
+			return [];
+		});
+	}
+
+	/**
+	 * List the folders in a folder on a server, for the folder browser, over the shared connection: one SSH call.
+	 * @param ssh The SSH alias.
+	 * @param serverPath The folder. NULL => the home folder on the server.
+	 * @returns The listing, or why there's none.
+	 */
+	public async browse(ssh: string, serverPath: string | null): Promise<RemoteFolderListing | { error: string }> {
+		const valueError = validateSshAlias(ssh) || (serverPath !== null ? validateServerPath(serverPath) : null);
+		if (valueError !== null) return { error: valueError };
+
+		const result = await this.runOnHost(ssh, BROWSE_SCRIPT, [serverPath !== null ? serverPath : ''], STATUS_TIMEOUT, false);
+		const sshFailure = classifySshFailure(result, ssh);
+		if (sshFailure !== null) return { error: sshFailure.message };
+		const output = parseBrowseOutput(result.stdout.toString());
+		if (output.kind === 'noPath') {
+			return { error: serverPath !== null ? ssh + ':' + serverPath + ' doesn\'t exist, or isn\'t a folder Git Tree can enter.' : 'Git Tree couldn\'t enter the home folder on "' + ssh + '".' };
+		} else if (output.kind === 'unreadable' || result.code !== 0) {
+			const stderr = getErrorLines(result.stderr);
+			return { error: 'Git Tree couldn\'t list the folders of ' + ssh + ':' + (serverPath !== null ? serverPath : '~') + ' (exit code ' + result.code + ')' + (stderr !== '' ? ': ' + stderr : '.') };
+		}
+		return { path: output.path, parent: output.parent, entries: output.entries.slice(), truncated: output.truncated };
+	}
+
 
 	/* Adding and removing hosts */
 
 	/**
-	 * Get the Host aliases in ~/.ssh/config, to offer when a host is added. The file is only read.
-	 * @returns The aliases, without patterns. Empty when there's no file.
+	 * Check that a path on a server can be a host of a repository: Git Tree can connect without a prompt, the path is
+	 * the main worktree of a repository, and that repository shares a root commit with this one.
+	 * @param repo The path of the repository.
+	 * @param ssh The SSH alias.
+	 * @param serverPath The path on the server.
+	 * @returns The ErrorInfo: what's wrong, or NULL.
 	 */
-	public getSshAliases(): Promise<string[]> {
-		return readTextFile(path.join(os.homedir(), '.ssh', 'config')).then((text) => typeof text === 'string' ? parseSshConfigHosts(text) : []);
+	public async checkHost(repo: string, ssh: string, serverPath: string): Promise<ErrorInfo> {
+		const valueError = validateSshAlias(ssh) || validateServerPath(serverPath);
+		if (valueError !== null) return valueError;
+		const entry = await this.loadEntry(repo);
+		if (entry === null) return getNoMainWorktreeMessage(repo);
+		return this.checkNewHost(entry, ssh, serverPath);
 	}
 
 	/**
-	 * Add a host to a repository's config file. It checks the connection and the same project rule first, and writes
-	 * the file only if both pass, keeping its other entries and comments.
+	 * Add a host to a repository's config file, or replace one. An added host, and an edited host whose SSH alias or path
+	 * changed, is checked first (see `checkHost`); a change of only its other keys is written at once. The file keeps
+	 * its other entries, comments and order. A renamed host keeps its fetch consent, and its old refs are deleted.
 	 * @param repo The path of the repository.
-	 * @param name The host's name.
-	 * @param ssh The host's SSH alias.
-	 * @param serverPath The path of the repository's main worktree on the server.
-	 * @returns The ErrorInfo: why the host wasn't added, or NULL.
+	 * @param previousName NULL => add the host. Otherwise => replace the host with this name.
+	 * @param host The host's entry.
+	 * @returns The ErrorInfo: why the host wasn't written, or NULL.
 	 */
-	public async addHost(repo: string, name: string, ssh: string, serverPath: string): Promise<ErrorInfo> {
-		const valueError = validateHostName(name) || validateSshAlias(ssh) || validateServerPath(serverPath);
+	public async saveHost(repo: string, previousName: string | null, host: RemoteHostEntry): Promise<ErrorInfo> {
+		const valueError = validateHostName(host.name) || validateSshAlias(host.ssh) || validateServerPath(host.path);
 		if (valueError !== null) return valueError;
 		const entry = await this.loadEntry(repo);
-		if (entry === null) return 'Git Tree couldn\'t find the main worktree of "' + repo + '", which holds ' + CONFIG_FILE + '.';
+		if (entry === null) return getNoMainWorktreeMessage(repo);
 
-		const config: RemoteHostConfig = { name: name, ssh: ssh, path: serverPath, worktrees: true, error: null };
-		const status = await this.readStatus(config, true);
-		if ('failure' in status) return status.failure.message;
-		const projectError = await this.checkSameProject(entry, config, status.status.roots);
-		if (projectError !== null) return projectError.message;
+		const previous = previousName !== null ? entry.hosts.find((hostEntry) => hostEntry.config.name === previousName) : undefined;
+		if (previousName !== null && typeof previous === 'undefined' && entry.configError === null) return 'The host "' + previousName + '" isn\'t in ' + CONFIG_FILE + '.';
+		// Find what keeps the file from taking the host (such as a name that's taken) before the check's SSH call
+		const ready = await this.editConfig(entry, (text) => setHostInConfig(text, previousName, host), false);
+		if (ready !== null) return ready;
 
-		const file = entry.main + '/' + CONFIG_FILE;
-		const text = await readTextFile(file);
-		if (text instanceof Error) return 'Git Tree couldn\'t read ' + file + ' (' + text.message + ').';
-		const edited = addHostToConfig(text, name, ssh, serverPath);
-		if ('error' in edited) return edited.error;
-
-		const writeError = await writeTextFile(file, edited.text);
+		if (typeof previous === 'undefined' || previous.config.error !== null || previous.config.ssh !== host.ssh || previous.config.path !== host.path) {
+			const checkError = await this.checkNewHost(entry, host.ssh, host.path);
+			if (checkError !== null) return checkError;
+		}
+		const writeError = await this.editConfig(entry, (text) => setHostInConfig(text, previousName, host), true);
 		if (writeError !== null) return writeError;
-		const excludeError = await this.excludeConfigFolder(entry.main);
+
+		const errors: ErrorInfo[] = [];
+		if (previousName !== null && previousName !== host.name) {
+			errors.push(await this.extensionState.moveRemoteHostFetchConsent(entry.main, previousName, host.name));
+			errors.push(await this.deleteRefs(entry.main, HOST_REFS_PREFIX + previousName + '/', []));
+		}
+		if (previousName === null) errors.push(await this.excludeConfigFolder(entry.main));
 		await this.reloadAndRefresh(entry);
-		return excludeError;
+		return errors.reduce<ErrorInfo>((first, error) => first !== null ? first : error, null);
+	}
+
+	/**
+	 * Create a repository on a server, in a folder that's missing or empty, and add it as a host (see `saveHost`).
+	 * - `clone`: the server runs `git clone <url of the remote>`, with the SSH agent forwarded if the host has `forwardAgent`.
+	 * - `push`: the server runs `git init`, and points HEAD at this repository's current branch. Then this machine pushes
+	 *   its branches with `receive.denyCurrentBranch=updateInstead` for that one push, which checks the branch out on
+	 *   the server without changing the server's config.
+	 * @param repo The path of the repository.
+	 * @param host The host's entry. Its path is the new repository's folder.
+	 * @param source Where the new repository's commits come from.
+	 * @returns The ErrorInfo: why the repository wasn't created, or the host wasn't added, or NULL.
+	 */
+	public async createRepository(repo: string, host: RemoteHostEntry, source: RemoteRepositorySource): Promise<ErrorInfo> {
+		const valueError = validateHostName(host.name) || validateSshAlias(host.ssh) || validateServerPath(host.path);
+		if (valueError !== null) return valueError;
+		const entry = await this.loadEntry(repo);
+		if (entry === null) return getNoMainWorktreeMessage(repo);
+		if (this.gitExecutable === null) return 'Git Tree has no Git executable.';
+		const ready = await this.editConfig(entry, (text) => setHostInConfig(text, null, host), false);
+		if (ready !== null) return ready;
+		const where = host.ssh + ':' + host.path;
+
+		if (source.kind === 'clone') {
+			const url = await this.getCloneUrl(repo, source.remote);
+			if ('error' in url) return url.error;
+			const result = await this.runOnHost(host.ssh, CLONE_SCRIPT, [host.path, url.url], LONG_TIMEOUT, host.forwardAgent);
+			const error = getCreateError(result, host.ssh, where, 'clone ' + source.remote + ' into');
+			if (error !== null) return error;
+		} else {
+			const head = await runProcess(this.gitExecutable.path, ['symbolic-ref', '-q', 'HEAD'], { cwd: repo, timeout: LOCAL_TIMEOUT });
+			const branchRef = head.stdout.toString().trim();
+			if (head.code !== 0 || !branchRef.startsWith('refs/heads/')) {
+				return 'This repository\'s HEAD isn\'t on a branch, so Git Tree doesn\'t know which branch to check out on the server. Check out a branch, then try again.';
+			}
+			const init = await this.runOnHost(host.ssh, INIT_SCRIPT, [host.path, branchRef], LONG_TIMEOUT, false);
+			const initError = getCreateError(init, host.ssh, where, 'create a repository in');
+			if (initError !== null) return initError;
+
+			const args = ['push', '--quiet', '--receive-pack=git -c receive.denyCurrentBranch=updateInstead receive-pack', where, 'refs/heads/*:refs/heads/*'];
+			this.logger.logCmd('git', args);
+			const push = await runProcess(this.gitExecutable.path, args, { cwd: repo, env: this.getGitSshEnv(), timeout: LONG_TIMEOUT });
+			if (push.code !== 0) {
+				const message = push.timedOut ? 'the push timed out.' : push.error !== null ? push.error.message : getErrorLines(push.stderr);
+				return 'Git Tree made an empty repository at ' + where + ', but couldn\'t push this repository\'s branches to it: ' + message + ' Remove that folder on the server before you try again.';
+			}
+		}
+		return this.saveHost(repo, null, host);
 	}
 
 	/**
@@ -381,7 +555,7 @@ export class RemoteHosts extends Disposable {
 	 */
 	public async removeHost(repo: string, name: string): Promise<ErrorInfo> {
 		const entry = await this.loadEntry(repo);
-		if (entry === null) return 'Git Tree couldn\'t find the main worktree of "' + repo + '", which holds ' + CONFIG_FILE + '.';
+		if (entry === null) return getNoMainWorktreeMessage(repo);
 
 		const file = entry.main + '/' + CONFIG_FILE;
 		const text = await readTextFile(file);
@@ -612,6 +786,67 @@ export class RemoteHosts extends Disposable {
 		return { entry: entry, host: host };
 	}
 
+	/**
+	 * Check a path on a server before it becomes a host: the connection, then that it's the main worktree of a
+	 * repository, then the same project check.
+	 * @param entry The repository's entry.
+	 * @param ssh The SSH alias.
+	 * @param serverPath The path on the server.
+	 * @returns The ErrorInfo: what's wrong, or NULL.
+	 */
+	private async checkNewHost(entry: RepoEntry, ssh: string, serverPath: string): Promise<ErrorInfo> {
+		const config: RemoteHostConfig = { name: '', ssh: ssh, path: serverPath, worktrees: false, forwardAgent: false, error: null };
+		const status = await this.readStatus(config, true);
+		if ('failure' in status) return status.failure.message;
+
+		// Git lists the main worktree first, by its physical path, so a linked worktree, a folder inside a worktree, and a
+		// path through a symbolic link each differ from it
+		const main = status.status.worktrees[0], where = ssh + ':' + serverPath;
+		if (main.bare) return where + ' is in a bare repository, which has no main worktree. Use the path of a repository with a working tree.';
+		if (main.path !== trimTrailingSlashes(serverPath)) {
+			return where + ' isn\'t the main worktree of its repository. Use the main worktree\'s path, ' + main.path + ', and Git Tree shows the linked worktrees with it.';
+		}
+		const projectError = await this.checkSameProject(entry, config, status.status.roots);
+		return projectError !== null ? projectError.message : null;
+	}
+
+	/**
+	 * Edit a repository's config file: read it, change its text, and write it.
+	 * @param entry The repository's entry.
+	 * @param edit The change: the new text, or why it can't be made.
+	 * @param write Write the file. FALSE => only find out whether the change can be made.
+	 * @returns The ErrorInfo.
+	 */
+	private async editConfig(entry: RepoEntry, edit: (text: string | null) => { text: string } | { error: string }, write: boolean): Promise<ErrorInfo> {
+		const file = entry.main + '/' + CONFIG_FILE;
+		const text = await readTextFile(file);
+		if (text instanceof Error) return 'Git Tree couldn\'t read ' + file + ' (' + text.message + ').';
+		const edited = edit(text);
+		if ('error' in edited) return edited.error;
+		return write ? writeTextFile(file, edited.text) : null;
+	}
+
+	/**
+	 * Get the URL of a local remote, for a server to clone. A path on this machine, and a URL that holds a password, are refused.
+	 * @param repo The path of the repository.
+	 * @param remote The remote's name.
+	 * @returns The URL, or why it can't be cloned on a server.
+	 */
+	private async getCloneUrl(repo: string, remote: string): Promise<{ url: string } | { error: string }> {
+		if (remote === '' || remote.startsWith('-')) return { error: 'The remote name "' + remote + '" isn\'t valid.' };
+		// `get-url` applies this machine's `url.<base>.insteadOf` rules, which the server doesn't have
+		const output = await this.runGit(repo, ['remote', 'get-url', remote], LOCAL_TIMEOUT);
+		const url = output !== null ? output.trim() : '';
+		if (url === '') return { error: 'This repository has no remote named "' + remote + '".' };
+		if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/@]*:[^/@]*@/.test(url)) {
+			return { error: 'The URL of the remote "' + remote + '" holds a password, which Git Tree doesn\'t send to a server. Use an SSH URL with a forwarded agent, or Push instead.' };
+		}
+		if (isLocalPathUrl(url)) {
+			return { error: 'The remote "' + remote + '" is a path on this machine (' + url + '), which the server can\'t reach. Use Push instead.' };
+		}
+		return { url: url };
+	}
+
 
 	/* Refreshing hosts */
 
@@ -629,7 +864,7 @@ export class RemoteHosts extends Disposable {
 				this.entries.forEach((entry) => {
 					this.loadConfig(entry).then((changed) => {
 						if (changed) this.emitChange(entry);
-						this.refreshEntry(entry);
+						this.refreshEntry(entry, this.getHiddenHosts(entry));
 					});
 				});
 			}, interval);
@@ -637,14 +872,27 @@ export class RemoteHosts extends Disposable {
 	}
 
 	/**
+	 * Get the hosts that every saved view state of a repository hides, which the interval leaves alone, as a view's own
+	 * refresh does.
+	 * @param entry The repository's entry.
+	 * @returns The names of the hosts. Empty when no view state of the repository is saved.
+	 */
+	private getHiddenHosts(entry: RepoEntry): string[] {
+		const repoStates = this.extensionState.getRepos();
+		const states = Array.from(entry.repos).map((repo) => repoStates[repo]).filter((state) => typeof state !== 'undefined');
+		return states.length > 0 ? states[0].hideHosts.filter((name) => states.every((state) => state.hideHosts.indexOf(name) > -1)) : [];
+	}
+
+	/**
 	 * Start a refresh of each of a repository's hosts that has a valid entry. While the file as a whole is unusable,
 	 * none refreshes: their entries are from the last good read, and keep the configError state.
 	 * @param entry The repository's entry.
+	 * @param skip The names of the hosts not to refresh.
 	 */
-	private refreshEntry(entry: RepoEntry) {
+	private refreshEntry(entry: RepoEntry, skip: ReadonlyArray<string> = []) {
 		if (entry.configError !== null) return;
 		entry.hosts.forEach((host) => {
-			if (host.config.error === null) this.refreshHost(entry, host);
+			if (host.config.error === null && skip.indexOf(host.config.name) === -1) this.refreshHost(entry, host);
 		});
 	}
 
@@ -738,7 +986,7 @@ export class RemoteHosts extends Disposable {
 	 */
 	private async readStatus(config: RemoteHostConfig, roots: boolean): Promise<{ status: Extract<StatusOutput, { kind: 'ok' }> } | { failure: SshFailure }> {
 		const args = getStatusScriptArgs(config.path, getConfig().showUntrackedFiles, config.worktrees, roots);
-		const result = await this.runOnHost(config, STATUS_SCRIPT, args, STATUS_TIMEOUT);
+		const result = await this.runOnHost(config.ssh, STATUS_SCRIPT, args, STATUS_TIMEOUT, false);
 		const sshFailure = classifySshFailure(result, config.ssh);
 		if (sshFailure !== null) return { failure: sshFailure };
 
@@ -848,15 +1096,7 @@ export class RemoteHosts extends Disposable {
 		args.push(config.ssh + ':' + serverPath, refspec);
 		this.logger.logCmd('git', args);
 
-		const result = await runProcess(this.gitExecutable.path, args, {
-			cwd: main,
-			env: Object.assign({}, process.env, {
-				GIT_SSH_COMMAND: getGitSshCommand(getConfig().remoteHostsSshPath, this.getControlDir()),
-				GIT_SSH_VARIANT: 'ssh', // Skip Git's `ssh -G` probe: the options are OpenSSH's
-				GIT_TERMINAL_PROMPT: '0'
-			}),
-			timeout: LONG_TIMEOUT
-		});
+		const result = await runProcess(this.gitExecutable.path, args, { cwd: main, env: this.getGitSshEnv(), timeout: LONG_TIMEOUT });
 		if (result.code === 0) return null;
 
 		const message = result.timedOut ? 'the fetch timed out.' : result.error !== null ? result.error.message : getErrorLines(result.stderr);
@@ -1002,16 +1242,31 @@ export class RemoteHosts extends Disposable {
 
 	/**
 	 * Run a fixed script on a host, as `ssh <options> <alias> sh -s -- <quoted arguments>`, with the script on stdin.
-	 * @param config The host's entry in the config.
+	 * @param ssh The host's SSH alias, which its config or the caller has checked.
 	 * @param script The script.
 	 * @param args The script's arguments.
 	 * @param timeout The time limit, in milliseconds.
+	 * @param forwardAgent Forward the SSH agent, on a connection of its own. FALSE => the shared connection, which never forwards it.
 	 * @returns The result.
 	 */
-	private runOnHost(config: RemoteHostConfig, script: string, args: ReadonlyArray<string>, timeout: number): Promise<ProcessResult> {
-		const sshArgs = getSshOptions(this.getControlDir(), true).concat([config.ssh, 'sh -s -- ' + args.map(quotePosix).join(' ')]);
+	private runOnHost(ssh: string, script: string, args: ReadonlyArray<string>, timeout: number, forwardAgent: boolean): Promise<ProcessResult> {
+		const options = forwardAgent ? getForwardingSshOptions() : getSshOptions(this.getControlDir(), true);
+		const sshArgs = options.concat([ssh, 'sh -s -- ' + args.map(quotePosix).join(' ')]);
 		this.logger.logCmd('ssh', sshArgs);
 		return runProcess(getConfig().remoteHostsSshPath, sshArgs, { input: script, timeout: timeout });
+	}
+
+	/**
+	 * Get the environment of a local Git command that connects to a host (a fetch or a push): its SSH command is the
+	 * shared connection's, and it never prompts.
+	 * @returns The environment.
+	 */
+	private getGitSshEnv() {
+		return Object.assign({}, process.env, {
+			GIT_SSH_COMMAND: getGitSshCommand(getConfig().remoteHostsSshPath, this.getControlDir()),
+			GIT_SSH_VARIANT: 'ssh', // Skip Git's `ssh -G` probe: the options are OpenSSH's
+			GIT_TERMINAL_PROMPT: '0'
+		});
 	}
 
 	/**
@@ -1036,15 +1291,17 @@ export class RemoteHosts extends Disposable {
 	 * @param host The host.
 	 * @param result The result of the action's SSH call.
 	 * @param action What the action does, for the message.
+	 * @param exitMessages The messages of the script's own exit codes, which the error lines follow.
 	 * @returns The ErrorInfo.
 	 */
-	private finishAction(entry: RepoEntry, host: HostEntry, result: ProcessResult, action: string): ErrorInfo {
+	private finishAction(entry: RepoEntry, host: HostEntry, result: ProcessResult, action: string, exitMessages: { [code: number]: string } = {}): ErrorInfo {
 		this.refreshHost(entry, host);
 		const sshFailure = classifySshFailure(result, host.config.ssh);
 		if (sshFailure !== null) return sshFailure.message;
 		if (result.code === 0) return null;
 		const message = getErrorLines(result.stderr);
-		if (result.code === 7) return 'The worktree was created, but Git Tree couldn\'t add its folder to info/exclude on the server' + (message !== '' ? ': ' + message : '.');
+		const known = exitMessages[result.code];
+		if (typeof known === 'string') return known + (message !== '' ? ': ' + message : '.');
 		return 'Git Tree couldn\'t ' + action + ' on "' + host.config.name + '"' + (message !== '' ? ': ' + message : '.');
 	}
 
@@ -1134,8 +1391,83 @@ const REMOVE_WORKTREE_SCRIPT = [
 	''
 ].join('\n');
 
+/** The Git commands that `runGitOnHost` runs, by action. */
+const SERVER_GIT_COMMANDS: { readonly [action: string]: string | undefined } = {
+	fetch: 'git fetch --all --prune',
+	pull: 'git pull --ff-only',
+	push: 'git push'
+};
+
+/** Run Git in a worktree: `sh -s -- <worktree> <fetch|pull|push>`, with no terminal prompt. */
+const SERVER_GIT_SCRIPT = [
+	'cd "$1" || exit 3',
+	'export GIT_TERMINAL_PROMPT=0',
+	'case "$2" in',
+	'  fetch) exec ' + SERVER_GIT_COMMANDS.fetch + ';;',
+	'  pull) exec ' + SERVER_GIT_COMMANDS.pull + ';;',
+	'  push) exec ' + SERVER_GIT_COMMANDS.push + ';;',
+	'esac',
+	'exit 2',
+	''
+].join('\n');
+
+/** The start of a script that makes a repository in a folder: exit code 8 => the folder exists, and isn't empty. */
+const EMPTY_FOLDER_CHECK = 'if [ -e "$1" ] || [ -L "$1" ]; then { [ -d "$1" ] && [ -z "$(ls -A "$1")" ]; } || exit 8; fi';
+
+/** Clone a repository: `sh -s -- <new folder> <url>`, with no terminal prompt. */
+const CLONE_SCRIPT = [
+	EMPTY_FOLDER_CHECK,
+	'export GIT_TERMINAL_PROMPT=0',
+	'git clone --quiet -- "$2" "$1"',
+	''
+].join('\n');
+
+/** Make an empty repository whose HEAD is a branch, for a push: `sh -s -- <new folder> <refs/heads/<branch>>`. */
+const INIT_SCRIPT = [
+	EMPTY_FOLDER_CHECK,
+	'git init --quiet -- "$1" && git -C "$1" symbolic-ref HEAD "$2"',
+	''
+].join('\n');
+
 
 /* Helpers */
+
+/**
+ * Get the message for a repository whose config file Git Tree can't find.
+ * @param repo The path of the repository.
+ */
+function getNoMainWorktreeMessage(repo: string) {
+	return 'Git Tree couldn\'t find the main worktree of "' + repo + '", which holds ' + CONFIG_FILE + '.';
+}
+
+/**
+ * Get the error of a script that makes a repository on a server.
+ * @param result The result of its SSH call.
+ * @param ssh The SSH alias.
+ * @param where The new repository's `<alias>:<path>`.
+ * @param action What the script does, for the message.
+ * @returns The ErrorInfo.
+ */
+function getCreateError(result: ProcessResult, ssh: string, where: string, action: string): ErrorInfo {
+	const sshFailure = classifySshFailure(result, ssh);
+	if (sshFailure !== null) return sshFailure.message;
+	if (result.code === 0) return null;
+	if (result.code === 8) return where + ' already exists, and isn\'t an empty folder. Choose a new folder, or add the repository that\'s there.';
+	const message = getErrorLines(result.stderr);
+	return 'Git Tree couldn\'t ' + action + ' ' + where + (message !== '' ? ': ' + message : '.');
+}
+
+/**
+ * Check whether a remote's URL is a path on this machine, as Git reads it: not `<scheme>://`, and not `[user@]host:path`
+ * (a `:` before any `/`), or a `file://` URL.
+ * @param url The URL.
+ */
+function isLocalPathUrl(url: string) {
+	if (/^file:\/\//i.test(url) || /^[A-Za-z]:[\\/]/.test(url)) return true;
+	if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(url)) return false;
+	const colon = url.indexOf(':'), slash = url.indexOf('/');
+	return colon === -1 || (slash > -1 && slash < colon);
+}
 
 /**
  * Get the message of a host that waits for the fetch consent.

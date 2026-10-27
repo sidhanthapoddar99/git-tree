@@ -8,6 +8,7 @@ import { ExtensionState } from './extensionState';
 import { Logger } from './logger';
 import { RepoFileWatcher } from './repoFileWatcher';
 import { resolveServerWorktreePath } from './remoteHosts';
+import { AGENT_INSTRUCTION } from './remoteHosts/agentInstruction';
 import { RepoManager } from './repoManager';
 import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewConfig, GitTreeViewInitialState, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
 import { UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, escapeHtml, getNonce, getRepoName, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
@@ -279,6 +280,21 @@ export class GitTreeView extends Disposable {
 					error: await this.dataSource.branchFromStash(msg.repo, msg.selector, msg.branchName)
 				});
 				break;
+			case 'browseRemoteHost': {
+				const listing = this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.browse(msg.ssh, msg.path) : { error: REMOTE_HOSTS_UNAVAILABLE };
+				this.sendMessage('error' in listing
+					? { command: 'browseRemoteHost', ssh: msg.ssh, path: msg.path !== null ? msg.path : '', parent: null, entries: [], truncated: false, error: listing.error }
+					: { command: 'browseRemoteHost', ssh: msg.ssh, path: listing.path, parent: listing.parent, entries: listing.entries, truncated: listing.truncated, error: null });
+				break;
+			}
+			case 'checkRemoteHost':
+				this.sendMessage({
+					command: 'checkRemoteHost',
+					ssh: msg.ssh,
+					path: msg.path,
+					error: this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.checkHost(msg.repo, msg.ssh, msg.path) : REMOTE_HOSTS_UNAVAILABLE
+				});
+				break;
 			case 'checkoutBranch':
 				errorInfos = [await this.dataSource.checkoutBranch(msg.repo, msg.branchName, msg.remoteBranch)];
 				if (errorInfos[0] === null && msg.pullAfterwards !== null) {
@@ -376,6 +392,12 @@ export class GitTreeView extends Disposable {
 				this.sendMessage({
 					command: 'createRemoteWorktree',
 					errors: await this.createRemoteWorktree(msg.repo, msg.host, msg.path, msg.commitish, msg.newBranch, msg.openInNewWindow)
+				});
+				break;
+			case 'createRemoteHostRepository':
+				this.sendMessage({
+					command: 'createRemoteHostRepository',
+					error: this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.createRepository(msg.repo, msg.host, msg.source) : REMOTE_HOSTS_UNAVAILABLE
 				});
 				break;
 			case 'createPullRequest':
@@ -498,7 +520,7 @@ export class GitTreeView extends Disposable {
 			case 'loadCommits':
 				this.loadCommitsRefreshId = msg.refreshId;
 				this.sendMessage(createLoadCommitsResponse(msg.refreshId, msg.onlyFollowFirstParent, msg.token,
-					await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees, msg.onlyWorktreeHistory, msg.onlyHostWorktree)
+					await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees, msg.onlyWorktreeHistory, msg.onlyHostWorktree, msg.hideHosts)
 				));
 				break;
 			case 'loadConfig':
@@ -508,9 +530,21 @@ export class GitTreeView extends Disposable {
 					...await this.dataSource.getConfig(msg.repo, msg.remotes)
 				});
 				break;
+			case 'loadRemoteHosts':
+				if (this.dataSource.remoteHosts) {
+					this.sendMessage({
+						command: 'loadRemoteHosts',
+						repo: msg.repo,
+						...await this.dataSource.remoteHosts.loadSettings(msg.repo),
+						error: null
+					});
+				} else {
+					this.sendMessage({ command: 'loadRemoteHosts', repo: msg.repo, hosts: [], configFile: null, configError: null, sshAliases: [], agentInstruction: AGENT_INSTRUCTION, error: REMOTE_HOSTS_UNAVAILABLE });
+				}
+				break;
 			case 'loadRepoInfo':
 				this.loadRepoInfoRefreshId = msg.refreshId;
-				let repoInfo = await this.dataSource.getRepoInfo(msg.worktree, msg.showRemoteBranches, msg.showStashes, msg.hideRemotes), isRepo = true;
+				let repoInfo = await this.dataSource.getRepoInfo(msg.worktree, msg.showRemoteBranches, msg.showStashes, msg.hideRemotes, msg.hideHosts), isRepo = true;
 				if (repoInfo.error) {
 					// If an error occurred, check to make sure the repo (or the worktree being viewed) still exists
 					isRepo = (await this.dataSource.repoRoot(msg.worktree)) !== null;
@@ -546,9 +580,10 @@ export class GitTreeView extends Disposable {
 					this.updateTitle();
 				}
 				// The remote hosts refresh in the background when the view loads the repository, which it also does when it
-				// becomes visible again (currentRepo is reset while it is hidden), and when the user refreshes it
+				// becomes visible again (currentRepo is reset while it is hidden), and when the user refreshes it. The hosts
+				// the view hides are skipped, so they cost no SSH call.
 				if ((repoChanged || msg.refreshHosts) && this.dataSource.remoteHosts) {
-					this.dataSource.remoteHosts.refresh(msg.repo);
+					this.dataSource.remoteHosts.refresh(msg.repo, msg.hideHosts);
 				}
 				break;
 			case 'loadRepos':
@@ -673,6 +708,20 @@ export class GitTreeView extends Disposable {
 					error: this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.removeWorktree(msg.repo, msg.host, msg.path, msg.force) : REMOTE_HOSTS_UNAVAILABLE
 				});
 				break;
+			case 'removeRemoteHost':
+				this.sendMessage({
+					command: 'removeRemoteHost',
+					error: this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.removeHost(msg.repo, msg.name) : REMOTE_HOSTS_UNAVAILABLE
+				});
+				break;
+			case 'runRemoteHostGit':
+				this.sendMessage({
+					command: 'runRemoteHostGit',
+					host: msg.host,
+					action: msg.action,
+					error: this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.runGitOnHost(msg.repo, msg.host, msg.worktreePath, msg.action) : REMOTE_HOSTS_UNAVAILABLE
+				});
+				break;
 			case 'renameBranch':
 				this.sendMessage({
 					command: 'renameBranch',
@@ -700,6 +749,12 @@ export class GitTreeView extends Disposable {
 				this.sendMessage({
 					command: 'revertCommit',
 					error: await this.dataSource.revertCommit(msg.repo, msg.commitHash, msg.parentIndex)
+				});
+				break;
+			case 'saveRemoteHost':
+				this.sendMessage({
+					command: 'saveRemoteHost',
+					error: this.dataSource.remoteHosts ? await this.dataSource.remoteHosts.saveHost(msg.repo, msg.previousName, msg.host) : REMOTE_HOSTS_UNAVAILABLE
 				});
 				break;
 			case 'setGlobalViewState':

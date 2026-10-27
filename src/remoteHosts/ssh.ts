@@ -23,16 +23,28 @@ export function quotePosix(value: string) {
 }
 
 /**
- * Get the options Git Tree gives `ssh`.
+ * Get the options Git Tree gives `ssh`. A call that isn't the terminal never forwards the SSH agent, even when the SSH
+ * configuration says to: only the Git commands of a host with `forwardAgent` do, on their own connection (see
+ * `getForwardingSshOptions`).
  * @param controlDir The folder of the shared connections' sockets. NULL => no connection sharing (Windows, or no safe folder).
  * @param batch Fail instead of asking for a password, a passphrase or a host key confirmation (every call but the terminal's).
  * @returns The options, as arguments.
  */
 export function getSshOptions(controlDir: string | null, batch: boolean) {
 	const options: string[] = [];
-	if (batch) options.push('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=' + CONNECT_TIMEOUT);
+	if (batch) options.push('-o', 'BatchMode=yes', '-o', 'ConnectTimeout=' + CONNECT_TIMEOUT, '-o', 'ForwardAgent=no');
 	if (controlDir !== null) options.push('-o', 'ControlMaster=auto', '-o', 'ControlPersist=' + CONTROL_PERSIST, '-o', 'ControlPath=' + controlDir + '/%C');
 	return options;
+}
+
+/**
+ * Get the options of a call that forwards the local SSH agent (`ssh -A`), for a Git command on a server that connects
+ * elsewhere as the user (a clone, fetch, pull or push). It has its own connection, which neither uses nor opens a
+ * shared one, so the agent is forwarded only while that command runs.
+ * @returns The options, as arguments.
+ */
+export function getForwardingSshOptions() {
+	return ['-A', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=' + CONNECT_TIMEOUT, '-o', 'ControlMaster=no', '-o', 'ControlPath=none'];
 }
 
 /**
@@ -92,26 +104,6 @@ export function isAuthenticationError(stderr: string) {
  */
 export function getErrorLines(stderr: string) {
 	return stderr.split(/\r\n|\r|\n/g).map((line) => line.trim()).filter((line) => line !== '').join(' ');
-}
-
-/**
- * Get the Host aliases that an SSH configuration file names, without the patterns (`*`, `?`, `!`).
- * @param text The file's contents.
- * @returns The aliases, in the file's order, each once.
- */
-export function parseSshConfigHosts(text: string) {
-	const aliases: string[] = [];
-	const lines = text.split(/\r\n|\r|\n/g);
-	for (let i = 0; i < lines.length; i++) {
-		const match = lines[i].match(/^\s*host(?:\s*=\s*|\s+)(.*)$/i);
-		if (match === null) continue;
-		const names = match[1].replace(/#.*$/, '').trim().split(/\s+/);
-		for (let j = 0; j < names.length; j++) {
-			const name = names[j].replace(/^"(.*)"$/, '$1');
-			if (name !== '' && !/[*?!]/.test(name) && aliases.indexOf(name) === -1) aliases.push(name);
-		}
-	}
-	return aliases;
 }
 
 

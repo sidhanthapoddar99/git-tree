@@ -187,6 +187,39 @@ export interface GitRemoteHost {
 	readonly lastRefresh: number | null; // When the last good refresh finished (milliseconds since 1970). NULL => none yet.
 }
 
+/** A remote host's entry in `.worktrees/git-tree.yaml`, as Repository Settings edits it. */
+export interface RemoteHostEntry {
+	readonly name: string;
+	readonly ssh: string; // A Host alias from the SSH configuration
+	readonly path: string; // The absolute path of the repository's main worktree on the server
+	readonly worktrees: boolean; // TRUE => the server's linked worktrees are shown too, FALSE => only its main worktree
+	readonly forwardAgent: boolean; // TRUE => Git commands that Git Tree runs on the server (clone, fetch, pull, push) get the local SSH agent (ssh -A), so they can reach GitHub as the user
+}
+
+/** A remote host as Repository Settings shows it: its entry, and its state from the last refresh. */
+export interface GitRemoteHostSettings extends RemoteHostEntry {
+	readonly state: GitRemoteHostState;
+	readonly message: string | null;
+	readonly lastRefresh: number | null;
+	readonly worktreeCount: number; // The worktrees read in the last good refresh
+}
+
+/** A Host alias from the SSH configuration (~/.ssh/config, and the files it includes). */
+export interface SshAlias {
+	readonly alias: string;
+	readonly hostName: string | null; // `HostName`, NULL => not set (ssh connects to the alias itself)
+	readonly user: string | null; // `User`, NULL => not set
+}
+
+/** A folder on a server, as the folder browser of Repository Settings lists it. */
+export interface RemoteFolderEntry {
+	readonly name: string;
+	readonly kind: 'folder' | 'repository' | 'worktree'; // A repository's main worktree, a linked worktree, or any other folder
+}
+
+/** Where a new repository on a server gets its commits: a clone of one of this repository's remotes, made on the server, or a push of this repository's branches. */
+export type RemoteRepositorySource = { readonly kind: 'clone', readonly remote: string } | { readonly kind: 'push' };
+
 /**
  * GitCommit rows in the compact form the extension posts to the webview: each (name, email) once, and each parent in the
  * rows as its index. `encodeCommits` (src/compactCommits.ts) builds it, and `decodeCommits` (web/compactCommits.ts) reads it.
@@ -266,6 +299,7 @@ export interface GitRepoState {
 	columnWidths: ColumnWidth[] | null;
 	commitOrdering: RepoCommitOrdering;
 	fileViewType: FileViewType;
+	hideHosts: string[]; // The remote hosts whose worktrees and branches the view leaves out
 	hideRemotes: string[];
 	includeCommitsMentionedByReflogs: BooleanOverride;
 	issueLinkingConfig: IssueLinkingConfig | null;
@@ -662,6 +696,85 @@ export interface ResponseAddRemote extends ResponseWithErrorInfo {
 	readonly command: 'addRemote';
 }
 
+export interface RequestLoadRemoteHosts extends RepoRequest {
+	readonly command: 'loadRemoteHosts';
+}
+export interface ResponseLoadRemoteHosts extends ResponseWithErrorInfo {
+	readonly command: 'loadRemoteHosts';
+	readonly repo: string;
+	readonly hosts: ReadonlyArray<GitRemoteHostSettings>;
+	readonly configFile: string | null; // The path of .worktrees/git-tree.yaml, NULL => the repository has no main worktree (it's bare)
+	readonly configError: string | null; // Why the file can't be used as a whole, NULL => it can, or it doesn't exist
+	readonly sshAliases: ReadonlyArray<SshAlias>;
+	readonly agentInstruction: string; // The instruction for coding agents, which the Copy button copies
+}
+
+export interface RequestBrowseRemoteHost extends RepoRequest {
+	readonly command: 'browseRemoteHost';
+	readonly ssh: string;
+	readonly path: string | null; // NULL => the home folder on the server
+}
+export interface ResponseBrowseRemoteHost extends ResponseWithErrorInfo {
+	readonly command: 'browseRemoteHost';
+	readonly ssh: string;
+	readonly path: string; // The absolute path that was listed (the request's path, or the home folder)
+	readonly parent: string | null; // NULL => the path is the root
+	readonly entries: ReadonlyArray<RemoteFolderEntry>; // Folders only, sorted by name
+	readonly truncated: boolean; // TRUE => the folder holds more folders than Git Tree lists (2,000)
+}
+
+export interface RequestCheckRemoteHost extends RepoRequest {
+	readonly command: 'checkRemoteHost';
+	readonly ssh: string;
+	readonly path: string;
+}
+export interface ResponseCheckRemoteHost extends ResponseWithErrorInfo {
+	// error NULL => the path is the main worktree of a repository of this project. Otherwise it says what's wrong.
+	readonly command: 'checkRemoteHost';
+	readonly ssh: string;
+	readonly path: string;
+}
+
+export interface RequestSaveRemoteHost extends RepoRequest {
+	readonly command: 'saveRemoteHost';
+	readonly previousName: string | null; // NULL => add a host, otherwise => replace the host with this name
+	readonly host: RemoteHostEntry;
+}
+export interface ResponseSaveRemoteHost extends ResponseWithErrorInfo {
+	readonly command: 'saveRemoteHost';
+}
+
+export interface RequestCreateRemoteHostRepository extends RepoRequest {
+	readonly command: 'createRemoteHostRepository';
+	readonly host: RemoteHostEntry; // `path` is the new repository's folder, which must be missing or empty
+	readonly source: RemoteRepositorySource;
+}
+export interface ResponseCreateRemoteHostRepository extends ResponseWithErrorInfo {
+	readonly command: 'createRemoteHostRepository';
+}
+
+export interface RequestRemoveRemoteHost extends RepoRequest {
+	readonly command: 'removeRemoteHost';
+	readonly name: string;
+}
+export interface ResponseRemoveRemoteHost extends ResponseWithErrorInfo {
+	readonly command: 'removeRemoteHost';
+}
+
+export type RemoteHostGitAction = 'fetch' | 'pull' | 'push'; // `git fetch --all --prune`, `git pull --ff-only`, or `git push` of the checked-out branch
+
+export interface RequestRunRemoteHostGit extends RepoRequest {
+	readonly command: 'runRemoteHostGit';
+	readonly host: string;
+	readonly worktreePath: string; // The server worktree to run it in
+	readonly action: RemoteHostGitAction;
+}
+export interface ResponseRunRemoteHostGit extends ResponseWithErrorInfo {
+	readonly command: 'runRemoteHostGit';
+	readonly host: string;
+	readonly action: RemoteHostGitAction;
+}
+
 export interface RequestAddTag extends RepoRequest {
 	readonly command: 'addTag';
 	readonly commitHash: string;
@@ -1008,6 +1121,7 @@ export interface RequestLoadCommits extends RepoRequest {
 	readonly commitOrdering: CommitOrdering;
 	readonly remotes: ReadonlyArray<string>;
 	readonly hideRemotes: ReadonlyArray<string>;
+	readonly hideHosts: ReadonlyArray<string>; // Remote hosts left out: their branches as start points, and their worktrees' rows
 	readonly stashes: ReadonlyArray<GitStash>;
 	readonly worktrees: ReadonlyArray<GitWorktree>;
 	readonly onlyWorktreeHistory: boolean; // TRUE => only the history of the worktree that repo is: its HEAD joins branches as a start point, and no other worktree's uncommitted changes are read
@@ -1059,6 +1173,7 @@ export interface RequestLoadRepoInfo extends RepoRequest {
 	readonly showRemoteBranches: boolean;
 	readonly showStashes: boolean;
 	readonly hideRemotes: ReadonlyArray<string>;
+	readonly hideHosts: ReadonlyArray<string>; // Remote hosts whose worktrees and branches are left out
 	readonly refreshHosts: boolean; // TRUE => the user asked for a refresh, so the remote hosts are refreshed too (they also are when the view loads the repository)
 }
 export interface ResponseLoadRepoInfo extends ResponseWithErrorInfo {
@@ -1423,6 +1538,13 @@ export interface ResponseViewScm extends ResponseWithErrorInfo {
 
 export type RequestMessage =
 	RequestAddRemote
+	| RequestBrowseRemoteHost
+	| RequestCheckRemoteHost
+	| RequestCreateRemoteHostRepository
+	| RequestLoadRemoteHosts
+	| RequestRemoveRemoteHost
+	| RequestRunRemoteHostGit
+	| RequestSaveRemoteHost
 	| RequestAddTag
 	| RequestApplyStash
 	| RequestAskRemoteHostFetchConsent
@@ -1495,6 +1617,13 @@ export type RequestMessage =
 
 export type ResponseMessage =
 	ResponseAddRemote
+	| ResponseBrowseRemoteHost
+	| ResponseCheckRemoteHost
+	| ResponseCreateRemoteHostRepository
+	| ResponseLoadRemoteHosts
+	| ResponseRemoveRemoteHost
+	| ResponseRunRemoteHostGit
+	| ResponseSaveRemoteHost
 	| ResponseAddTag
 	| ResponseApplyStash
 	| ResponseAskRemoteHostFetchConsent

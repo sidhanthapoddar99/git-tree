@@ -4,10 +4,11 @@ interface SettingsWidgetState {
 }
 
 /**
- * Implements the Git Tree View's Settings Widget.
+ * Implements the Git Tree View's Settings Widget: a card for each group of settings, with its actions in the card's header.
  */
 class SettingsWidget {
 	private readonly view: GitTreeView;
+	private readonly remoteHosts: RemoteHostsSettings;
 
 	private currentRepo: string | null = null;
 	private repo: Readonly<GG.GitRepoState> | null = null;
@@ -26,10 +27,14 @@ class SettingsWidget {
 	 */
 	constructor(view: GitTreeView) {
 		this.view = view;
+		this.remoteHosts = new RemoteHostsSettings(view);
 
 		this.widgetElem = document.createElement('div');
 		this.widgetElem.id = 'settingsWidget';
-		this.widgetElem.innerHTML = '<h2>Repository Settings</h2><div id="settingsContent"></div><div id="settingsLoading"></div><div id="settingsClose"></div>';
+		this.widgetElem.setAttribute('role', 'region');
+		this.widgetElem.setAttribute('aria-label', 'Repository Settings');
+		this.widgetElem.innerHTML = '<div class="settingsHeader"><div class="settingsHeaderTitles"><h2>Repository Settings</h2><div id="settingsRepoName"></div></div>' +
+			settingsIconButtonHtml('id="settingsClose"', 'Close Repository Settings', SVG_ICONS.close) + '</div><div id="settingsContent"></div><div id="settingsLoading"></div>';
 		document.body.appendChild(this.widgetElem);
 
 		observeElemScroll('settingsWidget', this.scrollTop, (scrollTop) => {
@@ -42,10 +47,7 @@ class SettingsWidget {
 
 		this.contentsElem = document.getElementById('settingsContent')!;
 		this.loadingElem = document.getElementById('settingsLoading')!;
-
-		const settingsClose = document.getElementById('settingsClose')!;
-		settingsClose.innerHTML = SVG_ICONS.close;
-		settingsClose.addEventListener('click', () => this.close());
+		document.getElementById('settingsClose')!.addEventListener('click', () => this.close());
 	}
 
 	/**
@@ -61,6 +63,7 @@ class SettingsWidget {
 		alterClass(this.widgetElem, CLASS_TRANSITION, isInitialLoad);
 		this.widgetElem.classList.add(CLASS_ACTIVE);
 		this.view.saveState();
+		this.remoteHosts.open(currentRepo);
 		this.refresh();
 		if (isInitialLoad) {
 			this.view.requestLoadConfig();
@@ -87,12 +90,37 @@ class SettingsWidget {
 		this.repo = null;
 		this.config = null;
 		this.loading = false;
+		this.remoteHosts.close();
 		this.widgetElem.classList.add(CLASS_TRANSITION);
 		this.widgetElem.classList.remove(CLASS_ACTIVE);
 		this.widgetElem.classList.remove(CLASS_LOADING);
 		this.contentsElem.innerHTML = '';
 		this.loadingElem.innerHTML = '';
 		this.view.saveState();
+	}
+
+	/**
+	 * Use the Escape key inside the Settings Widget: it cancels the Remote Hosts form when it's open.
+	 * @returns TRUE => the key was used, FALSE => the Settings Widget should close.
+	 */
+	public handleEscape() {
+		return this.remoteHosts.handleEscape();
+	}
+
+	/**
+	 * Load the remote hosts again, because the view refreshed, so the state of each stays current.
+	 */
+	public requestRemoteHosts() {
+		if (this.currentRepo !== null) this.remoteHosts.request();
+	}
+
+	/**
+	 * Pass a response for the Remote Hosts card to it.
+	 * @param msg The response.
+	 * @returns TRUE => the card handled it, FALSE => the card didn't send it.
+	 */
+	public processRemoteHostsResponse(msg: RemoteHostsResponse) {
+		return this.remoteHosts.processResponse(msg);
 	}
 
 
@@ -134,6 +162,9 @@ class SettingsWidget {
 	private render() {
 		if (this.currentRepo !== null && this.repo !== null) {
 			const escapedRepoName = escapeHtml(this.repo.name || getRepoName(this.currentRepo));
+			const repoNameElem = document.getElementById('settingsRepoName')!;
+			repoNameElem.innerHTML = escapedRepoName;
+			repoNameElem.title = this.currentRepo;
 
 			const initialBranchesLocallyConfigured = this.repo.onRepoLoadShowCheckedOutBranch !== GG.BooleanOverride.Default || this.repo.onRepoLoadShowSpecificBranches !== null;
 			const initialBranches: string[] = [];
@@ -150,71 +181,67 @@ class SettingsWidget {
 			const initialBranchesStr = initialBranches.length > 0
 				? escapeHtml(formatCommaSeparatedList(initialBranches))
 				: 'Show All';
+			const scope = (local: boolean) => ' <span class="settingsHint">' + (local ? 'local' : 'global') + '</span>';
+			const editAndRemove = (id: string, removeId: string, name: string) => settingsIconButtonHtml('id="' + id + '"', 'Edit ' + name + ELLIPSIS, SVG_ICONS.pencil) + settingsIconButtonHtml('id="' + removeId + '"', 'Remove ' + name + ELLIPSIS, SVG_ICONS.close);
 
-			let html = '<div class="settingsSection general"><h3>General</h3>' +
-				'<table>' +
-				'<tr class="lineAbove"><td class="left">Name:</td><td class="leftWithEllipsis" title="' + escapedRepoName + (this.repo.name === null ? ' (Default Name from the File System)' : '') + '">' + escapedRepoName + '</td><td class="btns right"><div id="editRepoName" title="Edit Name' + ELLIPSIS + '">' + SVG_ICONS.pencil + '</div>' + (this.repo.name !== null ? ' <div id="deleteRepoName" title="Delete Name' + ELLIPSIS + '">' + SVG_ICONS.close + '</div>' : '') + '</td></tr>' +
-				'<tr class="lineAbove lineBelow"><td class="left">Initial Branches:</td><td class="leftWithEllipsis" title="' + initialBranchesStr + ' (' + (initialBranchesLocallyConfigured ? 'Local' : 'Global') + ')">' + initialBranchesStr + '</td><td class="btns right"><div id="editInitialBranches" title="Edit Initial Branches' + ELLIPSIS + '">' + SVG_ICONS.pencil + '</div>' + (initialBranchesLocallyConfigured ? ' <div id="clearInitialBranches" title="Clear Initial Branches' + ELLIPSIS + '">' + SVG_ICONS.close + '</div>' : '') + '</td></tr>' +
-				'</table>' +
-				'<label id="settingsShowStashes"><input type="checkbox" id="settingsShowStashesCheckbox" tabindex="-1"><span class="customCheckbox"></span>Show Stashes</label><br/>' +
-				'<label id="settingsShowTags"><input type="checkbox" id="settingsShowTagsCheckbox" tabindex="-1"><span class="customCheckbox"></span>Show Tags</label><br/>' +
-				'<label id="settingsIncludeCommitsMentionedByReflogs"><input type="checkbox" id="settingsIncludeCommitsMentionedByReflogsCheckbox" tabindex="-1"><span class="customCheckbox"></span>Include commits only mentioned by reflogs</label><span class="settingsWidgetInfo" title="Only applies when showing all branches.">' + SVG_ICONS.info + '</span><br/>' +
-				'<label id="settingsOnlyFollowFirstParent"><input type="checkbox" id="settingsOnlyFollowFirstParentCheckbox" tabindex="-1"><span class="customCheckbox"></span>Only follow the first parent of commits</label><span class="settingsWidgetInfo" title="Instead of following all parents of commits, only follow the first parent when discovering the commits to load.">' + SVG_ICONS.info + '</span>' +
-				'</div>';
+			let html = settingsCardHtml('settingsGeneral', 'General', 'How this repository is named, and what the graph loads.', '',
+				settingsRowHtml('Name', escapedRepoName + (this.repo.name === null ? ' <span class="settingsHint">from the folder</span>' : ''), escapedRepoName + (this.repo.name === null ? ' (Default Name from the File System)' : ''),
+					settingsIconButtonHtml('id="editRepoName"', 'Edit Name' + ELLIPSIS, SVG_ICONS.pencil) + (this.repo.name !== null ? settingsIconButtonHtml('id="deleteRepoName"', 'Delete Name' + ELLIPSIS, SVG_ICONS.close) : '')) +
+				settingsRowHtml('Initial Branches', initialBranchesStr + scope(initialBranchesLocallyConfigured), initialBranchesStr + ' (' + (initialBranchesLocallyConfigured ? 'Local' : 'Global') + ')',
+					settingsIconButtonHtml('id="editInitialBranches"', 'Edit Initial Branches' + ELLIPSIS, SVG_ICONS.pencil) + (initialBranchesLocallyConfigured ? settingsIconButtonHtml('id="clearInitialBranches"', 'Clear Initial Branches' + ELLIPSIS, SVG_ICONS.close) : '')) +
+				'<div class="settingsSwitches">' +
+				settingsSwitchHtml('settingsShowStashesCheckbox', 'Show Stashes', null, getShowStashes(this.repo.showStashes)) +
+				settingsSwitchHtml('settingsShowTagsCheckbox', 'Show Tags', null, getShowTags(this.repo.showTags)) +
+				settingsSwitchHtml('settingsIncludeCommitsMentionedByReflogsCheckbox', 'Include commits only mentioned by reflogs', 'Only applies when showing all branches.', getIncludeCommitsMentionedByReflogs(this.repo.includeCommitsMentionedByReflogs)) +
+				settingsSwitchHtml('settingsOnlyFollowFirstParentCheckbox', 'Only follow the first parent of commits', 'Instead of following all parents of commits, only follow the first parent when discovering the commits to load.', getOnlyFollowFirstParent(this.repo.onlyFollowFirstParent)) +
+				'</div>');
 
 			let userNameSet = false, userEmailSet = false;
 			if (this.config !== null) {
-				html += '<div class="settingsSection centered"><h3>User Details</h3>';
 				const userName = this.config.user.name, userEmail = this.config.user.email;
 				userNameSet = userName.local !== null || userName.global !== null;
 				userEmailSet = userEmail.local !== null || userEmail.global !== null;
+				let userBody = '';
 				if (userNameSet || userEmailSet) {
 					const escapedUserName = escapeHtml(userName.local ?? userName.global ?? 'Not Set');
 					const escapedUserEmail = escapeHtml(userEmail.local ?? userEmail.global ?? 'Not Set');
-					html += '<table>' +
-						'<tr><td class="left">User Name:</td><td class="leftWithEllipsis" title="' + escapedUserName + (userNameSet ? ' (' + (userName.local !== null ? 'Local' : 'Global') + ')' : '') + '">' + escapedUserName + '</td></tr>' +
-						'<tr><td class="left">User Email:</td><td class="leftWithEllipsis" title="' + escapedUserEmail + (userEmailSet ? ' (' + (userEmail.local !== null ? 'Local' : 'Global') + ')' : '') + '">' + escapedUserEmail + '</td></tr>' +
-						'</table>' +
-						'<div class="settingsSectionButtons"><div id="editUserDetails" class="editBtn">' + SVG_ICONS.pencil + 'Edit</div><div id="removeUserDetails" class="removeBtn">' + SVG_ICONS.close + 'Remove</div></div>';
-				} else {
-					html += '<span>User Details (such as name and email) are used by Git to record the Author and Committer of commit objects.</span>' +
-						'<div class="settingsSectionButtons"><div id="editUserDetails" class="addBtn">' + SVG_ICONS.plus + 'Add User Details</div></div>';
+					userBody = settingsRowHtml('User Name', escapedUserName + (userNameSet ? scope(userName.local !== null) : ''), escapedUserName + (userNameSet ? ' (' + (userName.local !== null ? 'Local' : 'Global') + ')' : ''), '') +
+						settingsRowHtml('User Email', escapedUserEmail + (userEmailSet ? scope(userEmail.local !== null) : ''), escapedUserEmail + (userEmailSet ? ' (' + (userEmail.local !== null ? 'Local' : 'Global') + ')' : ''), '');
 				}
-				html += '</div>';
+				html += settingsCardHtml('settingsUserDetails', 'User Details', 'The name and email Git records as the author and committer of commits.',
+					userNameSet || userEmailSet ? editAndRemove('editUserDetails', 'removeUserDetails', 'User Details') : settingsButtonHtml('id="editUserDetails"', 'Add', SVG_ICONS.plus), userBody);
 
-				html += '<div class="settingsSection"><h3>Remote Configuration</h3><table><tr><th>Remote</th><th>URL</th><th>Type</th><th>Action</th></tr>';
-				if (this.config.remotes.length > 0) {
-					const hideRemotes = this.repo.hideRemotes;
-					this.config.remotes.forEach((remote, i) => {
-						const hidden = hideRemotes.includes(remote.name);
-						const fetchUrl = escapeHtml(remote.url || 'Not Set'), pushUrl = escapeHtml(remote.pushUrl || remote.url || 'Not Set');
-						html += '<tr class="lineAbove">' +
-							'<td class="left" rowspan="2"><span class="hideRemoteBtn" data-index="' + i + '" title="Click to ' + (hidden ? 'show' : 'hide') + ' branches of this remote.">' + (hidden ? SVG_ICONS.eyeClosed : SVG_ICONS.eyeOpen) + '</span>' + escapeHtml(remote.name) + '</td>' +
-							'<td class="leftWithEllipsis" title="Fetch URL: ' + fetchUrl + '">' + fetchUrl + '</td><td>Fetch</td>' +
-							'<td class="btns remoteBtns" rowspan="2" data-index="' + i + '"><div class="fetchRemote" title="Fetch from Remote' + ELLIPSIS + '">' + SVG_ICONS.download + '</div> <div class="pruneRemote" title="Prune Remote' + ELLIPSIS + '">' + SVG_ICONS.branch + '</div><br><div class="editRemote" title="Edit Remote' + ELLIPSIS + '">' + SVG_ICONS.pencil + '</div> <div class="deleteRemote" title="Delete Remote' + ELLIPSIS + '">' + SVG_ICONS.close + '</div></td>' +
-							'</tr><tr><td class="leftWithEllipsis" title="Push URL: ' + pushUrl + '">' + pushUrl + '</td><td>Push</td></tr>';
-					});
-				} else {
-					html += '<tr class="lineAbove"><td colspan="4">There are no remotes configured for this repository.</td></tr>';
-				}
-				html += '</table><div class="settingsSectionButtons lineAbove"><div id="settingsAddRemote" class="addBtn">' + SVG_ICONS.plus + 'Add Remote</div></div></div>';
+				const hideRemotes = this.repo.hideRemotes;
+				const remotesHtml = this.config.remotes.map((remote, i) => {
+					const hidden = hideRemotes.includes(remote.name);
+					const fetchUrl = escapeHtml(remote.url || 'Not Set'), pushUrl = escapeHtml(remote.pushUrl || remote.url || 'Not Set');
+					return '<div class="settingsRow remoteRow' + (hidden ? ' hidden' : '') + '">' +
+						settingsIconButtonHtml('data-index="' + i + '" data-focus="hideRemote:' + i + '"', hidden ? 'Show the Branches of This Remote' : 'Hide the Branches of This Remote', hidden ? SVG_ICONS.eyeClosed : SVG_ICONS.eyeOpen, false, 'hideRemoteBtn') +
+						'<div class="remoteRowMain"><div class="remoteRowName">' + escapeHtml(remote.name) + (hidden ? ' <span class="settingsBadge outline">Hidden</span>' : '') + '</div>' +
+						'<div class="remoteRowUrl" title="Fetch URL: ' + fetchUrl + '"><span class="remoteRowUrlKind">Fetch</span>' + fetchUrl + '</div>' +
+						'<div class="remoteRowUrl" title="Push URL: ' + pushUrl + '"><span class="remoteRowUrlKind">Push</span>' + pushUrl + '</div></div>' +
+						'<span class="settingsRowActions remoteBtns" data-index="' + i + '">' +
+						settingsIconButtonHtml('', 'Fetch from Remote' + ELLIPSIS, SVG_ICONS.download, false, 'fetchRemote') + settingsIconButtonHtml('', 'Prune Remote' + ELLIPSIS, SVG_ICONS.branch, false, 'pruneRemote') +
+						settingsIconButtonHtml('', 'Edit Remote' + ELLIPSIS, SVG_ICONS.pencil, false, 'editRemote') + settingsIconButtonHtml('', 'Delete Remote' + ELLIPSIS, SVG_ICONS.close, false, 'deleteRemote') + '</span></div>';
+				}).join('');
+				html += settingsCardHtml('settingsRemotes', 'Remote Configuration', 'The remotes this repository fetches from and pushes to. A hidden remote\'s branches stay out of the graph.',
+					settingsButtonHtml('id="settingsAddRemote"', 'Add Remote', SVG_ICONS.plus), remotesHtml !== '' ? remotesHtml : '<div class="settingsEmpty">There are no remotes configured for this repository.</div>');
 			}
 
-			html += '<div class="settingsSection centered"><h3>Issue Linking</h3>';
+			html += '<section class="settingsCard" id="settingsRemoteHosts"></section>';
+
 			const issueLinkingConfig = this.repo.issueLinkingConfig || globalState.issueLinkingConfig;
+			let issueBody = '';
 			if (issueLinkingConfig !== null) {
 				const escapedIssue = escapeHtml(issueLinkingConfig.issue), escapedUrl = escapeHtml(issueLinkingConfig.url);
-				html += '<table><tr><td class="left">Issue Regex:</td><td class="leftWithEllipsis" title="' + escapedIssue + '">' + escapedIssue + '</td></tr><tr><td class="left">Issue URL:</td><td class="leftWithEllipsis" title="' + escapedUrl + '">' + escapedUrl + '</td></tr></table>' +
-					'<div class="settingsSectionButtons"><div id="editIssueLinking" class="editBtn">' + SVG_ICONS.pencil + 'Edit</div><div id="removeIssueLinking" class="removeBtn">' + SVG_ICONS.close + 'Remove</div></div>';
-			} else {
-				html += '<span>Issue Linking converts issue numbers in commit &amp; tag messages into hyperlinks, that open the issue in your issue tracking system. If a branch\'s name contains an issue number, the issue can be viewed via the branch\'s context menu.</span>' +
-					'<div class="settingsSectionButtons"><div id="editIssueLinking" class="addBtn">' + SVG_ICONS.plus + 'Add Issue Linking</div></div>';
+				issueBody = settingsRowHtml('Issue Regex', escapedIssue, escapedIssue, '') + settingsRowHtml('Issue URL', escapedUrl, escapedUrl, '');
 			}
-			html += '</div>';
+			html += settingsCardHtml('settingsIssueLinking', 'Issue Linking', 'Turns issue numbers in commit and tag messages into links to your issue tracker. A branch named with an issue number links to it from its context menu.',
+				issueLinkingConfig !== null ? editAndRemove('editIssueLinking', 'removeIssueLinking', 'Issue Linking') : settingsButtonHtml('id="editIssueLinking"', 'Add', SVG_ICONS.plus), issueBody);
 
 			if (this.config !== null) {
-				html += '<div class="settingsSection centered"><h3>Pull Request Creation</h3>';
 				const pullRequestConfig = this.repo.pullRequestConfig;
+				let pullRequestBody = '';
 				if (pullRequestConfig !== null) {
 					const provider = escapeHtml((pullRequestConfig.provider === GG.PullRequestProvider.Bitbucket
 						? 'Bitbucket'
@@ -227,24 +254,21 @@ class SettingsWidget {
 					const source = escapeHtml(pullRequestConfig.sourceOwner + '/' + pullRequestConfig.sourceRepo + ' (' + pullRequestConfig.sourceRemote + ')');
 					const destination = escapeHtml(pullRequestConfig.destOwner + '/' + pullRequestConfig.destRepo + (pullRequestConfig.destRemote !== null ? ' (' + pullRequestConfig.destRemote + ')' : ''));
 					const destinationBranch = escapeHtml(pullRequestConfig.destBranch);
-					html += '<table><tr><td class="left">Provider:</td><td class="leftWithEllipsis" title="' + provider + '">' + provider + '</td></tr>' +
-						'<tr><td class="left">Source Repo:</td><td class="leftWithEllipsis" title="' + source + '">' + source + '</td></tr>' +
-						'<tr><td class="left">Destination Repo:</td><td class="leftWithEllipsis" title="' + destination + '">' + destination + '</td></tr>' +
-						'<tr><td class="left">Destination Branch:</td><td class="leftWithEllipsis" title="' + destinationBranch + '">' + destinationBranch + '</td></tr></table>' +
-						'<div class="settingsSectionButtons"><div id="editPullRequestIntegration" class="editBtn">' + SVG_ICONS.pencil + 'Edit</div><div id="removePullRequestIntegration" class="removeBtn">' + SVG_ICONS.close + 'Remove</div></div>';
-				} else {
-					html += '<span>Pull Request Creation automates the opening and pre-filling of a Pull Request form, directly from a branch\'s context menu.</span>' +
-						'<div class="settingsSectionButtons"><div id="editPullRequestIntegration" class="addBtn">' + SVG_ICONS.plus + 'Configure "Pull Request Creation" Integration</div></div>';
+					pullRequestBody = settingsRowHtml('Provider', provider, provider, '') + settingsRowHtml('Source Repo', source, source, '') +
+						settingsRowHtml('Destination Repo', destination, destination, '') + settingsRowHtml('Destination Branch', destinationBranch, destinationBranch, '');
 				}
-				html += '</div>';
+				html += settingsCardHtml('settingsPullRequests', 'Pull Request Creation', 'Opens a pre-filled pull request form from a branch\'s context menu.',
+					pullRequestConfig !== null ? editAndRemove('editPullRequestIntegration', 'removePullRequestIntegration', 'Pull Request Creation') : settingsButtonHtml('id="editPullRequestIntegration"', 'Configure', SVG_ICONS.gear), pullRequestBody);
 			}
 
-			html += '<div class="settingsSection"><h3>Git Tree Configuration</h3><div class="settingsSectionButtons">' +
-				'<div id="openExtensionSettings">' + SVG_ICONS.gear + 'Open Git Tree Extension Settings</div><br/>' +
-				'<div id="exportRepositoryConfig">' + SVG_ICONS.package + 'Export Repository Configuration</div>' +
-				'</div></div>';
+			html += settingsCardHtml('settingsGitTree', 'Git Tree Configuration', 'The extension\'s settings, and a file that shares this repository\'s Git Tree settings with others.', '',
+				'<div class="settingsCardButtons">' + settingsButtonHtml('id="openExtensionSettings"', 'Open Git Tree Extension Settings', SVG_ICONS.gear) +
+				settingsButtonHtml('id="exportRepositoryConfig"', 'Export Repository Configuration', SVG_ICONS.package) + '</div>');
 
+			const focus = captureSettingsFocus(this.contentsElem);
 			this.contentsElem.innerHTML = html;
+			this.remoteHosts.render(document.getElementById('settingsRemoteHosts'));
+			if (!this.contentsElem.contains(document.activeElement)) restoreSettingsFocus(this.contentsElem, focus);
 
 			document.getElementById('editRepoName')!.addEventListener('click', () => {
 				if (this.currentRepo === null || this.repo === null) return;
@@ -298,44 +322,17 @@ class SettingsWidget {
 				});
 			}
 
-			const showStashesElem = <HTMLInputElement>document.getElementById('settingsShowStashesCheckbox');
-			showStashesElem.checked = getShowStashes(this.repo.showStashes);
-			showStashesElem.addEventListener('change', () => {
-				if (this.currentRepo === null) return;
-				const elem = <HTMLInputElement | null>document.getElementById('settingsShowStashesCheckbox');
-				if (elem === null) return;
-				this.view.saveRepoStateValue(this.currentRepo, 'showStashes', elem.checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
-				this.view.refresh(true);
-			});
-
-			const showTagsElem = <HTMLInputElement>document.getElementById('settingsShowTagsCheckbox');
-			showTagsElem.checked = getShowTags(this.repo.showTags);
-			showTagsElem.addEventListener('change', () => {
-				if (this.currentRepo === null) return;
-				const elem = <HTMLInputElement | null>document.getElementById('settingsShowTagsCheckbox');
-				if (elem === null) return;
-				this.view.saveRepoStateValue(this.currentRepo, 'showTags', elem.checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
-				this.view.refresh(true);
-			});
-
-			const includeCommitsMentionedByReflogsElem = <HTMLInputElement>document.getElementById('settingsIncludeCommitsMentionedByReflogsCheckbox');
-			includeCommitsMentionedByReflogsElem.checked = getIncludeCommitsMentionedByReflogs(this.repo.includeCommitsMentionedByReflogs);
-			includeCommitsMentionedByReflogsElem.addEventListener('change', () => {
-				if (this.currentRepo === null) return;
-				const elem = <HTMLInputElement | null>document.getElementById('settingsIncludeCommitsMentionedByReflogsCheckbox');
-				if (elem === null) return;
-				this.view.saveRepoStateValue(this.currentRepo, 'includeCommitsMentionedByReflogs', elem.checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
-				this.view.refresh(true);
-			});
-
-			const settingsOnlyFollowFirstParentElem = <HTMLInputElement>document.getElementById('settingsOnlyFollowFirstParentCheckbox');
-			settingsOnlyFollowFirstParentElem.checked = getOnlyFollowFirstParent(this.repo.onlyFollowFirstParent);
-			settingsOnlyFollowFirstParentElem.addEventListener('change', () => {
-				if (this.currentRepo === null) return;
-				const elem = <HTMLInputElement | null>document.getElementById('settingsOnlyFollowFirstParentCheckbox');
-				if (elem === null) return;
-				this.view.saveRepoStateValue(this.currentRepo, 'onlyFollowFirstParent', elem.checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
-				this.view.refresh(true);
+			// Each switch saves its setting, and the view reloads to show it
+			const switches: ReadonlyArray<readonly [string, 'showStashes' | 'showTags' | 'includeCommitsMentionedByReflogs' | 'onlyFollowFirstParent']> = [
+				['settingsShowStashesCheckbox', 'showStashes'], ['settingsShowTagsCheckbox', 'showTags'],
+				['settingsIncludeCommitsMentionedByReflogsCheckbox', 'includeCommitsMentionedByReflogs'], ['settingsOnlyFollowFirstParentCheckbox', 'onlyFollowFirstParent']
+			];
+			switches.forEach(([id, key]) => {
+				document.getElementById(id)!.addEventListener('change', (e) => {
+					if (this.currentRepo === null) return;
+					this.view.saveRepoStateValue(this.currentRepo, key, (<HTMLInputElement>e.target).checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
+					this.view.refresh(true);
+				});
 			});
 
 			if (this.config !== null) {
@@ -439,16 +436,14 @@ class SettingsWidget {
 					if (this.currentRepo === null || this.repo === null || this.config === null) return;
 					const source = <HTMLElement>(<Element>e.target).closest('.hideRemoteBtn')!;
 					const remote = this.config.remotes[parseInt(source.dataset.index!)].name;
-					const hideRemote = !this.repo.hideRemotes.includes(remote);
-					source.title = 'Click to ' + (hideRemote ? 'show' : 'hide') + ' branches of this remote.';
-					source.innerHTML = hideRemote ? SVG_ICONS.eyeClosed : SVG_ICONS.eyeOpen;
-					if (hideRemote) {
+					if (!this.repo.hideRemotes.includes(remote)) {
 						this.repo.hideRemotes.push(remote);
 					} else {
 						this.repo.hideRemotes.splice(this.repo.hideRemotes.indexOf(remote), 1);
 					}
 					this.view.saveRepoStateValue(this.currentRepo, 'hideRemotes', this.repo.hideRemotes);
 					this.view.refresh(true);
+					this.render();
 				});
 			}
 

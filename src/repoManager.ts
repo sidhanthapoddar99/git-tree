@@ -780,6 +780,7 @@ export namespace ExternalRepoConfig {
 	export interface File {
 		commitOrdering?: RepoCommitOrdering;
 		fileViewType?: FileViewType;
+		hideHosts?: string[];
 		hideRemotes?: string[];
 		includeCommitsMentionedByReflogs?: boolean;
 		issueLinkingConfig?: IssueLinkingConfig;
@@ -865,6 +866,9 @@ function generateExternalConfigFile(state: GitRepoState): Readonly<ExternalRepoC
 				break;
 		}
 	}
+	if (state.hideHosts.length > 0) {
+		file.hideHosts = state.hideHosts;
+	}
 	if (state.hideRemotes.length > 0) {
 		file.hideRemotes = state.hideRemotes;
 	}
@@ -928,6 +932,9 @@ function validateExternalConfigFile(file: Readonly<ExternalRepoConfig.File>) {
 	}
 	if (typeof file.fileViewType !== 'undefined' && file.fileViewType !== ExternalRepoConfig.FileViewType.Tree && file.fileViewType !== ExternalRepoConfig.FileViewType.List) {
 		return 'fileViewType';
+	}
+	if (typeof file.hideHosts !== 'undefined' && (!Array.isArray(file.hideHosts) || file.hideHosts.some((host) => typeof host !== 'string'))) {
+		return 'hideHosts';
 	}
 	if (typeof file.hideRemotes !== 'undefined' && (!Array.isArray(file.hideRemotes) || file.hideRemotes.some((remote) => typeof remote !== 'string'))) {
 		return 'hideRemotes';
@@ -1001,6 +1008,9 @@ function applyExternalConfigFile(file: Readonly<ExternalRepoConfig.File>, state:
 				state.fileViewType = FileViewType.List;
 				break;
 		}
+	}
+	if (typeof file.hideHosts !== 'undefined') {
+		state.hideHosts = file.hideHosts;
 	}
 	if (typeof file.hideRemotes !== 'undefined') {
 		state.hideRemotes = file.hideRemotes;

@@ -1,24 +1,34 @@
+/* Repository Settings
+ * A panel of cards. It uses only the theme's colours (with the view's own neutral tokens where a theme may leave one
+ * unset), so light, dark and high contrast themes all look native. */
+
 #settingsWidget{
+	--settings-border:var(--vscode-widget-border, var(--git-tree-border));
+	--settings-mono:var(--vscode-editor-font-family, monospace);
 	display:block;
 	position:fixed;
-	top:-158px;
+	top:-180px;
 	right:28px;
-	width:400px;
+	width:460px;
+	max-width:calc(100vw - 56px);
 	min-height:146px;
-	padding:0 10px 4px 10px;
+	max-height:90vh;
+	box-sizing:border-box;
+	padding:0;
 	z-index:31;
 	background-color:var(--vscode-editorWidget-background);
+	border:1px solid var(--vscode-widget-border, transparent);
+	border-top:none;
+	border-radius:0 0 6px 6px;
 	box-shadow:0 2px 8px var(--vscode-widget-shadow);
-	line-height:17px;
+	line-height:18px;
 	font-size:13px;
-	color:var(--vscode-editorSuggestWidget-foreground);
-	fill:var(--vscode-editorSuggestWidget-foreground);
-	fill-opacity:0.7;
+	color:var(--vscode-foreground);
+	fill:currentColor;
 	-webkit-user-select:none;
 	user-select:none;
 	overflow-x:hidden;
 	overflow-y:auto;
-	max-height:90vh;
 }
 #settingsWidget.active{
 	top:0;
@@ -26,184 +36,843 @@
 #settingsWidget.transition{
 	transition:top .2s linear;
 }
-
-#settingsWidget h2{
-	margin:8px 10px;
-	padding:0;
-	font-size:16px;
-	line-height:24px;
-	text-align:center;
+#settingsWidget svg{
+	fill:currentColor;
+}
+#settingsWidget code, #settingsWidget .mono{
+	font-family:var(--settings-mono);
+	font-size:12px;
+}
+#settingsWidget input[type=text]{
+	-webkit-user-select:text;
+	user-select:text;
 }
 
-.settingsSection{
-	position:relative;
-	padding:6px;
-}
-.settingsSection.centered{
-	text-align:center;
-}
-.settingsSection.general{
-	padding-left:11px;
-	padding-right:11px;
-}
 
-.settingsSection h3{
-	position:relative;
-	margin:5px 0;
-	padding:0;
-	font-size:15px;
-	line-height:20px;
-	text-align:center;
-}
+/* Header */
 
-.settingsSection > table{
-	width:100%;
-	border-collapse:collapse;
-}
-
-.settingsSection:before, .settingsSection > table tr.lineAbove td:before, .settingsSection > table tr.lineBelow td:after, .settingsSection .settingsSectionButtons.lineAbove:before{
-	content:'';
-	position:absolute;
-	display:block;
-	left:0;
-	right:0;
-	height:1px;
-	background-color:var(--vscode-editorSuggestWidget-foreground);
-	opacity:0.3;
-}
-.settingsSection:before, .settingsSection > table tr.lineAbove td:before, .settingsSection .settingsSectionButtons.lineAbove:before{
+.settingsHeader{
+	position:sticky;
 	top:0;
+	z-index:3;
+	display:flex;
+	align-items:center;
+	gap:8px;
+	padding:10px 10px 10px 16px;
+	background-color:var(--vscode-editorWidget-background);
+	border-bottom:1px solid var(--settings-border);
 }
-.settingsSection > table tr.lineBelow td:after{
-	bottom:0;
+.settingsHeaderTitles{
+	flex:1;
+	min-width:0;
 }
-.settingsSection > table tr.lineAbove td:before, .settingsSection > table tr.lineBelow td:after, .settingsSection .settingsSectionButtons.lineAbove:before{
-	opacity:0.15;
+.settingsHeader h2{
+	margin:0;
+	font-size:14px;
+	font-weight:600;
+	line-height:20px;
 }
-
-.settingsSection > table th, .settingsSection > table td{
-	position:relative;
-	text-align:center;
-	white-space:nowrap;
-}
-.settingsSection > table th{
-	font-weight:bold;
-	padding:3px 5px;
-}
-.settingsSection > table td{
-	padding:0 5px 3px 5px;
-}
-.settingsSection > table tr.lineAbove td{
-	padding-top:3px;
-}
-.settingsSection > table td.left{
-	text-align:left;
-}
-.settingsSection > table td.leftWithEllipsis{
-	width:100%;
-	max-width:0;
+#settingsRepoName{
 	overflow:hidden;
 	text-overflow:ellipsis;
-	text-align:left;
-}
-.settingsSection > table td.right{
-	text-align:right;
-}
-
-.settingsSection.general > table{
-	margin-bottom:4px;
-}
-.settingsSection.general > table td{
-	padding:5px !important;
+	white-space:nowrap;
+	font-size:12px;
+	color:var(--vscode-descriptionForeground);
 }
 
-.settingsSection .hideRemoteBtn{
-	position:relative;
+#settingsContent{
+	display:flex;
+	flex-direction:column;
+	gap:12px;
+	padding:12px;
+}
+#settingsWidget.loading #settingsContent{
+	opacity:0.3;
+}
+
+
+/* Cards */
+
+.settingsCard{
+	border:1px solid var(--settings-border);
+	border-radius:6px;
+}
+.settingsCardHeader{
+	display:flex;
+	align-items:flex-start;
+	gap:12px;
+	padding:10px 12px;
+}
+.settingsCardTitles{
+	flex:1;
+	min-width:0;
+}
+.settingsCard h3{
+	margin:0;
+	font-size:13px;
+	font-weight:600;
+	line-height:20px;
+}
+.settingsCardDescription{
+	margin:2px 0 0 0;
+	font-size:12px;
+	line-height:16px;
+	color:var(--vscode-descriptionForeground);
+}
+.settingsCardActions{
+	flex:none;
+	display:flex;
+	align-items:center;
+	gap:4px;
+}
+.settingsCardBody{
+	border-top:1px solid var(--settings-border);
+}
+.settingsCardButtons{
+	display:flex;
+	flex-wrap:wrap;
+	gap:8px;
+	padding:10px 12px;
+}
+
+
+/* Rows */
+
+.settingsRow{
+	display:flex;
+	align-items:center;
+	gap:8px;
+	min-height:24px;
+	padding:5px 8px 5px 12px;
+}
+.settingsRow + .settingsRow, .settingsRow + .settingsSwitches, .hostRow + .hostRow, .hostForm + .hostRow, .hostRow + .hostForm{
+	border-top:1px solid var(--settings-border);
+}
+.settingsRowLabel{
+	flex:none;
+	width:120px;
+	color:var(--vscode-descriptionForeground);
+}
+.settingsRowValue{
+	flex:1;
+	min-width:0;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+}
+.settingsRowActions{
+	flex:none;
+	display:flex;
+	align-items:center;
+	gap:2px;
+	margin-left:auto;
+}
+.settingsActionsDivider{
+	width:1px;
+	height:16px;
+	margin:0 3px;
+	background-color:var(--settings-border);
+}
+.settingsHint{
+	color:var(--vscode-descriptionForeground);
+	font-size:12px;
+}
+div.settingsHint, .settingsFieldError{
+	margin-top:4px;
+	line-height:16px;
+}
+.settingsFieldError{
+	font-size:12px;
+	color:var(--vscode-charts-red);
+}
+.settingsEmpty{
+	padding:10px 12px;
+	font-size:12px;
+	color:var(--vscode-descriptionForeground);
+}
+
+.remoteRow{
+	align-items:flex-start;
+	padding-left:6px;
+}
+.remoteRowMain{
+	flex:1;
+	min-width:0;
+	padding-top:3px;
+}
+.remoteRowName{
+	font-weight:600;
+}
+.remoteRowUrl{
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+	font-family:var(--settings-mono);
+	font-size:12px;
+	color:var(--vscode-descriptionForeground);
+}
+.remoteRowUrlKind{
 	display:inline-block;
-	width:13px;
-	height:13px;
-	margin-right:5px;
-	vertical-align:middle;
+	width:36px;
+	font-family:var(--vscode-font-family);
+	font-size:11px;
+}
+.remoteRow.hidden .remoteRowMain, .hostRow.hidden .hostRowHead > .hostName, .hostRow.hidden .hostRowTarget{
+	opacity:0.6;
+}
+
+
+/* Buttons */
+
+.settingsIconBtn, .settingsBtn, .settingsLinkBtn, .hostPickItem, .hostBrowserMain, .hostModeOption{
+	margin:0;
+	font-family:inherit;
+	font-size:inherit;
+	color:inherit;
 	cursor:pointer;
 }
-.settingsSection .hideRemoteBtn svg{
-	position:absolute;
-	top:0;
-	left:0;
+.settingsIconBtn{
+	display:inline-flex;
+	flex:none;
+	align-items:center;
+	justify-content:center;
+	width:24px;
+	height:24px;
+	padding:0;
+	background:none;
+	border:1px solid transparent;
+	border-radius:4px;
+	opacity:0.85;
 }
-
-.settingsSection > table td.btns div{
-	display:inline-block;
-	position:relative;
-	width:17px;
-	height:17px;
-	vertical-align:top;
-	cursor:pointer;
-}
-.settingsSection > table td.btns.remoteBtns div{
-	vertical-align:middle;
-}
-.settingsSection > table #editRepoName svg, .settingsSection > table #editInitialBranches svg, .settingsSection > table .editRemote svg{
-	position:absolute;
-	left:1.5px;
-	top:1.5px;
-	width:14px !important;
-	height:14px !important;
-}
-.settingsSection > table #deleteRepoName svg, .settingsSection > table #clearInitialBranches svg, .settingsSection > table .deleteRemote svg, .settingsSection > table .fetchRemote svg, .settingsSection > table .pruneRemote svg{
-	position:absolute;
-	left:0.5px;
-	top:0.5px;
+.settingsIconBtn svg{
 	width:16px !important;
 	height:16px !important;
 }
-
-.settingsSectionButtons{
-	position:relative;
-	width:100%;
-	padding:2px 0;
-	text-align:center;
+.settingsIconBtn:hover:not(:disabled){
+	opacity:1;
+	background-color:var(--git-tree-surface-hover);
 }
-
-.settingsSectionButtons > div{
-	display:inline-block;
-	line-height:24px;
-	cursor:pointer;
-	padding-right:6px;
+.settingsBtn{
+	display:inline-flex;
+	flex:none;
+	align-items:center;
+	gap:6px;
+	height:24px;
+	padding:0 10px;
+	font-size:12px;
+	line-height:22px;
+	white-space:nowrap;
+	color:var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	background-color:var(--vscode-button-secondaryBackground, var(--git-tree-surface));
+	border:1px solid var(--vscode-button-border, transparent);
+	border-radius:2px;
 }
-
-.settingsSection label{
-	display:inline-block;
-	margin:4px 0;
-	cursor:pointer;
+.settingsBtn:hover:not(:disabled){
+	background-color:var(--vscode-button-secondaryHoverBackground, var(--git-tree-surface-hover));
 }
-
-.settingsSection .customCheckbox{
-	margin-right:6px;
+.settingsBtn.primary{
+	color:var(--vscode-button-foreground);
+	background-color:var(--vscode-button-background);
 }
-
-.settingsSection label > input[type=checkbox]:checked ~ .customCheckbox:after{
-	border-color:var(--vscode-editorSuggestWidget-foreground);
+.settingsBtn.primary:hover:not(:disabled){
+	background-color:var(--vscode-button-hoverBackground);
 }
-
-.settingsSectionButtons > div.editBtn svg{
-	vertical-align:top;
-	margin:6px;
-	width:12px !important;
-	height:12px !important;
-}
-.settingsSectionButtons > div.addBtn svg, .settingsSectionButtons > div.removeBtn svg, #openExtensionSettings svg, #exportRepositoryConfig svg{
-	vertical-align:top;
+.settingsBtn svg{
 	width:14px !important;
 	height:14px !important;
-	margin:5px;
 }
-#openExtensionSettings svg, #exportRepositoryConfig svg{
+.settingsLinkBtn{
+	padding:0 2px;
+	font-size:12px;
+	color:var(--vscode-textLink-foreground);
+	background:none;
+	border:none;
+	border-radius:2px;
+}
+.settingsLinkBtn:hover{
+	color:var(--vscode-textLink-activeForeground);
+	text-decoration:underline;
+}
+#settingsWidget button:disabled{
+	opacity:0.4;
+	cursor:default;
+}
+#settingsWidget button:focus-visible{
+	outline:1px solid var(--vscode-focusBorder);
+	outline-offset:-1px;
+}
+#settingsWidget .settingsBtn:focus-visible{
+	outline-offset:1px;
+}
+
+
+/* Switches, Radio Buttons and Fields */
+
+.settingsSwitches{
+	padding:4px 0;
+}
+.settingsSwitch{
+	display:flex;
+	align-items:flex-start;
+	gap:10px;
+	padding:5px 12px;
+	cursor:pointer;
+}
+.settingsSwitch.disabled{
+	opacity:0.5;
+	cursor:default;
+}
+.settingsSwitchTrack{
+	position:relative;
+	flex:none;
+	box-sizing:border-box;
+	width:28px;
+	height:16px;
+	margin-top:1px;
+	background-color:var(--vscode-input-background);
+	border:1px solid var(--vscode-input-border, var(--settings-border));
+	border-radius:8px;
+}
+.settingsSwitchTrack:after{
+	content:'';
+	position:absolute;
+	top:2px;
+	left:2px;
+	width:10px;
+	height:10px;
+	border-radius:50%;
+	background-color:var(--vscode-foreground);
+	opacity:0.65;
+	transition:left .1s linear;
+}
+.settingsSwitch > input:checked + .settingsSwitchTrack{
+	background-color:var(--vscode-button-background);
+	border-color:var(--vscode-button-background);
+}
+.settingsSwitch > input:checked + .settingsSwitchTrack:after{
+	left:14px;
+	background-color:var(--vscode-button-foreground);
+	opacity:1;
+}
+.settingsSwitch > input:focus-visible + .settingsSwitchTrack, .settingsRadio > input:focus-visible ~ .customRadio{
+	outline:1px solid var(--vscode-focusBorder);
+	outline-offset:2px;
+}
+.settingsSwitch:hover:not(.disabled) > .settingsSwitchTrack{
+	border-color:var(--vscode-focusBorder);
+}
+.settingsSwitchText, .settingsRadioText{
+	display:flex;
+	flex-direction:column;
+	min-width:0;
+}
+.settingsSwitchDescription, .settingsRadioDescription{
+	font-size:12px;
+	line-height:16px;
+	color:var(--vscode-descriptionForeground);
+}
+.settingsRadioDescription .mono{
+	display:block;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+}
+.settingsRadio{
+	display:flex;
+	align-items:flex-start;
+	gap:8px;
+	padding:4px 0;
+	cursor:pointer;
+}
+.settingsRadio > .customRadio{
+	flex:none;
+	margin-top:2px;
+}
+
+.settingsField{
+	display:block;
+	margin-top:8px;
+}
+.settingsField:first-child{
+	margin-top:0;
+}
+.settingsFieldLabel{
+	display:block;
+	margin-bottom:4px;
+	font-size:12px;
+	font-weight:600;
+}
+.settingsInput{
+	display:block;
+	box-sizing:border-box;
+	width:100%;
+	height:26px;
+	padding:0 6px;
+	font-family:inherit;
+	font-size:13px;
+	color:var(--vscode-input-foreground);
+	background-color:var(--vscode-input-background);
+	border:1px solid var(--vscode-input-border, var(--settings-border));
+	border-radius:2px;
+	outline:none;
+}
+.settingsInput.mono{
+	font-family:var(--settings-mono);
+	font-size:12px;
+}
+.settingsInput:focus{
+	border-color:var(--vscode-focusBorder);
+}
+.settingsInput::placeholder{
+	color:var(--vscode-input-placeholderForeground);
+}
+.settingsInput:disabled{
+	opacity:0.5;
+}
+
+
+/* Notices and Badges */
+
+.settingsNotice{
+	display:flex;
+	align-items:flex-start;
+	gap:8px;
+	margin:8px 12px;
+	padding:6px 8px;
+	font-size:12px;
+	line-height:16px;
+	border:1px solid var(--settings-border);
+	border-left-width:3px;
+	border-radius:2px;
+	-webkit-user-select:text;
+	user-select:text;
+}
+.hostRow .settingsNotice, .hostForm .settingsNotice{
+	margin:6px 0 0 0;
+}
+.settingsNotice > svg{
+	flex:none;
+	width:14px !important;
+	height:14px !important;
+	margin-top:1px;
+}
+.settingsNotice.error{
+	border-left-color:var(--vscode-charts-red);
+}
+.settingsNotice.error > svg{
+	fill:var(--vscode-charts-red);
+}
+.settingsNotice.success{
+	border-left-color:var(--vscode-charts-green);
+}
+.settingsNotice.success > svg{
+	fill:var(--vscode-charts-green);
+}
+.settingsNotice.progress{
+	border-left-color:var(--vscode-focusBorder);
+}
+.settingsNotice.progress > svg{
+	animation:loadingIconAnimation 2s linear infinite;
+}
+.settingsNoticeText{
+	flex:1;
+	min-width:0;
+	overflow-wrap:anywhere;
+	white-space:pre-wrap;
+}
+
+.settingsBadge{
+	display:inline-block;
+	flex:none;
+	padding:0 6px;
+	font-size:11px;
+	font-weight:normal;
+	line-height:16px;
+	color:var(--vscode-badge-foreground);
+	background-color:var(--vscode-badge-background);
+	border:1px solid transparent;
+	border-radius:8px;
+}
+.settingsBadge.outline{
+	color:var(--vscode-descriptionForeground);
+	background:none;
+	border-color:var(--settings-border);
+}
+
+
+/* Remote Hosts */
+
+.hostRow{
+	padding:8px 8px 8px 12px;
+}
+.hostRowHead{
+	display:flex;
+	align-items:center;
+	gap:6px;
+	min-height:24px;
+}
+.hostStateDot{
+	flex:none;
+	width:8px;
+	height:8px;
+	border-radius:50%;
+	background-color:var(--vscode-descriptionForeground);
+}
+.hostStateDot.good{
+	background-color:var(--vscode-charts-green);
+}
+.hostStateDot.warn{
+	background-color:var(--vscode-charts-yellow);
+}
+.hostStateDot.bad{
+	background-color:var(--vscode-charts-red);
+}
+.hostStateDot.pending{
+	animation:hostStatePulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes hostStatePulse{
+	from{ opacity:1; }
+	to{ opacity:0.3; }
+}
+.hostName{
+	flex:0 1 auto;
+	min-width:0;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+	font-weight:600;
+}
+.hostStateLabel{
+	flex:0 1 auto;
+	min-width:0;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+	font-size:12px;
+	color:var(--vscode-descriptionForeground);
+}
+.hostRowTarget, .hostRowMeta, .hostRowMessage{
+	margin-left:14px;
+}
+.hostRowTarget{
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+	font-family:var(--settings-mono);
+	font-size:12px;
+	color:var(--vscode-descriptionForeground);
+}
+.hostAlias{
+	color:var(--vscode-foreground);
+}
+.hostRowMeta{
+	display:flex;
+	flex-wrap:wrap;
+	align-items:center;
+	gap:4px 6px;
+	margin-top:4px;
+	font-size:12px;
+	color:var(--vscode-descriptionForeground);
+}
+.hostRowFacts{
+	white-space:nowrap;
+}
+.hostRowMessage{
+	margin-top:4px;
+	font-size:12px;
+	line-height:16px;
+	overflow-wrap:anywhere;
+	-webkit-user-select:text;
+	user-select:text;
+}
+.remoteHostsConfigFile{
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+	padding:6px 12px;
+	font-size:12px;
+	color:var(--vscode-descriptionForeground);
+	border-top:1px solid var(--settings-border);
+	-webkit-user-select:text;
+	user-select:text;
+}
+.remoteHostsAgent{
+	display:flex;
+	align-items:center;
+	gap:12px;
+	padding:8px 12px;
+	font-size:12px;
+	line-height:16px;
+	color:var(--vscode-descriptionForeground);
+	border-top:1px solid var(--settings-border);
+}
+
+
+/* Remote Hosts: the Form */
+
+.hostForm{
+	padding:10px 12px 12px 12px;
+	background-color:var(--git-tree-surface);
+}
+.hostFormTitle{
+	margin-bottom:6px;
+	font-weight:600;
+}
+.hostFormStep{
+	display:flex;
+	gap:10px;
+	padding:8px 0;
+}
+.hostFormStep + .hostFormStep{
+	border-top:1px solid var(--settings-border);
+}
+.hostFormStepNumber{
+	display:flex;
+	flex:none;
+	align-items:center;
+	justify-content:center;
+	box-sizing:border-box;
+	width:20px;
+	height:20px;
+	font-size:11px;
+	color:var(--vscode-descriptionForeground);
+	border:1px solid var(--vscode-descriptionForeground);
+	border-radius:50%;
+}
+.hostFormStep.current .hostFormStepNumber{
+	color:var(--vscode-button-foreground);
+	background-color:var(--vscode-button-background);
+	border-color:var(--vscode-button-background);
+}
+.hostFormStep.done .hostFormStepNumber{
+	color:var(--vscode-charts-green);
+	border-color:var(--vscode-charts-green);
+}
+.hostFormStepNumber svg{
+	width:10px !important;
+	height:12px !important;
+	fill:var(--vscode-charts-green) !important;
+}
+.hostFormStep.future{
+	opacity:0.55;
+}
+.hostFormStepBody{
+	flex:1;
+	min-width:0;
+}
+.hostFormStepHead{
+	display:flex;
+	align-items:center;
+	gap:8px;
+	min-height:20px;
+	margin-bottom:2px;
+}
+.hostFormStepTitle{
+	flex:1;
+	font-weight:600;
+}
+.hostFormStep.current .hostFormStepHead{
+	margin-bottom:6px;
+}
+.hostFormStepSummary{
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+}
+.hostFormStepActions{
+	display:flex;
+	justify-content:flex-end;
+	gap:6px;
+	margin-top:8px;
+}
+.hostFormSelection{
 	margin-top:6px;
+	font-size:12px;
+	overflow-wrap:anywhere;
 }
-#exportRepositoryConfig svg{
-	margin-right:7px;
+.hostFormSwitches{
+	margin:8px -12px 0 -12px;
 }
+.hostFormFooter{
+	display:flex;
+	align-items:center;
+	gap:6px;
+	margin-top:8px;
+	padding-top:10px;
+	border-top:1px solid var(--settings-border);
+}
+.hostFormFooterSpacer{
+	flex:1;
+}
+
+.hostPickList, .hostBrowser{
+	background-color:var(--vscode-editorWidget-background);
+	border:1px solid var(--settings-border);
+	border-radius:2px;
+}
+.hostPickList{
+	max-height:150px;
+	margin-top:6px;
+	overflow-y:auto;
+}
+.hostPickItem, .hostBrowserMain{
+	display:flex;
+	align-items:center;
+	gap:8px;
+	box-sizing:border-box;
+	width:100%;
+	min-width:0;
+	height:24px;
+	padding:0 8px;
+	text-align:left;
+	background:none;
+	border:1px solid transparent;
+}
+.hostPickItem:hover, .hostBrowserEntry:hover{
+	background-color:var(--git-tree-row-hover);
+}
+.hostPickItem.selected, .hostBrowserEntry.selected{
+	background-color:var(--git-tree-row-selected);
+}
+.hostPickName{
+	flex:none;
+	font-family:var(--settings-mono);
+	font-size:12px;
+}
+.hostPickHint{
+	flex:1;
+	min-width:0;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+	font-family:var(--settings-mono);
+	font-size:11px;
+	text-align:right;
+	color:var(--vscode-descriptionForeground);
+}
+
+.hostModeOptions{
+	display:flex;
+	flex-direction:column;
+	gap:6px;
+}
+.hostModeOption{
+	display:flex;
+	align-items:flex-start;
+	gap:10px;
+	padding:8px 10px;
+	text-align:left;
+	background-color:var(--vscode-editorWidget-background);
+	border:1px solid var(--settings-border);
+	border-radius:4px;
+}
+.hostModeOption:hover, .hostModeOption.selected{
+	border-color:var(--vscode-focusBorder);
+}
+.hostModeOption > svg{
+	flex:none;
+	width:16px !important;
+	height:16px !important;
+	margin-top:1px;
+}
+.hostModeText{
+	display:flex;
+	flex-direction:column;
+}
+.hostModeTitle{
+	font-weight:600;
+}
+.hostModeDescription{
+	font-size:12px;
+	line-height:16px;
+	color:var(--vscode-descriptionForeground);
+}
+
+.hostBrowserBar{
+	display:flex;
+	align-items:center;
+	gap:2px;
+	padding:4px;
+	border-bottom:1px solid var(--settings-border);
+}
+.hostBrowserBar .settingsInput{
+	flex:1;
+	margin-left:4px;
+}
+.hostBrowserList{
+	height:200px;
+	overflow-y:auto;
+}
+.hostBrowserList > .settingsNotice{
+	margin:6px;
+}
+.hostBrowserList > .hostFormStepActions{
+	justify-content:flex-start;
+	margin:0 6px;
+}
+.hostBrowserEntry{
+	display:flex;
+	align-items:center;
+	padding-right:4px;
+}
+.hostBrowserMain{
+	flex:1;
+}
+.hostBrowserMain > svg{
+	position:static;
+	flex:none;
+	width:14px !important;
+	height:14px !important;
+	fill:currentColor;
+	fill-opacity:1;
+	opacity:0.8;
+}
+.hostBrowserEntry.repository .hostBrowserMain > svg:first-child{
+	opacity:1;
+}
+.hostBrowserName{
+	flex:1;
+	min-width:0;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+}
+.hostBrowserKind{
+	flex:none;
+	font-size:11px;
+	color:var(--vscode-descriptionForeground);
+}
+.hostBrowserEntry.repository .hostBrowserKind{
+	padding:0 6px;
+	line-height:16px;
+	color:var(--vscode-badge-foreground);
+	background-color:var(--vscode-badge-background);
+	border-radius:8px;
+}
+.hostBrowserChevron{
+	display:flex;
+	flex:none;
+	opacity:0.6;
+}
+.hostBrowserFoot{
+	display:flex;
+	align-items:center;
+	border-top:1px solid var(--settings-border);
+}
+.hostBrowserFoot .settingsSwitch{
+	flex:1;
+	padding:5px 8px;
+	font-size:12px;
+}
+.hostBrowserCount{
+	padding-right:8px;
+	font-size:11px;
+	color:var(--vscode-descriptionForeground);
+	white-space:nowrap;
+}
+
+
+/* Loading */
 
 #settingsLoading{
 	display:none;
@@ -225,41 +894,31 @@
 	vertical-align:top;
 	animation:loadingIconAnimation 2s linear infinite;
 }
-
-#settingsClose{
-	position:absolute;
-	width:24px;
-	height:24px;
-	top:8px;
-	right:10px;
-	cursor:pointer;
-	z-index:33;
-}
-#settingsClose svg{
-	position:absolute;
-	left:4px;
-	top:4px;
-	width:16px !important;
-	height:16px !important;
-}
-
-.settingsSectionButtons > div:hover svg, .settingsSection .hideRemoteBtn:hover svg, .settingsSection > table td.btns div:hover svg, #settingsClose:hover{
-	fill-opacity:1;
-}
-#settingsWidget.loading #settingsContent{
-	opacity:0.1;
-}
 #settingsWidget.loading #settingsLoading{
 	display:block;
 }
 
-#settingsWidget .settingsWidgetInfo{
-	cursor:help;
+
+/* High Contrast
+ * The theme's button and badge backgrounds match its background, so an off switch's knob is hollow and badges get a border. */
+
+body.vscode-high-contrast .settingsSwitchTrack:after, body.vscode-high-contrast-light .settingsSwitchTrack:after{
+	box-sizing:border-box;
+	background:none;
+	border:1px solid var(--vscode-foreground);
+	opacity:1;
 }
-#settingsWidget .settingsWidgetInfo > svg{
-	width:15px !important;
-	height:15px !important;
-	margin-top:-2px;
-	margin-left:5px;
-	vertical-align:middle;
+body.vscode-high-contrast .settingsSwitch > input:checked + .settingsSwitchTrack, body.vscode-high-contrast-light .settingsSwitch > input:checked + .settingsSwitchTrack{
+	border-color:var(--vscode-foreground);
+}
+body.vscode-high-contrast .settingsSwitch > input:checked + .settingsSwitchTrack:after, body.vscode-high-contrast-light .settingsSwitch > input:checked + .settingsSwitchTrack:after{
+	background-color:var(--vscode-foreground);
+}
+body.vscode-high-contrast .settingsBadge, body.vscode-high-contrast-light .settingsBadge, body.vscode-high-contrast .hostBrowserEntry.repository .hostBrowserKind, body.vscode-high-contrast-light .hostBrowserEntry.repository .hostBrowserKind{
+	border:1px solid var(--settings-border);
+}
+
+body.vscode-high-contrast .hostPickItem.selected, body.vscode-high-contrast .hostBrowserEntry.selected, body.vscode-high-contrast-light .hostPickItem.selected, body.vscode-high-contrast-light .hostBrowserEntry.selected, body.vscode-high-contrast .hostModeOption.selected, body.vscode-high-contrast-light .hostModeOption.selected{
+	outline:1px dashed var(--vscode-focusBorder);
+	outline-offset:-1px;
 }

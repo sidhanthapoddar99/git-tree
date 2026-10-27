@@ -1,7 +1,7 @@
 {
 	"name": "git-tree-rs",
 	"displayName": "git-tree-rs",
-	"version": "0.5.0",
+	"version": "0.6.0",
 	"publisher": "sidh1999",
 	"author": {
 		"name": "Sidhantha Poddar"

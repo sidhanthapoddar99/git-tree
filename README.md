@@ -18,6 +18,7 @@ Worktrees let you keep several branches checked out at once, each in its own fol
 - 🌳 **Worktrees in the graph.** A Worktree column labels every worktree on the commit it's on, and each worktree's uncommitted changes get their own row.
 - 🔎 **A worktree filter.** Show one worktree's history and changes, the main worktree's, or everything at once.
 - 🛠️ **Worktree actions.** Create a worktree from a commit or a branch, open it in a new window, remove it, or copy its path. Ctrl+click a worktree to open it.
+- 🖥️ **Worktrees on SSH servers.** See the worktrees on your servers in the same graph, add a server from your SSH aliases by browsing its folders, and fetch, pull or push there with your SSH agent.
 - 🗂️ **One tab per repository.** Keep several repositories open side by side.
 - ⚡ **Fast and light.** A Rust engine reads the repository without starting `git`, and the graph draws only the rows on screen. The view opens up to 3× faster than Git Graph, and drawing 5,000 commits takes 24 ms instead of 400.
 - 🎨 **Follows your theme.** Rows, labels, dialogs and the graph's colours are tuned for light and dark themes.
@@ -56,7 +57,7 @@ Git Tree started from [Git Graph](https://github.com/mhutchie/vscode-git-graph) 
 How these were measured, on Linux x64 with Git 2.55:
 
 - *Opening the view* is the time to read the repository's branches, remotes, stashes, worktrees and refs, and the first 300 commits, through each version's own code. It's the median of 25 runs, with the three versions taking turns. `git status` runs in all three and is left out. The 6,750-commit repository is a copy of a real project.
-- A *refresh where nothing changed* is what a file save or a return to the tab costs when the history is the same. Git Graph and Git Tree 0.3 read the repository again, as when opening the view; Git Tree 0.5 checks a fingerprint of everything the commits depend on, and sends the view only its *Uncommitted Changes* rows. The 0.5 figures for refreshes, single reads and the author-date log were measured on a busy machine, so they are rough; the ratios hold.
+- A *refresh where nothing changed* is what a file save or a return to the tab costs when the history is the same. Git Graph and Git Tree 0.3 read the repository again, as when opening the view; Git Tree 0.5 checks a fingerprint of everything the commits depend on, and sends the view only its *Uncommitted Changes* rows. The 0.5 figures for refreshes, single reads and the author-date log were measured on a busy machine, so they are rough; the ratios hold.
 - *Drawing* is the time from the commits reaching the view to the painted frame, in Chromium, as the median of several runs. Git Graph and Git Tree 0.3 share the same drawing code.
 - *View memory* is the memory of the view's page; an empty page takes about 135 MB. *Extension memory* is the extension's own memory, not counting the `git` processes it starts.
 - Git Tree 0.4.1 and later ship one package that holds the Rust engine for Windows, macOS and Linux, on x64 and arm64. VS Code loads only the engine for its own platform.
@@ -76,6 +77,7 @@ Git writes the commit-graph file during `git gc`, so many long-lived repositorie
 | Choose where new worktrees go | — | ✅ Relative, `~`, absolute or `{repo}` paths |
 | Open a worktree in a new window | — | ✅ Ctrl/Cmd+click |
 | Copy a file's path in another worktree | — | ✅ |
+| Worktrees on SSH servers | — | ✅ In the graph, added from Repository Settings |
 | Several repositories side by side | One view for all repositories | ✅ One tab per repository |
 | Graph colours on light themes | The dark-theme palette | ✅ A darker palette for light themes |
 | Install, update and uninstall events | Sent to the author's server | ✅ None sent |
@@ -142,7 +144,16 @@ A file has a different absolute path in each worktree. In Commit Details, Open F
 
 Git Tree can show the worktrees on your SSH servers in the same graph as your local ones. Each server worktree gets a label in the Worktree column, such as `build-box:main`, its own *Uncommitted Changes* row, and a place in the Worktree filter. The server's branches are drawn like remote branches, under the host's name. The server needs only `git`; Git Tree installs nothing there.
 
-Run *Git Tree: Add Remote Host...*, or write `.worktrees/git-tree.yaml` in the main worktree yourself:
+Add a host in **Repository Settings → Remote Hosts**:
+
+1. Pick an SSH alias. Git Tree lists the aliases in `~/.ssh/config` and the files it includes, or you can type one.
+2. Choose **Add existing** to use a repository that's already on the server, or **Create new** to make one there. A new repository is either cloned on the server from one of this repository's remotes, or pushed from this machine.
+3. Pick the folder by browsing the server. Repositories and worktrees are marked.
+4. Choose whether to show the server's worktrees, and whether to forward your SSH agent. Git Tree checks the connection and that the server has the same project before it saves the host.
+
+Each host's row shows its state and when it was last read. From the row you can check, edit, hide or remove the host, and fetch, pull or push on the server. *Hide* takes a host's worktrees and branches out of the graph, the way hiding a remote does, and Git Tree stops reading that host until you show it again.
+
+*Git Tree: Add Remote Host...* in the Command Palette adds an existing repository too, with its path typed instead of browsed. Or write `.worktrees/git-tree.yaml` in the main worktree yourself:
 
 ```yaml
 version: 1
@@ -151,15 +162,18 @@ hosts:
     ssh: build-box                    # a Host alias from ~/.ssh/config
     path: /home/ubuntu/projects/app   # the repository's main worktree on the server
     worktrees: true                   # include its linked worktrees (default: true)
+    forwardAgent: true                # forward your SSH agent to Git on the server (default: false)
 ```
 
 User names, ports, keys and jump hosts stay in `~/.ssh/config`. The file lives in `.worktrees/`, which Git Tree excludes from Git, so it's never committed.
 
+**Forwarding your SSH agent** lets Git on the server reach GitHub, or any other server, with the keys on your machine. Git Tree forwards it only for the commands that need it: cloning a new repository, and fetch, pull and push on the server. Each of those gets its own SSH connection, which closes when the command ends. While it's open, anyone with root on the server can use your agent, so turn it on only for servers you trust.
+
 On each refresh, Git Tree reads every host over one SSH call: its worktrees, their branches and how many uncommitted changes each has. It reuses one SSH connection per host (OpenSSH's connection sharing), so a refresh after the first costs about one network round trip; Windows' OpenSSH can't share connections, so there each refresh connects again. When a server's branches moved, Git Tree fetches them into hidden refs under `refs/git-tree/hosts/<name>/`, which don't show up in `git branch -a`. Git Tree asks before the first fetch from each host. A slow or unreachable host never holds up the local graph: it shows *unreachable*, with the time of its last good refresh, and never looks clean.
 
-Right-click a server worktree's label to open it in VS Code with [Remote-SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh), open a terminal there, copy its path or remove it. Right-click a commit to create a worktree on a server. *Git Tree: Remove Remote Host* removes a host and its hidden refs.
+Right-click a server worktree's label to open it in VS Code with [Remote-SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh), open a terminal there, fetch, pull or push on the server, copy its path or remove it. Right-click a commit to create a worktree on a server. Removing a host, in Repository Settings or with *Git Tree: Remove Remote Host*, also deletes its hidden refs.
 
-Coding agents can keep the host list up to date: copy [the agent instruction](docs/remote-hosts-for-agents.md) into your agent's instructions, for example `CLAUDE.md` or `AGENTS.md`.
+Coding agents can keep the host list up to date. Click **Copy** next to *Using a coding agent?* in the Remote Hosts section, and paste the instruction into your agent's instructions, for example `CLAUDE.md` or `AGENTS.md`. The same text is in [the agent instruction](docs/remote-hosts-for-agents.md).
 
 ## Everyday use
 

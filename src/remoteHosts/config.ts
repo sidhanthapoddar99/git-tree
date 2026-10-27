@@ -1,4 +1,5 @@
 import { Document, LineCounter, Node, Pair, YAMLMap, isAlias, isMap, isScalar, parseDocument } from 'yaml';
+import { RemoteHostEntry } from '../types';
 
 /*
  * The remote hosts' configuration file, `.worktrees/git-tree.yaml` in the repository's main worktree. This file reads,
@@ -10,6 +11,7 @@ import { Document, LineCounter, Node, Pair, YAMLMap, isAlias, isMap, isScalar, p
  *       ssh: <alias>     # a Host alias from ~/.ssh/config
  *       path: <path>     # the absolute path of the repository's main worktree on the server
  *       worktrees: true  # include the server's linked worktrees (optional, default true)
+ *       forwardAgent: false  # forward the local SSH agent to the Git commands Git Tree runs on the server (optional, default false)
  *
  * Any other key or shape is an error that names its line, so a typo never silently drops a host.
  */
@@ -20,7 +22,7 @@ export const CONFIG_FILE = '.worktrees/git-tree.yaml';
 /** The version of the file format that Git Tree reads. */
 const CONFIG_VERSION = 1;
 
-const HOST_KEYS = ['ssh', 'path', 'worktrees'];
+const HOST_KEYS = ['ssh', 'path', 'worktrees', 'forwardAgent'];
 const HOST_NAME_REGEX = /^[A-Za-z0-9_-]+$/;
 const SSH_ALIAS_REGEX = /^[A-Za-z0-9_][A-Za-z0-9._@-]*$/;
 const CONTROL_CHARACTER_REGEX = /[\u0000-\u001f\u007f-\u009f]/;
@@ -31,6 +33,7 @@ export interface RemoteHostConfig {
 	readonly ssh: string; // '' when the entry has no valid `ssh`
 	readonly path: string; // '' when the entry has no valid `path`
 	readonly worktrees: boolean; // Include the server's linked worktrees
+	readonly forwardAgent: boolean; // The Git commands that leave the server (clone, fetch, pull, push) get the local SSH agent
 	readonly error: string | null; // Why the entry is invalid, naming its line. NULL => it's valid.
 }
 
@@ -64,19 +67,21 @@ export function parseConfig(text: string): ParsedConfig {
 }
 
 /**
- * Add a host to the configuration file's text, keeping its other entries and comments.
+ * Add a host to the configuration file's text, or replace one, keeping the other entries, the comments and the order.
+ * An edited host keeps its place, and the comments inside its entry. `worktrees` is written only when it's false, and
+ * `forwardAgent` only when it's true, since those are not their defaults.
  * @param text The file's contents. NULL => there's no file yet.
- * @param name The host's name.
- * @param ssh The host's SSH alias.
- * @param path The path of the repository's main worktree on the server.
- * @returns The new contents of the file, or why the host can't be added.
+ * @param previousName NULL => add the host. Otherwise => replace the host with this name (which may differ from the new name).
+ * @param host The host's entry.
+ * @returns The new contents of the file, or why the host can't be written.
  */
-export function addHostToConfig(text: string | null, name: string, ssh: string, path: string): { text: string } | { error: string } {
-	const valueError = validateHostName(name) || validateSshAlias(ssh) || validateServerPath(path);
+export function setHostInConfig(text: string | null, previousName: string | null, host: RemoteHostEntry): { text: string } | { error: string } {
+	const valueError = validateHostName(host.name) || validateSshAlias(host.ssh) || validateServerPath(host.path);
 	if (valueError !== null) return { error: valueError };
 
 	let doc: Document;
 	if (text === null || text.trim() === '') {
+		if (previousName !== null) return { error: 'The file has no host named "' + previousName + '".' };
 		doc = new Document({ version: CONFIG_VERSION, hosts: {} });
 	} else {
 		const read = readDocument(text);
@@ -86,20 +91,66 @@ export function addHostToConfig(text: string | null, name: string, ssh: string, 
 	}
 
 	const hosts = <YAMLMap>doc.get('hosts', true);
-	const existing = hosts.items.find((item) => isScalar(item.key) && String(item.key.value).toLowerCase() === name.toLowerCase());
-	if (typeof existing !== 'undefined') return { error: 'The file already has a host named "' + String((<any>existing.key).value) + '".' };
+	const getName = (item: Pair) => isScalar(item.key) ? String(item.key.value) : null;
+	const index = previousName !== null ? hosts.items.findIndex((item) => getName(item) === previousName) : -1;
+	if (previousName !== null && index === -1) return { error: 'The file has no host named "' + previousName + '".' };
+	const clash = hosts.items.find((item, i) => i !== index && getName(item) !== null && getName(item)!.toLowerCase() === host.name.toLowerCase());
+	if (typeof clash !== 'undefined') return { error: 'The file already has a host named "' + getName(clash) + '".' };
 
-	hosts.flow = false;
-	hosts.set(name, doc.createNode({ ssh: ssh, path: path }));
+	if (index === -1) {
+		hosts.flow = false;
+		hosts.set(host.name, doc.createNode(getEntryValues(host)));
+	} else {
+		const item = hosts.items[index];
+		if (isScalar(item.key)) {
+			item.key.value = host.name;
+		} else {
+			item.key = doc.createNode(host.name);
+		}
+		if (isMap(item.value)) {
+			// In place, so the comments inside the entry stay
+			const entry = item.value;
+			entry.set('ssh', host.ssh);
+			entry.set('path', host.path);
+			if (host.worktrees) {
+				entry.delete('worktrees');
+			} else {
+				entry.set('worktrees', false);
+			}
+			if (host.forwardAgent) {
+				entry.set('forwardAgent', true);
+			} else {
+				entry.delete('forwardAgent');
+			}
+		} else {
+			// Not a mapping of its own (such as an alias of another node), so it gets a new one
+			item.value = doc.createNode(getEntryValues(host));
+		}
+	}
 	const newText = doc.toString();
 
-	// Check the result with the same rules that read it, so the file Git Tree writes is always one it can read
-	const parsed = parseConfig(newText);
-	const added = parsed.hosts !== null ? parsed.hosts.find((host) => host.name === name) : undefined;
-	if (typeof added === 'undefined' || added.error !== null || added.ssh !== ssh || added.path !== path) {
-		return { error: 'Git Tree couldn\'t add the host to ' + CONFIG_FILE + ' without changing what the file means. Add it by hand.' };
+	// Check the result with the same rules that read it, so the file Git Tree writes is always one it can read, holds the
+	// host as asked, and means the same as before for every other host
+	const before = text !== null && text.trim() !== '' ? parseConfig(text).hosts : [];
+	const after = parseConfig(newText).hosts;
+	const written = after !== null ? after.find((config) => config.name === host.name) : undefined;
+	const others = (hostList: ReadonlyArray<RemoteHostConfig>) => JSON.stringify(hostList.filter((config) => config.name !== host.name && config.name !== previousName));
+	if (before === null || after === null || typeof written === 'undefined' || written.error !== null || written.ssh !== host.ssh || written.path !== host.path
+		|| written.worktrees !== host.worktrees || written.forwardAgent !== host.forwardAgent || others(before) !== others(after)) {
+		return { error: 'Git Tree couldn\'t write the host to ' + CONFIG_FILE + ' without changing what the file means. Edit it by hand.' };
 	}
 	return { text: newText };
+}
+
+/**
+ * Get the values of a host's new entry in the file: `worktrees` only when it's false, and `forwardAgent` only when it's true.
+ * @param host The host's entry.
+ */
+function getEntryValues(host: RemoteHostEntry) {
+	const values: { [key: string]: string | boolean } = { ssh: host.ssh, path: host.path };
+	if (!host.worktrees) values.worktrees = false;
+	if (host.forwardAgent) values.forwardAgent = true;
+	return values;
 }
 
 /**
@@ -225,8 +276,8 @@ function readDocument(text: string): ReadDocument | { error: string } {
 function parseHost(item: Pair, read: ReadDocument): RemoteHostConfig {
 	const key = item.key;
 	const name = isScalar(key) ? (typeof key.value === 'string' ? key.value : String(typeof key.source === 'string' ? key.source : key.value)) : '?';
-	let ssh = '', path = '', worktrees = true;
-	const invalid = (node: unknown, message: string): RemoteHostConfig => ({ name: name, ssh: ssh, path: path, worktrees: worktrees, error: read.at(node) + message });
+	let ssh = '', path = '', worktrees = true, forwardAgent = false;
+	const invalid = (node: unknown, message: string): RemoteHostConfig => ({ name: name, ssh: ssh, path: path, worktrees: worktrees, forwardAgent: forwardAgent, error: read.at(node) + message });
 
 	const nameError = validateHostName(name);
 	if (nameError !== null) return invalid(key, nameError);
@@ -238,14 +289,18 @@ function parseHost(item: Pair, read: ReadDocument): RemoteHostConfig {
 	for (let i = 0; i < value.items.length; i++) {
 		const field = value.items[i], fieldName = isScalar(field.key) ? String(field.key.value) : null;
 		if (fieldName === null || HOST_KEYS.indexOf(fieldName) === -1) {
-			return invalid(field.key, 'Unknown key "' + (fieldName !== null ? fieldName : '?') + '" in the host "' + name + '". A host may only hold "ssh", "path" and "worktrees".');
+			return invalid(field.key, 'Unknown key "' + (fieldName !== null ? fieldName : '?') + '" in the host "' + name + '". A host may only hold "ssh", "path", "worktrees" and "forwardAgent".');
 		}
 
 		const fieldValue = read.resolve(field.value), node = fieldValue !== null ? fieldValue : field.key;
 		const scalar = isScalar(fieldValue) ? fieldValue.value : undefined;
-		if (fieldName === 'worktrees') {
-			if (typeof scalar !== 'boolean') return invalid(node, '"worktrees" must be true or false.');
-			worktrees = scalar;
+		if (fieldName === 'worktrees' || fieldName === 'forwardAgent') {
+			if (typeof scalar !== 'boolean') return invalid(node, '"' + fieldName + '" must be true or false.');
+			if (fieldName === 'worktrees') {
+				worktrees = scalar;
+			} else {
+				forwardAgent = scalar;
+			}
 		} else if (typeof scalar !== 'string') {
 			return invalid(node, '"' + fieldName + '" must be a string.');
 		} else if (fieldName === 'ssh') {
@@ -263,5 +318,5 @@ function parseHost(item: Pair, read: ReadDocument): RemoteHostConfig {
 
 	if (!hasSsh) return invalid(key, 'The host "' + name + '" has no "ssh", the Host alias from ~/.ssh/config.');
 	if (!hasPath) return invalid(key, 'The host "' + name + '" has no "path", the absolute path of the repository on the server.');
-	return { name: name, ssh: ssh, path: path, worktrees: worktrees, error: null };
+	return { name: name, ssh: ssh, path: path, worktrees: worktrees, forwardAgent: forwardAgent, error: null };
 }

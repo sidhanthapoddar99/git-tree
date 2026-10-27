@@ -24,6 +24,7 @@ export const DEFAULT_REPO_STATE: GitRepoState = {
 	columnWidths: null,
 	commitOrdering: RepoCommitOrdering.Default,
 	fileViewType: FileViewType.Default,
+	hideHosts: [],
 	hideRemotes: [],
 	includeCommitsMentionedByReflogs: BooleanOverride.Default,
 	issueLinkingConfig: null,
@@ -282,6 +283,23 @@ export class ExtensionState extends Disposable {
 	public setRemoteHostFetchConsent(repo: string, host: string, ssh: string, path: string, consent: boolean) {
 		const answers = this.globalState.get<RemoteHostFetchConsents>(REMOTE_HOST_FETCH_CONSENT, {});
 		answers[repo] = Object.assign({}, answers[repo], { [host]: { ssh: ssh, path: path, consent: consent } });
+		return this.updateGlobalState(REMOTE_HOST_FETCH_CONSENT, answers);
+	}
+
+	/**
+	 * Move the answer the user gave to fetching from a remote host to the host's new name (when the host is renamed). It
+	 * still counts only for the same SSH alias and path.
+	 * @param repo The path of the repository's main worktree.
+	 * @param from The host's old name.
+	 * @param to The host's new name.
+	 * @returns A Thenable resolving to the ErrorInfo that resulted from saving the change.
+	 */
+	public moveRemoteHostFetchConsent(repo: string, from: string, to: string) {
+		const answers = this.globalState.get<RemoteHostFetchConsents>(REMOTE_HOST_FETCH_CONSENT, {});
+		if (from === to || typeof answers[repo] === 'undefined' || typeof answers[repo][from] === 'undefined') return Promise.resolve(null);
+		const repoAnswers = Object.assign({}, answers[repo], { [to]: answers[repo][from] });
+		delete repoAnswers[from];
+		answers[repo] = repoAnswers;
 		return this.updateGlobalState(REMOTE_HOST_FETCH_CONSENT, answers);
 	}
 

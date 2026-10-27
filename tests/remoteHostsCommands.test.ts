@@ -32,7 +32,7 @@ const window = <typeof vscode.window & { showInputBox: jest.Mock, showWarningMes
 let onDidChangeConfiguration: EventEmitter<ConfigurationChangeEvent>, onDidChangeGitExecutable: EventEmitter<GitExecutable>;
 let logger: Logger, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager;
 let commandManager: CommandManager;
-let remoteHosts: { loadHosts: jest.Mock, getConfigError: jest.Mock, getSshAliases: jest.Mock, addHost: jest.Mock, removeHost: jest.Mock };
+let remoteHosts: { loadHosts: jest.Mock, getConfigError: jest.Mock, getSshAliases: jest.Mock, saveHost: jest.Mock, removeHost: jest.Mock };
 
 beforeAll(() => {
 	onDidChangeConfiguration = new EventEmitter<ConfigurationChangeEvent>();
@@ -58,8 +58,8 @@ beforeEach(() => {
 	remoteHosts = {
 		loadHosts: jest.fn().mockResolvedValue([snapshot('box')]),
 		getConfigError: jest.fn().mockReturnValue(null),
-		getSshAliases: jest.fn().mockResolvedValue(['build-box', 'gpu-01']),
-		addHost: jest.fn().mockResolvedValue(null),
+		getSshAliases: jest.fn().mockResolvedValue([{ alias: 'build-box', hostName: '10.0.0.2', user: 'ubuntu' }, { alias: 'gpu-01', hostName: null, user: null }]),
+		saveHost: jest.fn().mockResolvedValue(null),
 		removeHost: jest.fn().mockResolvedValue(null)
 	};
 	(<{ remoteHosts: unknown }>dataSource).remoteHosts = remoteHosts;
@@ -85,11 +85,11 @@ describe('git-tree.addRemoteHost', () => {
 
 		// Run
 		await vscode.commands.executeCommand('git-tree.addRemoteHost');
-		await waitFor(() => remoteHosts.addHost.mock.calls.length > 0 && vscode.window.showInformationMessage.mock.calls.length > 0);
+		await waitFor(() => remoteHosts.saveHost.mock.calls.length > 0 && vscode.window.showInformationMessage.mock.calls.length > 0);
 
 		// Assert
-		expect(remoteHosts.addHost).toHaveBeenCalledWith('/path/to/repo', 'gpu', 'gpu-01', '/srv/work/app');
-		expect(vscode.window.showQuickPick).toHaveBeenCalledWith([{ label: 'build-box' }, { label: 'gpu-01' }, { label: 'Enter another alias...' }], expect.objectContaining({ placeHolder: 'Select the Host alias from ~/.ssh/config that reaches the server:' }));
+		expect(remoteHosts.saveHost).toHaveBeenCalledWith('/path/to/repo', null, { name: 'gpu', ssh: 'gpu-01', path: '/srv/work/app', worktrees: true, forwardAgent: false });
+		expect(vscode.window.showQuickPick).toHaveBeenCalledWith([{ label: 'build-box', description: 'ubuntu@10.0.0.2' }, { label: 'gpu-01', description: undefined }, { label: 'Enter another alias...' }], expect.objectContaining({ placeHolder: 'Select the Host alias from ~/.ssh/config that reaches the server:' }));
 		expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('The remote host "gpu" was added to .worktrees/git-tree.yaml.');
 
 		// The name must be valid, and new in any case
@@ -110,10 +110,10 @@ describe('git-tree.addRemoteHost', () => {
 
 		// Run
 		await vscode.commands.executeCommand('git-tree.addRemoteHost');
-		await waitFor(() => remoteHosts.addHost.mock.calls.length > 0);
+		await waitFor(() => remoteHosts.saveHost.mock.calls.length > 0);
 
 		// Assert
-		expect(remoteHosts.addHost).toHaveBeenCalledWith('/path/to/repo', 'gpu', 'gpu-02', '/srv/app');
+		expect(remoteHosts.saveHost).toHaveBeenCalledWith('/path/to/repo', null, { name: 'gpu', ssh: 'gpu-02', path: '/srv/app', worktrees: true, forwardAgent: false });
 		expect(window.showInputBox.mock.calls[1][0].validateInput('-oProxyCommand=x')).toMatch(/must be a Host alias/);
 	});
 
@@ -121,7 +121,7 @@ describe('git-tree.addRemoteHost', () => {
 		// Setup
 		window.showInputBox.mockResolvedValueOnce('gpu').mockResolvedValueOnce('/srv/app');
 		vscode.window.showQuickPick.mockResolvedValueOnce(<never>{ label: 'gpu-01' });
-		remoteHosts.addHost.mockResolvedValueOnce('Git Tree couldn\'t connect to "gpu-01".');
+		remoteHosts.saveHost.mockResolvedValueOnce('Git Tree couldn\'t connect to "gpu-01".');
 		vscode.window.showErrorMessage.mockResolvedValueOnce(<never>undefined);
 
 		// Run
@@ -142,7 +142,7 @@ describe('git-tree.addRemoteHost', () => {
 
 		// Assert
 		expect(remoteHosts.getSshAliases).not.toHaveBeenCalled();
-		expect(remoteHosts.addHost).not.toHaveBeenCalled();
+		expect(remoteHosts.saveHost).not.toHaveBeenCalled();
 	});
 });
 

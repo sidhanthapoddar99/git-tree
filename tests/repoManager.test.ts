@@ -1228,6 +1228,7 @@ describe('RepoManager', () => {
 				columnWidths: null,
 				commitOrdering: RepoCommitOrdering.Default,
 				fileViewType: FileViewType.Default,
+				hideHosts: [],
 				hideRemotes: [],
 				includeCommitsMentionedByReflogs: BooleanOverride.Default,
 				issueLinkingConfig: null,
@@ -1897,6 +1898,7 @@ describe('RepoManager', () => {
 						columnWidths: null,
 						commitOrdering: RepoCommitOrdering.Default,
 						fileViewType: FileViewType.Default,
+						hideHosts: [],
 						hideRemotes: [],
 						includeCommitsMentionedByReflogs: BooleanOverride.Default,
 						issueLinkingConfig: null,
@@ -1931,6 +1933,10 @@ describe('RepoManager', () => {
 			describe('fileViewType', () => {
 				it('Should import FileViewType.Tree correctly', testApplyField('fileViewType', FileViewType.Tree, 'fileViewType', ExternalRepoConfig.FileViewType.Tree));
 				it('Should import FileViewType.List correctly', testApplyField('fileViewType', FileViewType.List, 'fileViewType', ExternalRepoConfig.FileViewType.List));
+			});
+
+			describe('hideHosts', () => {
+				it('Should import hideHosts correctly', testApplyField('hideHosts', ['build-box'], 'hideHosts', ['build-box']));
 			});
 
 			describe('hideRemotes', () => {
@@ -2032,6 +2038,8 @@ describe('RepoManager', () => {
 
 			it('Should display a validation error when "commitOrdering" is invalid', testValidationOfField('commitOrdering', 'invalid'));
 			it('Should display a validation error when "fileViewType" is invalid', testValidationOfField('fileViewType', 'invalid'));
+			it('Should display a validation error when "hideHosts" is invalid (not an array)', testValidationOfField('hideHosts', 'invalid'));
+			it('Should display a validation error when "hideHosts" is invalid (array doesn\'t contain strings)', testValidationOfField('hideHosts', ['build-box', 5]));
 			it('Should display a validation error when "hideRemotes" is invalid (not an array)', testValidationOfField('hideRemotes', 'invalid'));
 			it('Should display a validation error when "hideRemotes" is invalid (array doesn\'t contain strings)', testValidationOfField('hideRemotes', ['origin', 5]));
 			it('Should display a validation error when "includeCommitsMentionedByReflogs" is invalid', testValidationOfField('includeCommitsMentionedByReflogs', 'invalid'));
@@ -2250,6 +2258,7 @@ describe('RepoManager', () => {
 					columnWidths: null,
 					commitOrdering: RepoCommitOrdering.Default,
 					fileViewType: FileViewType.Default,
+					hideHosts: [],
 					hideRemotes: [],
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
@@ -2328,6 +2337,7 @@ describe('RepoManager', () => {
 					columnWidths: null,
 					commitOrdering: RepoCommitOrdering.Default,
 					fileViewType: FileViewType.Default,
+					hideHosts: [],
 					hideRemotes: [],
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
@@ -2422,6 +2432,10 @@ describe('RepoManager', () => {
 		describe('fileViewType', () => {
 			it('Should export FileViewType.Tree correctly', testExportField('fileViewType', FileViewType.Tree, 'fileViewType', ExternalRepoConfig.FileViewType.Tree));
 			it('Should export FileViewType.List correctly', testExportField('fileViewType', FileViewType.List, 'fileViewType', ExternalRepoConfig.FileViewType.List));
+		});
+
+		describe('hideHosts', () => {
+			it('Should export hideHosts correctly', testExportField('hideHosts', ['build-box'], 'hideHosts', ['build-box']));
 		});
 
 		describe('hideRemotes', () => {

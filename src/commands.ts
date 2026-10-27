@@ -9,6 +9,7 @@ import { GitTreeView } from './gitTreeView';
 import { Logger } from './logger';
 import { CONFIG_FILE, validateHostName, validateServerPath, validateSshAlias } from './remoteHosts/config';
 import { RepoManager } from './repoManager';
+import { SshAlias } from './types';
 import { GitExecutable, VsCodeVersionRequirement, abbrevCommit, abbrevText, copyToClipboard, doesVersionMeetRequirement, getExtensionVersion, getPathFromUri, getRelativeTimeDiff, getRepoName, getSortedRepositoryPaths, isPathInWorkspace, openFile, resolveToSymbolicPath, showErrorMessage, showInformationMessage } from './utils';
 import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
@@ -244,7 +245,7 @@ export class CommandManager extends Disposable {
 		});
 		if (typeof serverPath === 'undefined') return;
 
-		const errorInfo = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Checking ' + ssh + ':' + serverPath + '...' }, () => remoteHosts.addHost(repo, name, ssh, serverPath));
+		const errorInfo = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Checking ' + ssh + ':' + serverPath + '...' }, () => remoteHosts.saveHost(repo, null, { name: name, ssh: ssh, path: serverPath, worktrees: true, forwardAgent: false }));
 		if (errorInfo === null) {
 			showInformationMessage('The remote host "' + name + '" was added to ' + CONFIG_FILE + '.');
 		} else {
@@ -496,14 +497,18 @@ export class CommandManager extends Disposable {
 
 	/**
 	 * Pick the SSH alias of a new remote host: one of the Host aliases in ~/.ssh/config, or one the user types.
-	 * @param aliases The Host aliases in ~/.ssh/config.
+	 * @param aliases The Host aliases in ~/.ssh/config and the files it includes.
 	 * @returns The alias. NULL => the user cancelled.
 	 */
-	private async pickSshAlias(aliases: Promise<string[]>): Promise<string | null> {
+	private async pickSshAlias(aliases: Promise<SshAlias[]>): Promise<string | null> {
 		const other = 'Enter another alias...';
 		const known = await aliases;
 		if (known.length > 0) {
-			const item = await vscode.window.showQuickPick(known.map((alias) => ({ label: alias })).concat([{ label: other }]), {
+			const items: vscode.QuickPickItem[] = known.map((alias) => ({
+				label: alias.alias,
+				description: alias.hostName !== null || alias.user !== null ? (alias.user !== null ? alias.user + '@' : '') + (alias.hostName !== null ? alias.hostName : alias.alias) : undefined
+			}));
+			const item = await vscode.window.showQuickPick(items.concat([{ label: other }]), {
 				title: 'Add Remote Host (2/3)',
 				placeHolder: 'Select the Host alias from ~/.ssh/config that reaches the server:',
 				canPickMany: false,

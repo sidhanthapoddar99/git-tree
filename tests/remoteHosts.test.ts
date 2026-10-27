@@ -11,12 +11,15 @@ jest.mock('../src/remoteHosts/ssh', () => Object.assign({}, jest.requireActual('
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { ExtensionState } from '../src/extensionState';
+import { DEFAULT_REPO_STATE, ExtensionState } from '../src/extensionState';
 import { Logger } from '../src/logger';
 import { RemoteHosts, getHostBranchesPrefix, getHostDetachedRef, resolveServerWorktreePath } from '../src/remoteHosts';
+import { AGENT_INSTRUCTION } from '../src/remoteHosts/agentInstruction';
+import { BROWSE_SCRIPT } from '../src/remoteHosts/browse';
 import { CONFIG_FILE } from '../src/remoteHosts/config';
 import { ProcessOptions, ProcessResult, runProcess } from '../src/remoteHosts/ssh';
 import { STATUS_SCRIPT } from '../src/remoteHosts/status';
+import { RemoteHostEntry, RemoteHostGitAction } from '../src/types';
 import { GitExecutable } from '../src/utils';
 import { EventEmitter } from '../src/utils/event';
 
@@ -38,6 +41,7 @@ interface Server {
 	worktrees: ServerWorktree[];
 	answer: Partial<ProcessResult> | null; // Answers every call to the server instead of the simulation (a failure)
 	fetchAnswer: Partial<ProcessResult> | null; // Answers every fetch from the server instead of the simulation
+	onScript: ((script: string, args: string[]) => Partial<ProcessResult>) | null; // Answers a script that isn't the status script. NULL => success.
 }
 
 interface Call { readonly file: string, readonly args: ReadonlyArray<string>, readonly options: ProcessOptions }
@@ -45,6 +49,7 @@ interface Call { readonly file: string, readonly args: ReadonlyArray<string>, re
 let tmp: string, main: string;
 let servers: { [alias: string]: Server };
 let localRefs: Map<string, string>, localCommits: Set<string>, localRoots: string[], configTracked: boolean;
+let localRemotes: { [name: string]: string }, localHead: string | null, pushAnswer: Partial<ProcessResult>;
 let calls: Call[];
 let globalState: Map<string, any>;
 let logger: Logger, onDidChangeGitExecutable: EventEmitter<GitExecutable>, extensionState: ExtensionState, remoteHosts: RemoteHosts;
@@ -70,6 +75,9 @@ beforeEach(() => {
 	localCommits = new Set([MAIN_HASH, ROOT]);
 	localRoots = [ROOT];
 	configTracked = false;
+	localRemotes = { origin: 'git@github.com:user/app.git' };
+	localHead = 'refs/heads/main';
+	pushAnswer = {};
 	calls = [];
 	mockedRunProcess.mockImplementation((file, args, options) => Promise.resolve(simulate(file, args, options)));
 
@@ -248,7 +256,7 @@ describe('RemoteHosts', () => {
 			// Assert
 			expect(sshCalls()).toHaveLength(1);
 			const call = sshCalls()[0];
-			expect(call.args).toStrictEqual(['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ControlMaster=auto', '-o', 'ControlPersist=120', '-o', 'ControlPath=/tmp/git-tree-' + process.getuid!() + '/%C', 'box', 'sh -s -- \'/srv/app\' \'all\' \'yes\' \'yes\'']);
+			expect(call.args).toStrictEqual(['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ForwardAgent=no', '-o', 'ControlMaster=auto', '-o', 'ControlPersist=120', '-o', 'ControlPath=/tmp/git-tree-' + process.getuid!() + '/%C', 'box', 'sh -s -- \'/srv/app\' \'all\' \'yes\' \'yes\'']);
 			expect(call.options.input).toBe(STATUS_SCRIPT);
 			expect(call.options.timeout).toBe(15000);
 
@@ -305,7 +313,7 @@ describe('RemoteHosts', () => {
 			expect(calls.filter((call) => call.file === '/opt/ssh wrapper')).toHaveLength(1);
 			expect(gitCalls('fetch')).toHaveLength(2);
 			const fetch = calls.find((call) => call.args[0] === 'fetch')!;
-			expect(fetch.options.env!.GIT_SSH_COMMAND).toBe('\'/opt/ssh wrapper\' \'-o\' \'BatchMode=yes\' \'-o\' \'ConnectTimeout=10\' \'-o\' \'ControlMaster=auto\' \'-o\' \'ControlPersist=120\' \'-o\' \'ControlPath=/tmp/git-tree-' + process.getuid!() + '/%C\'');
+			expect(fetch.options.env!.GIT_SSH_COMMAND).toBe('\'/opt/ssh wrapper\' \'-o\' \'BatchMode=yes\' \'-o\' \'ConnectTimeout=10\' \'-o\' \'ForwardAgent=no\' \'-o\' \'ControlMaster=auto\' \'-o\' \'ControlPersist=120\' \'-o\' \'ControlPath=/tmp/git-tree-' + process.getuid!() + '/%C\'');
 			expect(fetch.options.env!.GIT_SSH_VARIANT).toBe('ssh');
 		});
 
@@ -878,33 +886,125 @@ describe('RemoteHosts', () => {
 	});
 
 	describe('Adding and removing hosts', () => {
+		const entry = (name: string, ssh: string, serverPath: string, worktrees: boolean = true, forwardAgent: boolean = false): RemoteHostEntry => ({ name: name, ssh: ssh, path: serverPath, worktrees: worktrees, forwardAgent: forwardAgent });
+
 		it('Should check the connection and the project, then add the host and exclude the folder', async () => {
 			// Setup
 			servers['new-box'] = server('/srv/new');
 
 			// Run
-			const result = await remoteHosts.addHost(main, 'new', 'new-box', '/srv/new');
+			const result = await remoteHosts.saveHost(main, null, entry('new', 'new-box', '/srv/new', false, true));
 			await settle();
 
 			// Assert
 			expect(result).toBeNull();
-			expect(fs.readFileSync(main + '/' + CONFIG_FILE, 'utf8')).toBe('version: 1\nhosts:\n  box:\n    ssh: box\n    path: /srv/app\n  new:\n    ssh: new-box\n    path: /srv/new\n');
+			expect(fs.readFileSync(main + '/' + CONFIG_FILE, 'utf8')).toBe('version: 1\nhosts:\n  box:\n    ssh: box\n    path: /srv/app\n  new:\n    ssh: new-box\n    path: /srv/new\n    worktrees: false\n    forwardAgent: true\n');
 			expect(gitCalls('check-ignore')).toStrictEqual([['check-ignore', '-q', CONFIG_FILE]]);
 			expect(fs.readFileSync(main + '/.git/info/exclude', 'utf8')).toBe('/.worktrees/\n');
 			expect(remoteHosts.getHosts(main).map((host) => [host.host.name, host.host.state])).toStrictEqual([['box', 'ok'], ['new', 'ok']]);
 		});
 
-		it('Should not add a host it can\'t reach, or of another project', async () => {
+		it('Should not add a host it can\'t reach, or of another project, or whose name is taken', async () => {
 			// Setup
 			servers['down'] = Object.assign(server('/srv/app'), { answer: { code: 255, stderr: 'ssh: Could not resolve hostname down\n' } });
 			servers['other'] = Object.assign(server('/srv/app'), { roots: ['9'.repeat(40)] });
 
 			// Assert
-			expect(await remoteHosts.addHost(main, 'down', 'down', '/srv/app')).toBe('Git Tree couldn\'t connect to "down". ssh: Could not resolve hostname down');
-			expect(await remoteHosts.addHost(main, 'other', 'other', '/srv/app')).toMatch(/shares no root commit with this one/);
-			expect(await remoteHosts.addHost(main, 'bad name', 'other', '/srv/app')).toMatch(/may only hold letters/);
-			expect(await remoteHosts.addHost(main, 'box', 'box', '/srv/app')).toBe('The file already has a host named "box".');
+			expect(await remoteHosts.saveHost(main, null, entry('down', 'down', '/srv/app'))).toBe('Git Tree couldn\'t connect to "down". ssh: Could not resolve hostname down');
+			expect(await remoteHosts.saveHost(main, null, entry('other', 'other', '/srv/app'))).toMatch(/shares no root commit with this one/);
+			expect(await remoteHosts.saveHost(main, null, entry('bad name', 'other', '/srv/app'))).toMatch(/may only hold letters/);
+			calls = [];
+			expect(await remoteHosts.saveHost(main, null, entry('BOX', 'box', '/srv/app'))).toBe('The file already has a host named "box".');
+			expect(sshCalls()).toStrictEqual([]); // A taken name is found before the check
 			expect(fs.readFileSync(main + '/' + CONFIG_FILE, 'utf8')).toBe('version: 1\nhosts:\n  box:\n    ssh: box\n    path: /srv/app\n');
+		});
+
+		it('Should only add the main worktree of a repository, and not a bare one', async () => {
+			// Setup: the path is a linked worktree, whose list names the main worktree first
+			servers['linked'] = Object.assign(server('/srv/app'), { path: '/srv/app wt' });
+			servers['bare'] = server('/srv/bare.git');
+			servers['bare'].worktrees = [{ path: '/srv/bare.git', head: MAIN_HASH, branch: null, count: null }];
+			const simulateBare = mockedRunProcess.getMockImplementation()!;
+			mockedRunProcess.mockImplementation((file, args, options) => {
+				const answer = simulateBare(file, args, options);
+				return args[args.length - 2] !== 'bare' ? answer : answer.then((output) => Object.assign({}, output, { stdout: Buffer.from(output.stdout.toString().replace('detached\n', 'bare\n')) }));
+			});
+
+			// Assert
+			expect(await remoteHosts.checkHost(main, 'linked', '/srv/app wt')).toBe('linked:/srv/app wt isn\'t the main worktree of its repository. Use the main worktree\'s path, /srv/app, and Git Tree shows the linked worktrees with it.');
+			expect(await remoteHosts.checkHost(main, 'bare', '/srv/bare.git')).toBe('bare:/srv/bare.git is in a bare repository, which has no main worktree. Use the path of a repository with a working tree.');
+			expect(await remoteHosts.checkHost(main, 'box', '/srv/app')).toBeNull();
+		});
+
+		it('Should check a host with the status call over the shared connection, reading the root commits', async () => {
+			// Run
+			const result = await remoteHosts.checkHost(main, 'box', '/srv/app');
+
+			// Assert
+			expect(result).toBeNull();
+			expect(sshCalls()).toHaveLength(1);
+			expect(statusArgs(sshCalls()[0])).toStrictEqual(['/srv/app', 'all', 'no', 'yes']);
+			expect(sshCalls()[0].args).toContain('ControlMaster=auto');
+			expect(await remoteHosts.checkHost(main, '-oProxyCommand=x', '/srv/app')).toMatch(/must be a Host alias/);
+			expect(sshCalls()).toHaveLength(1);
+		});
+
+		it('Should write a change of only the options at once, without checking', async () => {
+			// Setup
+			await refresh();
+			calls = [];
+
+			// Run
+			const result = await remoteHosts.saveHost(main, 'box', entry('box', 'box', '/srv/app', false, true));
+
+			// Assert
+			expect(result).toBeNull();
+			expect(calls.filter((call) => call.file !== GIT && call.options.input !== STATUS_SCRIPT)).toStrictEqual([]);
+			expect(sshCalls().every((call) => statusArgs(call)[3] === 'no')).toBe(true); // Only the refresh afterwards, with no root commits
+			expect(fs.readFileSync(main + '/' + CONFIG_FILE, 'utf8')).toBe('version: 1\nhosts:\n  box:\n    ssh: box\n    path: /srv/app\n    worktrees: false\n    forwardAgent: true\n');
+			expect(gitCalls('check-ignore')).toStrictEqual([]);
+		});
+
+		it('Should check a changed path before writing it', async () => {
+			// Setup
+			servers['box'].path = '/srv/moved';
+			servers['box'].worktrees[0].path = '/srv/moved';
+
+			// Run
+			const wrong = await remoteHosts.saveHost(main, 'box', entry('box', 'box', '/srv/nowhere'));
+			const moved = await remoteHosts.saveHost(main, 'box', entry('box', 'box', '/srv/moved'));
+
+			// Assert
+			expect(wrong).toBe('box:/srv/nowhere doesn\'t exist, or isn\'t a folder Git Tree can enter.');
+			expect(moved).toBeNull();
+			expect(fs.readFileSync(main + '/' + CONFIG_FILE, 'utf8')).toBe('version: 1\nhosts:\n  box:\n    ssh: box\n    path: /srv/moved\n');
+		});
+
+		it('Should rename a host, keeping its fetch consent and deleting its old refs', async () => {
+			// Setup
+			await refresh();
+			expect(Array.from(localRefs.keys()).some((ref) => ref.startsWith('refs/git-tree/hosts/box/'))).toBe(true);
+			calls = [];
+
+			// Run
+			const result = await remoteHosts.saveHost(main, 'box', entry('renamed', 'box', '/srv/app'));
+			await settle();
+
+			// Assert
+			expect(result).toBeNull();
+			expect(fs.readFileSync(main + '/' + CONFIG_FILE, 'utf8')).toBe('version: 1\nhosts:\n  renamed:\n    ssh: box\n    path: /srv/app\n');
+			expect(extensionState.getRemoteHostFetchConsent(main, 'renamed', 'box', '/srv/app')).toBe(true);
+			expect(extensionState.getRemoteHostFetchConsent(main, 'box', 'box', '/srv/app')).toBeNull();
+			expect(Array.from(localRefs.keys()).filter((ref) => ref.startsWith('refs/git-tree/hosts/box/'))).toStrictEqual([]);
+			expect(Array.from(localRefs.keys()).some((ref) => ref.startsWith('refs/git-tree/hosts/renamed/heads/'))).toBe(true);
+			expect(vscode.window.showInformationMessage).toHaveBeenCalledTimes(1); // The consent question was asked once, before the rename
+			expect(remoteHosts.getHosts(main).map((host) => [host.host.name, host.host.state])).toStrictEqual([['renamed', 'ok']]);
+		});
+
+		it('Should refuse to edit a host that isn\'t in the file', async () => {
+			// Assert
+			expect(await remoteHosts.saveHost(main, 'missing', entry('missing', 'box', '/srv/app'))).toBe('The host "missing" isn\'t in ' + CONFIG_FILE + '.');
+			expect(sshCalls()).toStrictEqual([]);
 		});
 
 		it('Should remove a host, its refs and its consent', async () => {
@@ -922,6 +1022,235 @@ describe('RemoteHosts', () => {
 			expect(extensionState.getRemoteHostFetchConsent(main, 'box', 'box', '/srv/app')).toBeNull();
 			expect(remoteHosts.getHosts(main)).toStrictEqual([]);
 		});
+	});
+
+	describe('Repository Settings', () => {
+		it('Should load the hosts, the file, the SSH aliases and the instruction, without calling a server', async () => {
+			// Setup
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '    forwardAgent: true', '  bad:', '    ssh: -x');
+			await refresh();
+			calls = [];
+			const home = tmp + '/home';
+			fs.mkdirSync(home + '/.ssh', { recursive: true });
+			fs.writeFileSync(home + '/.ssh/config', 'Include hosts\nHost box\n  HostName 10.0.0.2\n');
+			fs.writeFileSync(home + '/.ssh/hosts', 'Host gpu\n  User me\n');
+			const spyOnHomedir = jest.spyOn(os, 'homedir').mockReturnValue(home);
+
+			// Run
+			const settings = await remoteHosts.loadSettings(main);
+			spyOnHomedir.mockRestore();
+
+			// Assert
+			expect(settings).toStrictEqual({
+				hosts: [
+					{ name: 'box', ssh: 'box', path: '/srv/app', worktrees: true, forwardAgent: true, state: 'ok', message: null, lastRefresh: expect.any(Number), worktreeCount: 2 },
+					{ name: 'bad', ssh: '', path: '', worktrees: true, forwardAgent: false, state: 'configError', message: expect.stringMatching(/^Line 8: /), lastRefresh: null, worktreeCount: 0 }
+				],
+				configFile: main + '/' + CONFIG_FILE,
+				configError: null,
+				sshAliases: [{ alias: 'gpu', hostName: null, user: 'me' }, { alias: 'box', hostName: '10.0.0.2', user: null }],
+				agentInstruction: AGENT_INSTRUCTION
+			});
+			expect(sshCalls()).toStrictEqual([]);
+		});
+
+		it('Should list a folder on a server, over the shared connection', async () => {
+			// Setup
+			servers['box'].onScript = (script, args) => script === BROWSE_SCRIPT && args[0] === '/srv/it\'s'
+				? { stdout: Buffer.from('gt:browse\0/srv/it\'s\0/srv\0r app\0f .cache\0gt:end\0') }
+				: { code: 3, stdout: Buffer.from('gt:nopath\n') };
+
+			// Run
+			const listing = await remoteHosts.browse('box', '/srv/it\'s');
+
+			// Assert
+			expect(listing).toStrictEqual({ path: '/srv/it\'s', parent: '/srv', entries: [{ name: '.cache', kind: 'folder' }, { name: 'app', kind: 'repository' }], truncated: false });
+			expect(sshCalls()[0].args).toStrictEqual(['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ForwardAgent=no', '-o', 'ControlMaster=auto', '-o', 'ControlPersist=120', '-o', 'ControlPath=/tmp/git-tree-' + process.getuid!() + '/%C', 'box', 'sh -s -- \'/srv/it\'\\\'\'s\'']);
+			expect(sshCalls()[0].options.timeout).toBe(15000);
+		});
+
+		it('Should list the home folder for no path, and say why a folder can\'t be listed', async () => {
+			// Setup
+			servers['box'].onScript = (_, args) => args[0] === ''
+				? { stdout: Buffer.from('gt:browse\0/home/me\0/home\0gt:end\0') }
+				: { code: 3, stdout: Buffer.from('gt:nopath\n') };
+			servers['down'] = Object.assign(server('/srv/app'), { answer: { code: 255, stderr: 'ssh: connect to host down port 22: Connection refused\n' } });
+
+			// Assert
+			expect(await remoteHosts.browse('box', null)).toStrictEqual({ path: '/home/me', parent: '/home', entries: [], truncated: false });
+			expect(await remoteHosts.browse('box', '/missing')).toStrictEqual({ error: 'box:/missing doesn\'t exist, or isn\'t a folder Git Tree can enter.' });
+			expect(await remoteHosts.browse('down', null)).toStrictEqual({ error: 'Git Tree couldn\'t connect to "down". ssh: connect to host down port 22: Connection refused' });
+			expect(await remoteHosts.browse('-oProxyCommand=x', null)).toHaveProperty('error');
+			expect(await remoteHosts.browse('box', 'relative')).toStrictEqual({ error: 'The path "relative" must be absolute (start with /).' });
+			expect(sshCalls()).toHaveLength(3);
+		});
+
+		it('Should create a repository by cloning a remote on the server, with the agent forwarded, then add it', async () => {
+			// Setup
+			servers['new-box'] = server('/srv/new');
+
+			// Run
+			const result = await remoteHosts.createRepository(main, entry('new', 'new-box', '/srv/new', true, true), { kind: 'clone', remote: 'origin' });
+
+			// Assert
+			expect(result).toBeNull();
+			const clone = sshCalls()[0];
+			expect(clone.options.input).toMatch(/git clone --quiet -- "\$2" "\$1"/);
+			expect(statusArgs(clone)).toStrictEqual(['/srv/new', 'git@github.com:user/app.git']);
+			expect(clone.args.slice(0, -2)).toStrictEqual(['-A', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ControlMaster=no', '-o', 'ControlPath=none']);
+			expect(clone.options.timeout).toBe(300000);
+			expect(sshCalls().slice(1).every((call) => call.args.indexOf('-A') === -1)).toBe(true); // Only the clone forwards the agent
+			expect(fs.readFileSync(main + '/' + CONFIG_FILE, 'utf8')).toMatch(/  new:\n    ssh: new-box\n    path: \/srv\/new\n    forwardAgent: true\n$/);
+		});
+
+		it('Should clone on the shared connection without forwardAgent', async () => {
+			// Setup
+			servers['new-box'] = server('/srv/new');
+
+			// Run
+			await remoteHosts.createRepository(main, entry('new', 'new-box', '/srv/new'), { kind: 'clone', remote: 'origin' });
+
+			// Assert
+			expect(sshCalls()[0].args).toContain('ControlMaster=auto');
+			expect(sshCalls()[0].args).not.toContain('-A');
+		});
+
+		it('Should refuse to clone a remote the server can\'t reach, or a URL with a password', async () => {
+			// Setup
+			localRemotes = { local: '/home/me/app.git', file: 'file:///home/me/app.git', relative: '../app', token: 'https://me:secret@example.com/app.git' };
+
+			// Assert
+			expect(await remoteHosts.createRepository(main, entry('new', 'box', '/srv/new'), { kind: 'clone', remote: 'local' })).toBe('The remote "local" is a path on this machine (/home/me/app.git), which the server can\'t reach. Use Push instead.');
+			expect(await remoteHosts.createRepository(main, entry('new', 'box', '/srv/new'), { kind: 'clone', remote: 'file' })).toMatch(/is a path on this machine/);
+			expect(await remoteHosts.createRepository(main, entry('new', 'box', '/srv/new'), { kind: 'clone', remote: 'relative' })).toMatch(/is a path on this machine/);
+			expect(await remoteHosts.createRepository(main, entry('new', 'box', '/srv/new'), { kind: 'clone', remote: 'token' })).toMatch(/holds a password/);
+			expect(await remoteHosts.createRepository(main, entry('new', 'box', '/srv/new'), { kind: 'clone', remote: 'missing' })).toBe('This repository has no remote named "missing".');
+			expect(sshCalls()).toStrictEqual([]);
+		});
+
+		it('Should create a repository by pushing this repository\'s branches, then add it', async () => {
+			// Setup
+			servers['new-box'] = server('/srv/new');
+
+			// Run
+			const result = await remoteHosts.createRepository(main, entry('new', 'new-box', '/srv/new', true, true), { kind: 'push' });
+
+			// Assert
+			expect(result).toBeNull();
+			const init = sshCalls()[0];
+			expect(init.options.input).toMatch(/git init --quiet -- "\$1" && git -C "\$1" symbolic-ref HEAD "\$2"/);
+			expect(statusArgs(init)).toStrictEqual(['/srv/new', 'refs/heads/main']);
+			expect(init.args).not.toContain('-A'); // The push doesn't leave the server, so nothing forwards the agent
+			const push = calls.find((call) => call.args[0] === 'push')!;
+			expect(push.args).toStrictEqual(['push', '--quiet', '--receive-pack=git -c receive.denyCurrentBranch=updateInstead receive-pack', 'new-box:/srv/new', 'refs/heads/*:refs/heads/*']);
+			expect(push.options.cwd).toBe(main);
+			expect(push.options.env!.GIT_SSH_COMMAND).toMatch(/'ControlMaster=auto'/);
+			expect(push.options.env!.GIT_TERMINAL_PROMPT).toBe('0');
+			expect(remoteHosts.getHosts(main).map((host) => host.host.name)).toStrictEqual(['box', 'new']);
+		});
+
+		it('Should say why a repository wasn\'t created', async () => {
+			// Setup
+			servers['full'] = Object.assign(server('/srv/full'), { onScript: () => ({ code: 8 }) });
+			servers['new-box'] = server('/srv/new');
+
+			// Assert
+			expect(await remoteHosts.createRepository(main, entry('new', 'full', '/srv/full'), { kind: 'push' })).toBe('full:/srv/full already exists, and isn\'t an empty folder. Choose a new folder, or add the repository that\'s there.');
+			expect(await remoteHosts.createRepository(main, entry('box', 'new-box', '/srv/new'), { kind: 'push' })).toBe('The file already has a host named "box".');
+
+			// Setup
+			pushAnswer = { code: 1, stderr: 'error: failed to push some refs\n' };
+
+			// Assert
+			expect(await remoteHosts.createRepository(main, entry('new', 'new-box', '/srv/new'), { kind: 'push' })).toBe('Git Tree made an empty repository at new-box:/srv/new, but couldn\'t push this repository\'s branches to it: error: failed to push some refs Remove that folder on the server before you try again.');
+
+			// Setup
+			localHead = null;
+
+			// Assert
+			expect(await remoteHosts.createRepository(main, entry('new', 'new-box', '/srv/new'), { kind: 'push' })).toMatch(/^This repository's HEAD isn't on a branch/);
+			expect(fs.readFileSync(main + '/' + CONFIG_FILE, 'utf8')).toBe('version: 1\nhosts:\n  box:\n    ssh: box\n    path: /srv/app\n');
+		});
+
+		it('Should run Git in a worktree of a host, with no prompt, and refresh the host', async () => {
+			// Setup
+			await refresh();
+			calls = [];
+
+			// Run
+			const result = await remoteHosts.runGitOnHost(main, 'box', '/srv/app wt', 'pull');
+			await settle();
+
+			// Assert
+			expect(result).toBeNull();
+			const run = sshCalls()[0];
+			expect(statusArgs(run)).toStrictEqual(['/srv/app wt', 'pull']);
+			expect(run.options.input).toMatch(/export GIT_TERMINAL_PROMPT=0\n/);
+			expect(run.options.input).toMatch(/pull\) exec git pull --ff-only;;/);
+			expect(run.options.timeout).toBe(300000);
+			expect(run.args).toContain('ControlMaster=auto');
+			expect(run.args).not.toContain('-A');
+			expect(sshCalls().slice(1).filter((call) => call.options.input === STATUS_SCRIPT)).toHaveLength(1); // The refresh afterwards
+		});
+
+		it('Should forward the agent to Git on a host with forwardAgent, on its own connection', async () => {
+			// Setup
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '    forwardAgent: true');
+			await refresh();
+			calls = [];
+
+			// Run
+			await remoteHosts.runGitOnHost(main, 'box', '/srv/app', 'fetch');
+			await settle();
+
+			// Assert
+			const run = sshCalls()[0];
+			expect(run.args).toStrictEqual(['-A', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ControlMaster=no', '-o', 'ControlPath=none', 'box', 'sh -s -- \'/srv/app\' \'fetch\'']);
+			expect(run.options.input).toMatch(/fetch\) exec git fetch --all --prune;;/);
+			expect(sshCalls().slice(1).every((call) => call.args.indexOf('-A') === -1)).toBe(true); // The refresh doesn't forward it
+		});
+
+		it('Should return Git\'s error lines, and refuse a worktree the host doesn\'t have', async () => {
+			// Setup
+			await refresh();
+			servers['box'].onScript = () => ({ code: 128, stderr: 'fatal: Not possible to fast-forward, aborting.\n' });
+
+			// Assert
+			expect(await remoteHosts.runGitOnHost(main, 'box', '/srv/app', 'pull')).toBe('Git Tree couldn\'t run git pull --ff-only in /srv/app on "box": fatal: Not possible to fast-forward, aborting.');
+			calls = [];
+			expect(await remoteHosts.runGitOnHost(main, 'box', '/srv/elsewhere', 'push')).toBe('/srv/elsewhere isn\'t a worktree of "box" that Git Tree knows. Refresh the view, then try again.');
+			expect(await remoteHosts.runGitOnHost(main, 'box', '/srv/app', <RemoteHostGitAction>'gc')).toBe('Git Tree doesn\'t run "gc" on a server.');
+			expect(await remoteHosts.runGitOnHost(main, 'box', '/srv/app', <RemoteHostGitAction>'toString')).toBe('Git Tree doesn\'t run "toString" on a server.');
+			expect(await remoteHosts.runGitOnHost(main, 'other', '/srv/app', 'push')).toBe('The host "other" isn\'t in ' + CONFIG_FILE + '.');
+			expect(sshCalls()).toStrictEqual([]);
+		});
+
+		it('Should only run Git in the main worktree of a host without worktrees', async () => {
+			// Setup
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '    worktrees: false');
+			await refresh();
+
+			// Assert
+			expect(await remoteHosts.runGitOnHost(main, 'box', '/srv/app wt', 'fetch')).toMatch(/isn't a worktree of "box" that Git Tree knows/);
+			expect(await remoteHosts.runGitOnHost(main, 'box', '/srv/app/', 'fetch')).toBeNull();
+		});
+
+		it('Should skip the hosts a view hides when it asks for a refresh', async () => {
+			// Setup
+			servers['other'] = server('/srv/other');
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '  other:', '    ssh: other', '    path: /srv/other');
+
+			// Run
+			remoteHosts.refresh(main, ['box']);
+			await settle();
+
+			// Assert
+			expect(sshCalls().map((call) => call.args[call.args.length - 2])).toStrictEqual(['other']);
+		});
+
+		function entry(name: string, ssh: string, serverPath: string, worktrees: boolean = true, forwardAgent: boolean = false): RemoteHostEntry {
+			return { name: name, ssh: ssh, path: serverPath, worktrees: worktrees, forwardAgent: forwardAgent };
+		}
 	});
 
 	describe('Refresh interval', () => {
@@ -942,6 +1271,20 @@ describe('RemoteHosts', () => {
 			} finally {
 				jest.useRealTimers();
 			}
+		});
+
+		it('Should leave out the hosts that every saved view state of the repository hides', () => {
+			// Setup
+			const repoState = (hideHosts: string[]) => Object.assign({}, DEFAULT_REPO_STATE, { hideHosts: hideHosts });
+			const spyOnGetRepos = jest.spyOn(extensionState, 'getRepos');
+			spyOnGetRepos.mockReturnValue({ '/repo': repoState(['a', 'b']), '/repo/.worktrees/x': repoState(['b', 'c']) });
+			const getHiddenHosts = (repos: string[]) => remoteHosts['getHiddenHosts'](<any>{ repos: new Set(repos) });
+
+			// Assert
+			expect(getHiddenHosts(['/repo', '/repo/.worktrees/x'])).toStrictEqual(['b']);
+			expect(getHiddenHosts(['/repo', '/elsewhere'])).toStrictEqual(['a', 'b']);
+			expect(getHiddenHosts(['/elsewhere'])).toStrictEqual([]);
+			spyOnGetRepos.mockRestore();
 		});
 	});
 });
@@ -969,7 +1312,8 @@ function server(repoPath: string): Server {
 			{ path: repoPath + ' wt', head: DETACHED_HASH, branch: null, count: null }
 		],
 		answer: null,
-		fetchAnswer: null
+		fetchAnswer: null,
+		onScript: null
 	};
 }
 
@@ -986,8 +1330,8 @@ function simulate(file: string, args: ReadonlyArray<string>, options: ProcessOpt
 		const alias = args[args.length - 2], target = servers[alias];
 		if (typeof target === 'undefined') return result({ code: 255, stderr: 'ssh: Could not resolve hostname ' + alias + '\n' });
 		if (target.answer !== null) return result(target.answer);
-		if (options.input !== STATUS_SCRIPT) return result({});
 		const scriptArgs = unquote(args[args.length - 1]);
+		if (options.input !== STATUS_SCRIPT) return result(target.onScript !== null ? target.onScript(options.input!, scriptArgs) : {});
 		if (scriptArgs[0] !== target.path) return result({ code: 3, stdout: Buffer.from('gt:nopath\n') });
 		const lines = ['gt:tips'].concat(Object.keys(target.branches).sort().map((name) => target.branches[name] + ' refs/heads/' + name));
 		if (scriptArgs[3] === 'yes') lines.push('gt:roots', ...target.roots);
@@ -1023,6 +1367,12 @@ function simulate(file: string, args: ReadonlyArray<string>, options: ProcessOpt
 			return result({ code: 1 });
 		case 'ls-files':
 			return result({ stdout: Buffer.from(configTracked ? args[2] + '\n' : '') });
+		case 'remote':
+			return localRemotes[args[2]] ? result({ stdout: Buffer.from(localRemotes[args[2]] + '\n') }) : result({ code: 2, stderr: 'error: No such remote \'' + args[2] + '\'\n' });
+		case 'symbolic-ref':
+			return localHead !== null ? result({ stdout: Buffer.from(localHead + '\n') }) : result({ code: 1 });
+		case 'push':
+			return result(pushAnswer);
 		case 'fetch': {
 			const url = args[args.length - 2], refspec = args[args.length - 1];
 			const alias = url.substring(0, url.indexOf(':')), serverPath = url.substring(url.indexOf(':') + 1), target = servers[alias];

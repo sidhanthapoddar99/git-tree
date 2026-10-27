@@ -4,6 +4,42 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-27
+
+### Added
+
+- **Remote Hosts in Repository Settings.** Each host has a row with its state, alias, path, worktree count and last refresh. From the row you can check, edit, hide or remove the host, and fetch, pull or push on the server.
+- **Add a host without typing a path.** Pick one of your SSH aliases (Git Tree reads `~/.ssh/config` and the files it includes), then browse the server's folders, where repositories and worktrees are marked. Choose *Add existing* for a repository already on the server, or *Create new* to clone one of this repository's remotes on the server, or to push this repository there.
+- **Agent forwarding.** A host's `forwardAgent: true` forwards your SSH agent to Git on the server, so a clone, fetch, pull or push there can reach GitHub with your keys. Only those commands forward it, each on its own connection, which closes when the command ends.
+- **Fetch, pull and push on a server**, from the host's row or from a server worktree's menu in the graph. Pull is fast-forward only, and push asks first.
+- **Hide a host.** A hidden host's worktrees and branches leave the graph, as a hidden remote's do, and Git Tree stops reading the host until you show it again.
+- **Copy the instruction for coding agents** with one button in the Remote Hosts section. The instruction now covers `forwardAgent`, `worktrees: false`, and creating server worktrees.
+
+### Changed
+
+- **Repository Settings is redesigned.** Each section is a card with a title, a short description and its actions. Lists are rows with icon buttons, switches replace checkboxes, and it follows light, dark and high-contrast themes.
+- Adding a host checks that the path is the repository's main worktree. A linked worktree, a folder inside a repository or a bare repository is refused, and the error names the right path.
+- Git Tree's SSH calls never forward your agent unless the host asks for it, even when your SSH configuration sets `ForwardAgent yes`. The terminal is the exception, because it's your own session.
+
+### Fixed
+
+- The Worktree filter showed `Allow Fetching&#8230;` instead of *Allow Fetching…*.
+
+### Performance
+
+Against a test SSH server on the same machine, median of 9 runs.
+
+| | Shared connection | New connection |
+| --- | ---: | ---: |
+| Listing a folder on the server | 17–26 ms | 162–165 ms |
+| A fetch on the server | 58 ms | 190–201 ms, with the agent forwarded |
+
+| Against 0.5.0 | 0.5.0 | 0.6.0 |
+| --- | ---: | ---: |
+| Opening Repository Settings' Remote Hosts section | — | 0.1 ms; it never waits for a server |
+| Opening the view with a host hidden | — | no slower than with it shown, within noise |
+| The view's script / styles | 226 / 40 KB | 258 / 52 KB |
+
 ## [0.5.0] - 2026-10-27
 
 ### Added
@@ -235,6 +271,7 @@ The first version of Git Tree.
 - Telemetry. Git Tree sends no usage data.
 
 [Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[0.6.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...v0.4.1
