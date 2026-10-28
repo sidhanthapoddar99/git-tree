@@ -105,9 +105,11 @@ The **Worktree** dropdown in the top bar filters the graph, the way the Branches
 
 | Choice | Shows |
 | --- | --- |
-| **All** | Every branch, and every worktree's uncommitted changes |
-| **Root** (the default) | The main worktree's history and its uncommitted changes |
-| *a worktree's name* | That worktree's history and its uncommitted changes |
+| **All** (the default) | Every branch, and every worktree's uncommitted changes |
+| **Root** | The main worktree's history and its uncommitted changes |
+| *a worktree's folder name* | That worktree's history and its uncommitted changes |
+
+The main worktree is called **Root** everywhere: in the dropdown, in the Worktree column and on its Uncommitted Changes row. Hover over its label to see its path.
 
 Git actions, such as checkout, commit details and opening files, run in the worktree you pick. Branches you pick in the Branches dropdown are shown as well. The dropdown appears when a repository has more than one worktree.
 

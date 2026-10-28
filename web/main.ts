@@ -36,7 +36,7 @@ class GitTreeView {
 	private currentBranches: string[] | null = null;
 
 	private currentRepo!: string;
-	private worktreeChoices: { [repo: string]: string } = {}; // The Worktree dropdown's choice in each repository that has one other than Root
+	private worktreeChoices: { [repo: string]: string } = {}; // The Worktree dropdown's choice in each repository that has one other than All
 	private currentRepoLoading: boolean = true;
 	private currentRepoRefreshState: {
 		inProgress: boolean;
@@ -266,11 +266,11 @@ class GitTreeView {
 	}
 
 	/**
-	 * The Worktree dropdown's choice in the current repository: ALL_WORKTREES, or the path of a worktree. It is Root, the repository itself, until another is chosen.
+	 * The Worktree dropdown's choice in the current repository: ALL_WORKTREES, or the key of a worktree (getWorktreeKey). It is All until another is chosen.
 	 */
 	private get worktreeChoice() {
 		const choice = this.worktreeChoices[this.currentRepo];
-		return typeof choice === 'string' ? choice : this.currentRepo;
+		return typeof choice === 'string' ? choice : ALL_WORKTREES;
 	}
 
 	/**
@@ -304,7 +304,7 @@ class GitTreeView {
 	 */
 	private chooseWorktree(choice: string, showUncommittedChanges: boolean = false) {
 		if (this.worktreeChoice === choice) return;
-		if (choice === this.currentRepo) {
+		if (choice === ALL_WORKTREES) {
 			delete this.worktreeChoices[this.currentRepo];
 		} else {
 			this.worktreeChoices[this.currentRepo] = choice;
@@ -331,12 +331,9 @@ class GitTreeView {
 		// With remote hosts, the dropdown is shown even before their worktrees are known, because it says each host's state
 		const shownHosts = this.getShownRemoteHosts();
 		alterClass(this.controlsElem, 'singleWorktree', !this.hasMultipleWorktrees() && shownHosts.length === 0);
-		const options: DropdownOption[] = [{ name: 'All', value: ALL_WORKTREES, hint: 'every worktree' }].concat(worktrees.map((worktree) => {
-			const branch = worktree.branch !== null ? worktree.branch : 'detached';
-			return worktree.isMain
-				? { name: 'Root', value: worktree.path, hint: worktree.name + ' \u00B7 ' + branch }
-				: { name: worktree.name, value: worktree.path, hint: branch };
-		}));
+		const options: DropdownOption[] = [{ name: 'All', value: ALL_WORKTREES, hint: 'every worktree' }].concat(worktrees.map((worktree) => (
+			{ name: getWorktreeLabel(worktree), value: worktree.path, hint: worktree.branch !== null ? worktree.branch : 'detached' }
+		)));
 		shownHosts.forEach((host) => {
 			// The group's heading, and each worktree's hint, say the host's state when it isn't ok
 			const state = host.state !== 'ok' ? getRemoteHostStateText(host) : null;
@@ -435,7 +432,7 @@ class GitTreeView {
 				refreshState.requestingRepoInfo = false;
 				this.requestLoadCommits();
 			} else if (this.currentWorktree !== this.currentRepo || isHostWorktreeKey(this.worktreeChoice)) {
-				// The chosen worktree no longer exists, so show Root
+				// The chosen worktree no longer exists, so show All
 				refreshState.inProgress = false;
 				delete this.worktreeChoices[this.currentRepo];
 				this.saveState();
@@ -3872,7 +3869,7 @@ class GitTreeView {
 						visible: visibility.copyAbsoluteFilePath && otherWorktrees.length > 0,
 						onClick: () => {
 							dialog.showSelect('Copy the absolute path of <b><i>' + escapeHtml(file.newFilePath) + '</i></b> in which worktree?', otherWorktrees[0].path, otherWorktrees.map((worktree) => ({
-								name: worktree.name + (worktree.isMain ? ' (main)' : ''),
+								name: getWorktreeLabel(worktree),
 								value: worktree.path
 							})), 'Copy Path', (worktreePath) => {
 								sendMessage({ command: 'copyFilePath', repo: worktreePath, filePath: file.newFilePath, absolute: true });
@@ -4387,12 +4384,13 @@ function isHostWorktreeKey(key: string) {
 }
 
 /**
- * Get the label of a worktree: its folder name, and `<host>:<folder name>` on a remote host.
+ * Get the label of a worktree: Root for the main worktree, otherwise its folder name, prefixed with `<host>:` on a remote host.
  * @param worktree The worktree.
  * @returns The label.
  */
 function getWorktreeLabel(worktree: GG.GitWorktree) {
-	return typeof worktree.host === 'string' ? worktree.host + ':' + worktree.name : worktree.name;
+	const name = worktree.isMain ? 'Root' : worktree.name;
+	return typeof worktree.host === 'string' ? worktree.host + ':' + name : name;
 }
 
 /**
