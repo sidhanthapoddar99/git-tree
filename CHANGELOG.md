@@ -4,6 +4,22 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-10-29
+
+### Added
+
+- **The Host dropdown filters the graph by machine.** It sits in the top bar, before the Worktree dropdown. *All* shows this machine's worktrees and every remote host's. *Local* shows only this machine's, and Git Tree doesn't contact the hosts. A host's name shows only that host's worktrees and branches, and Git Tree reads only that host. The Worktree dropdown then lists only the worktrees the Host dropdown shows. The dropdown appears when a repository has a remote host, and each repository remembers its choice.
+- **The Host column** names the remote host on each row with a server's worktree, branch or uncommitted changes. Rows with only this machine's worktrees leave it blank. It sits after the Worktree column, which still labels server worktrees like `build-box:main`. `git-tree.defaultColumnVisibility` takes a `Host` key.
+
+### Changed
+
+- **Show Remote Branches moved to Repository Settings**, in the General card next to *Show Stashes* and *Show Tags*. The top bar no longer has the checkbox.
+- Clicking a remote host's *Uncommitted Changes* row explains that its files can't be listed from here, instead of switching the Worktree filter to that worktree. Right-click the row to show the worktree or open it with Remote-SSH.
+
+### Fixed
+
+- **Clicking another worktree's *Uncommitted Changes* row no longer switches the Worktree filter.** Its changed files open in place, and the panel says which worktree they're in. *View Diff*, *Open File* and the other file actions run in that worktree. Ctrl+click (Cmd+click) a commit to compare it with those changes.
+
 ## [0.6.1] - 2026-10-28
 
 ### Changed
@@ -278,6 +294,7 @@ The first version of Git Tree.
 - Telemetry. Git Tree sends no usage data.
 
 [Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[0.6.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.2...v0.5.0
