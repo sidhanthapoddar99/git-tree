@@ -4,6 +4,13 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-10-28
+
+### Changed
+
+- **The Worktree dropdown starts on *All*.** You see every worktree's branch and uncommitted changes from the start, instead of only the main worktree's. Pick *Root* or one worktree to narrow the graph. Each repository still remembers a worktree you picked, and if that worktree is removed, the view goes back to *All*.
+- **The main worktree is called *Root* everywhere.** The Worktree column, its *Uncommitted Changes* row and the *Copy Absolute File Path in Another Worktree* dialog now say *Root*, as the dropdown already did. On a remote host it's `<host>:Root`. Hover over the label to see its path. The dropdown shows each worktree's branch beside its name, without Root's folder name.
+
 ## [0.6.0] - 2026-10-27
 
 ### Added
@@ -271,6 +278,7 @@ The first version of Git Tree.
 - Telemetry. Git Tree sends no usage data.
 
 [Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[0.6.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.1...v0.4.2
