@@ -27,6 +27,7 @@ declare global {
 		commitElem: HTMLElement | null;
 		compareWithHash: string | null;
 		compareWithElem: HTMLElement | null;
+		worktree?: string; // The path of another worktree whose uncommitted changes are shown, which the view's Git commands run in. Absent => they run in the worktree the graph shows.
 		commitDetails: GG.GitCommitDetails | null;
 		fileChanges: ReadonlyArray<GG.GitFileChange> | null;
 		fileTree: FileTreeFolder | null;
@@ -47,6 +48,7 @@ declare global {
 	interface WebViewState {
 		readonly currentRepo: string;
 		readonly worktreeChoices?: { [repo: string]: string }; // Missing in state saved by older versions
+		readonly hostChoices?: { [repo: string]: string }; // Missing in state saved by older versions
 		readonly currentRepoLoading: boolean;
 		readonly gitRepos: GG.GitRepoSet;
 		readonly gitBranches: ReadonlyArray<string>;

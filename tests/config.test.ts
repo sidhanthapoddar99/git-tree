@@ -769,7 +769,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: false, author: true, commit: true, worktree: true });
+			expect(value).toStrictEqual({ date: false, author: true, commit: true, worktree: true, host: true });
 		});
 
 		it('Should successfully parse the configuration value (Author column disabled)', () => {
@@ -781,7 +781,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: true, author: false, commit: true, worktree: true });
+			expect(value).toStrictEqual({ date: true, author: false, commit: true, worktree: true, host: true });
 		});
 
 		it('Should successfully parse the configuration value (Commit  column disabled)', () => {
@@ -793,7 +793,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: true, author: true, commit: false, worktree: true });
+			expect(value).toStrictEqual({ date: true, author: true, commit: false, worktree: true, host: true });
 		});
 
 		it('Should successfully parse the configuration value (Worktree column disabled)', () => {
@@ -805,7 +805,31 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: false });
+			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: false, host: true });
+		});
+
+		it('Should successfully parse the configuration value (Host column disabled)', () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('defaultColumnVisibility', { Worktree: true, Host: false, Date: true, Author: true, Commit: true });
+
+			// Run
+			const value = config.defaultColumnVisibility;
+
+			// Assert
+			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
+			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true, host: false });
+		});
+
+		it('Should return the default value when the configuration value is invalid (Host is not a boolean)', () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('defaultColumnVisibility', { Host: 'no', Date: false, Author: true, Commit: true });
+
+			// Run
+			const value = config.defaultColumnVisibility;
+
+			// Assert
+			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
+			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true, host: true });
 		});
 
 		it('Should keep the other columns of a value saved before the Worktree column existed, and show the Worktree column', () => {
@@ -817,7 +841,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: false, author: false, commit: true, worktree: true });
+			expect(value).toStrictEqual({ date: false, author: false, commit: true, worktree: true, host: true });
 		});
 
 		it('Should return the default value when the configuration value is invalid (Worktree is not a boolean)', () => {
@@ -829,7 +853,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true });
+			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true, host: true });
 		});
 
 		it('Should return the default value when the configuration value is invalid (not an object)', () => {
@@ -841,7 +865,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true });
+			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true, host: true });
 		});
 
 		it('Should return the default value when the configuration value is invalid (NULL)', () => {
@@ -853,7 +877,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true });
+			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true, host: true });
 		});
 
 		it('Should return the default value when the configuration value is invalid (column value is not a boolean)', () => {
@@ -865,7 +889,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true });
+			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true, host: true });
 		});
 
 		it('Should return the default value when the configuration value is not set', () => {
@@ -874,7 +898,7 @@ describe('Config', () => {
 
 			// Assert
 			expect(workspaceConfiguration.get).toBeCalledWith('defaultColumnVisibility', {});
-			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true });
+			expect(value).toStrictEqual({ date: true, author: true, commit: true, worktree: true, host: true });
 		});
 	});
 

@@ -9,7 +9,7 @@ const CLASS_COLUMN_WIDTH_ROW = 'columnWidthRow';
 
 /** What the rows of the table are rendered with, worked out once each time the table is rendered. */
 interface TableRowContext {
-	readonly colVisibility: { readonly worktree: boolean, readonly date: boolean, readonly author: boolean, readonly commit: boolean };
+	readonly colVisibility: { readonly worktree: boolean, readonly host: boolean, readonly date: boolean, readonly author: boolean, readonly commit: boolean };
 	readonly currentHash: string | null;
 	readonly mutedCommits: ReadonlyArray<boolean>;
 	readonly textFormatter: TextFormatter;
@@ -26,7 +26,7 @@ class GitTreeView {
 	private gitTags: ReadonlyArray<string> = [];
 	private gitWorktrees: ReadonlyArray<GG.GitWorktree> = []; // The local worktrees, then the remote hosts'
 	private gitRemoteHosts: ReadonlyArray<GG.GitRemoteHost> = [];
-	private refreshRemoteHosts: boolean = false; // Refresh the remote hosts with the next repository info, because the user asked for a refresh
+	private refreshRemoteHosts: boolean = false; // Refresh the remote hosts with the next repository info, because the user asked for a refresh, or the Host dropdown now shows hosts that refreshes skipped
 	private commits: GG.GitCommit[] = [];
 	private commitsToken: { readonly token: string, readonly commits: GG.GitCommit[], readonly tags: ReadonlyArray<string> } | null = null; // The token of the commits shown, with the arrays it describes
 	private commitHead: string | null = null;
@@ -37,6 +37,7 @@ class GitTreeView {
 
 	private currentRepo!: string;
 	private worktreeChoices: { [repo: string]: string } = {}; // The Worktree dropdown's choice in each repository that has one other than All
+	private hostChoices: { [repo: string]: string } = {}; // The Host dropdown's choice in each repository that has one other than All: LOCAL_HOSTS, or a remote host's name
 	private currentRepoLoading: boolean = true;
 	private currentRepoRefreshState: {
 		inProgress: boolean;
@@ -72,13 +73,13 @@ class GitTreeView {
 	private readonly settingsWidget: SettingsWidget;
 	private readonly repoDropdown: Dropdown;
 	private readonly branchDropdown: Dropdown;
+	private readonly hostDropdown: Dropdown;
 	private readonly worktreeDropdown: Dropdown;
 
 	private readonly viewElem: HTMLElement;
 	private readonly controlsElem: HTMLElement;
 	private readonly tableElem: HTMLElement;
 	private readonly footerElem: HTMLElement;
-	private readonly showRemoteBranchesElem: HTMLInputElement;
 	private readonly refreshBtnElem: HTMLElement;
 	private readonly scrollShadowElem: HTMLElement;
 
@@ -125,14 +126,12 @@ class GitTreeView {
 			this.requestLoadRepoInfoAndCommits(true, true);
 		});
 
-		this.worktreeDropdown = new Dropdown('worktreeDropdown', true, false, 'Worktrees', (values) => {
-			this.chooseWorktree(values[0]);
+		this.hostDropdown = new Dropdown('hostDropdown', true, false, 'Hosts', (values) => {
+			this.chooseHost(values[0] !== ALL_HOSTS ? values[0] : null);
 		});
 
-		this.showRemoteBranchesElem = <HTMLInputElement>document.getElementById('showRemoteBranchesCheckbox')!;
-		this.showRemoteBranchesElem.addEventListener('change', () => {
-			this.saveRepoStateValue(this.currentRepo, 'showRemoteBranchesV2', this.showRemoteBranchesElem.checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
-			this.refresh(true);
+		this.worktreeDropdown = new Dropdown('worktreeDropdown', true, false, 'Worktrees', (values) => {
+			this.chooseWorktree(values[0]);
 		});
 
 		this.refreshBtnElem = document.getElementById('refreshBtn')!;
@@ -160,6 +159,9 @@ class GitTreeView {
 		if (prevState && typeof prevState.worktreeChoices !== 'undefined') {
 			this.worktreeChoices = Object.assign({}, prevState.worktreeChoices);
 		}
+		if (prevState && typeof prevState.hostChoices !== 'undefined') {
+			this.hostChoices = Object.assign({}, prevState.hostChoices);
+		}
 		if (prevState && !prevState.currentRepoLoading && typeof this.gitRepos[prevState.currentRepo] !== 'undefined') {
 			this.currentRepo = prevState.currentRepo;
 			this.currentBranches = prevState.currentBranches;
@@ -171,7 +173,6 @@ class GitTreeView {
 			this.loadCommits(prevState.commits, prevState.commitHead, prevState.gitTags, prevState.moreCommitsAvailable, prevState.onlyFollowFirstParent, typeof prevState.commitsToken === 'string' ? prevState.commitsToken : null);
 			this.findWidget.restoreState(prevState.findWidget);
 			this.settingsWidget.restoreState(prevState.settingsWidget);
-			this.showRemoteBranchesElem.checked = getShowRemoteBranches(this.gitRepos[prevState.currentRepo].showRemoteBranchesV2);
 		}
 
 		let loadViewTo = initialState.loadViewTo;
@@ -249,7 +250,6 @@ class GitTreeView {
 	private loadRepo(repo: string) {
 		this.currentRepo = repo;
 		this.currentRepoLoading = true;
-		this.showRemoteBranchesElem.checked = getShowRemoteBranches(this.gitRepos[this.currentRepo].showRemoteBranchesV2);
 		this.maxCommits = this.config.initialLoadCommits;
 		this.gitConfig = null;
 		this.gitRemotes = [];
@@ -282,6 +282,14 @@ class GitTreeView {
 	}
 
 	/**
+	 * Where the Commit Details View's Git commands run: the worktree whose uncommitted changes it shows, when that is another worktree, and otherwise where all Git commands run (currentWorktree).
+	 */
+	private get cdvRepo() {
+		const expandedCommit = this.expandedCommit;
+		return expandedCommit !== null && typeof expandedCommit.worktree === 'string' ? expandedCommit.worktree : this.currentWorktree;
+	}
+
+	/**
 	 * Does the graph show only the history of the chosen worktree on this machine? A repository with one worktree always shows everything, as with All.
 	 */
 	private isOnlyWorktreeHistory() {
@@ -300,20 +308,15 @@ class GitTreeView {
 	/**
 	 * Choose what the Worktree dropdown shows. A worktree's history is shown, with Git commands running in it (in the repository, for a remote host's worktree). All shows everything, with Git commands running in the repository.
 	 * @param choice ALL_WORKTREES, or the key of a worktree (getWorktreeKey).
-	 * @param showUncommittedChanges Open the worktree's uncommitted changes once it has loaded.
 	 */
-	private chooseWorktree(choice: string, showUncommittedChanges: boolean = false) {
+	private chooseWorktree(choice: string) {
 		if (this.worktreeChoice === choice) return;
 		if (choice === ALL_WORKTREES) {
 			delete this.worktreeChoices[this.currentRepo];
 		} else {
 			this.worktreeChoices[this.currentRepo] = choice;
 		}
-		this.closeCommitDetails(false);
-		this.loadViewTo = showUncommittedChanges ? { repo: this.currentRepo, commitDetails: { commitHash: UNCOMMITTED, compareWithHash: null } } : null;
-		this.maxCommits = this.config.initialLoadCommits;
-		this.saveState();
-		this.refresh(true);
+		this.reloadForNewChoice();
 	}
 
 	/**
@@ -324,10 +327,89 @@ class GitTreeView {
 		return choice === ALL_WORKTREES || choice === this.currentRepo || this.gitWorktrees.some((worktree) => !worktree.prunable && getWorktreeKey(worktree) === choice);
 	}
 
+	/**
+	 * Does the Worktree dropdown list its choice, given what the Host dropdown shows? All always is. This machine's worktrees aren't
+	 * when a remote host is chosen, and a remote host's worktrees aren't when Local or another host is.
+	 */
+	private isWorktreeChoiceShown() {
+		const choice = this.worktreeChoice, hostChoice = this.hostChoice;
+		if (choice === ALL_WORKTREES) return true;
+		if (!isHostWorktreeKey(choice)) return this.areLocalWorktreesShown();
+		return hostChoice === null || choice.startsWith(HOST_WORKTREE_KEY_PREFIX + hostChoice + ':');
+	}
+
+	/**
+	 * The Host dropdown's choice in the current repository (GG.HostChoice): NULL for All, LOCAL_HOSTS, or a remote host's name. It is All
+	 * until another is chosen. A host hidden in Repository Settings isn't shown, whatever the dropdown chose, so choosing it counts as All.
+	 */
+	private get hostChoice(): GG.HostChoice {
+		const choice = this.hostChoices[this.currentRepo];
+		return typeof choice === 'string' && !this.gitRepos[this.currentRepo].hideHosts.includes(choice) ? choice : null;
+	}
+
+	/**
+	 * Does the view show this machine's worktrees: their labels and rows of uncommitted changes? Not when the Host dropdown chose a remote host.
+	 */
+	private areLocalWorktreesShown() {
+		const choice = this.hostChoice;
+		return choice === null || choice === LOCAL_HOSTS;
+	}
+
+	/**
+	 * Choose what the Host dropdown shows: this machine's worktrees and every remote host's (All), this machine's only (Local), or one
+	 * remote host's only. The history is always this machine's, so only the hosts' branches, the worktrees' labels and their rows change.
+	 * @param choice The choice.
+	 */
+	private chooseHost(choice: GG.HostChoice) {
+		// The saved choice is replaced even when the view shows the same, so a host hidden in Repository Settings isn't chosen again once it's shown
+		const changed = this.hostChoice !== choice;
+		if (choice === null) {
+			delete this.hostChoices[this.currentRepo];
+		} else {
+			this.hostChoices[this.currentRepo] = choice;
+		}
+		if (!changed) {
+			this.saveState();
+			return;
+		}
+		// The Worktree dropdown no longer lists a worktree on the side that isn't shown, so its choice goes back to All
+		if (!this.isWorktreeChoiceShown()) delete this.worktreeChoices[this.currentRepo];
+		// The view's refreshes skipped the hosts it didn't show, so the ones it shows now are refreshed
+		this.refreshRemoteHosts = true;
+		this.reloadForNewChoice();
+	}
+
+	/**
+	 * Load the view again after the Worktree or Host dropdown changed what it shows.
+	 */
+	private reloadForNewChoice() {
+		this.closeCommitDetails(false);
+		this.loadViewTo = null;
+		this.maxCommits = this.config.initialLoadCommits;
+		this.saveState();
+		this.refresh(true);
+	}
+
+	private renderHostDropdown() {
+		const hosts = this.getAvailableRemoteHosts(), choice = this.hostChoice;
+		// Shown while the repository has a remote host, and while a choice is kept that can be undone
+		alterClass(this.controlsElem, 'noHosts', hosts.length === 0 && choice === null);
+		const options: DropdownOption[] = [
+			{ name: 'All', value: ALL_HOSTS, hint: 'this machine and every host' },
+			{ name: 'Local', value: LOCAL_HOSTS, hint: 'this machine' }
+		].concat(hosts.map((host) => ({ name: host.name, value: host.name, hint: host.state !== 'ok' ? getRemoteHostStateText(host) : host.ssh })));
+		if (choice !== null && choice !== LOCAL_HOSTS && !hosts.some((host) => host.name === choice)) {
+			// The chosen host isn't in the repository's hosts: it was removed, or they haven't been read yet
+			options.push({ name: choice, value: choice, hint: 'unknown host' });
+		}
+		this.hostDropdown.setOptions(options, [choice !== null ? choice : ALL_HOSTS]);
+	}
+
 	private renderWorktreeDropdown() {
-		// All first, then Root (the main worktree), then the linked worktrees, and then each remote host's worktrees in their own group
+		// All first, then Root (the main worktree), then the linked worktrees, and then each remote host's worktrees in their own group.
+		// This machine's worktrees, and each remote host, are listed when the Host dropdown shows them.
 		const byMainFirst = (a: GG.GitWorktree, b: GG.GitWorktree) => (a.isMain ? 0 : 1) - (b.isMain ? 0 : 1);
-		const worktrees = this.gitWorktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.prunable).sort(byMainFirst);
+		const worktrees = this.areLocalWorktreesShown() ? this.gitWorktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.prunable).sort(byMainFirst) : [];
 		// With remote hosts, the dropdown is shown even before their worktrees are known, because it says each host's state
 		const shownHosts = this.getShownRemoteHosts();
 		alterClass(this.controlsElem, 'singleWorktree', !this.hasMultipleWorktrees() && shownHosts.length === 0);
@@ -362,6 +444,7 @@ class GitTreeView {
 		// Changes to this.gitWorktrees and this.gitRemoteHosts are reflected when the commits are next rendered
 		this.gitWorktrees = worktrees;
 		this.gitRemoteHosts = remoteHosts;
+		this.renderHostDropdown();
 		this.renderWorktreeDropdown();
 		// The hosts were just read again, so Repository Settings shows their new states
 		this.settingsWidget.requestRemoteHosts();
@@ -484,12 +567,12 @@ class GitTreeView {
 				if (this.expandedCommit !== null && this.expandedCommit.commitElem !== null) {
 					if (this.expandedCommit.compareWithHash === null) {
 						// Commit Details View is open
-						if (this.expandedCommit.commitHash === UNCOMMITTED) {
+						if (isUncommittedChanges(this.expandedCommit.commitHash)) {
 							this.requestCommitDetails(this.expandedCommit.commitHash, true);
 						}
 					} else {
 						// Commit Comparison is open
-						if (this.expandedCommit.compareWithElem !== null && (this.expandedCommit.commitHash === UNCOMMITTED || this.expandedCommit.compareWithHash === UNCOMMITTED)) {
+						if (this.expandedCommit.compareWithElem !== null && (isUncommittedChanges(this.expandedCommit.commitHash) || isUncommittedChanges(this.expandedCommit.compareWithHash))) {
 							this.requestCommitComparison(this.expandedCommit.commitHash, this.expandedCommit.compareWithHash, true);
 						}
 					}
@@ -825,6 +908,7 @@ class GitTreeView {
 			showStashes: getShowStashes(repoState.showStashes),
 			hideRemotes: repoState.hideRemotes,
 			hideHosts: repoState.hideHosts,
+			hostChoice: this.hostChoice,
 			refreshHosts: this.refreshRemoteHosts
 		});
 		this.refreshRemoteHosts = false;
@@ -846,6 +930,7 @@ class GitTreeView {
 			remotes: this.gitRemotes,
 			hideRemotes: repoState.hideRemotes,
 			hideHosts: repoState.hideHosts,
+			hostChoice: this.hostChoice,
 			stashes: this.gitStashes,
 			worktrees: this.gitWorktrees,
 			onlyWorktreeHistory: this.isOnlyWorktreeHistory(),
@@ -898,11 +983,11 @@ class GitTreeView {
 		let commit = this.commits[this.commitLookup[hash]];
 		sendMessage({
 			command: 'commitDetails',
-			repo: this.currentWorktree,
-			commitHash: hash,
+			repo: this.cdvRepo,
+			commitHash: getGitHash(hash),
 			hasParents: commit.parents.length > 0,
 			stash: commit.stash,
-			avatarEmail: this.config.fetchAvatars && hash !== UNCOMMITTED ? commit.email : null,
+			avatarEmail: this.config.fetchAvatars && !isUncommittedChanges(hash) ? commit.email : null,
 			refresh: refresh
 		});
 	}
@@ -911,9 +996,9 @@ class GitTreeView {
 		let commitOrder = this.getCommitOrder(hash, compareWithHash);
 		sendMessage({
 			command: 'compareCommits',
-			repo: this.currentWorktree,
+			repo: this.cdvRepo,
 			commitHash: hash, compareWithHash: compareWithHash,
-			fromHash: commitOrder.from, toHash: commitOrder.to,
+			fromHash: getGitHash(commitOrder.from), toHash: getGitHash(commitOrder.to),
 			refresh: refresh
 		});
 	}
@@ -945,6 +1030,7 @@ class GitTreeView {
 		VSCODE_API.setState({
 			currentRepo: this.currentRepo,
 			worktreeChoices: this.worktreeChoices,
+			hostChoices: this.hostChoices,
 			currentRepoLoading: this.currentRepoLoading,
 			gitRepos: this.gitRepos,
 			gitBranches: this.gitBranches,
@@ -976,22 +1062,22 @@ class GitTreeView {
 
 	/**
 	 * Get the widths of the table's columns, indexed by COLUMN_*, from the repository's state, or from the default column visibility when the state has none.
-	 * The state holds [Graph, Date, Author, Commit, Worktree]. Description isn't saved, because it takes the remaining width. Worktree is last,
-	 * because state saved before the column existed has only the first four.
+	 * The state holds [Graph, Date, Author, Commit, Worktree, Host]. Description isn't saved, because it takes the remaining width. Worktree and Host
+	 * are last, because state saved before each column existed doesn't have it.
 	 * @returns The widths.
 	 */
 	private getColumnWidths(): GG.ColumnWidth[] {
 		const saved = this.gitRepos[this.currentRepo].columnWidths, defaults = this.config.defaultColumnVisibility;
 		const getDefaultWidth = (visible: boolean) => visible ? COLUMN_AUTO : COLUMN_HIDDEN;
 		if (saved === null) {
-			return [COLUMN_AUTO, COLUMN_AUTO, getDefaultWidth(defaults.worktree), getDefaultWidth(defaults.date), getDefaultWidth(defaults.author), getDefaultWidth(defaults.commit)];
+			return [COLUMN_AUTO, COLUMN_AUTO, getDefaultWidth(defaults.worktree), getDefaultWidth(defaults.host), getDefaultWidth(defaults.date), getDefaultWidth(defaults.author), getDefaultWidth(defaults.commit)];
 		}
-		let worktreeWidth = saved.length > 4 ? saved[4] : getDefaultWidth(defaults.worktree);
-		if (worktreeWidth === COLUMN_AUTO && saved[0] !== COLUMN_AUTO) {
+		const getAddedColumnWidth = (index: number, visible: boolean, fixedWidth: number) => {
+			const width = saved.length > index ? saved[index] : getDefaultWidth(visible);
 			// A fixed layout needs the width of every column it shows
-			worktreeWidth = WORKTREE_COLUMN_DEFAULT_WIDTH - COLUMN_LEFT_RIGHT_PADDING;
-		}
-		return [saved[0], COLUMN_AUTO, worktreeWidth, saved[1], saved[2], saved[3]];
+			return width === COLUMN_AUTO && saved[0] !== COLUMN_AUTO ? fixedWidth - COLUMN_LEFT_RIGHT_PADDING : width;
+		};
+		return [saved[0], COLUMN_AUTO, getAddedColumnWidth(4, defaults.worktree, WORKTREE_COLUMN_DEFAULT_WIDTH), getAddedColumnWidth(5, defaults.host, HOST_COLUMN_DEFAULT_WIDTH), saved[1], saved[2], saved[3]];
 	}
 
 	/**
@@ -999,7 +1085,7 @@ class GitTreeView {
 	 * @param columnWidths The widths, indexed by COLUMN_*.
 	 */
 	private saveColumnWidths(columnWidths: GG.ColumnWidth[]) {
-		this.gitRepos[this.currentRepo].columnWidths = [columnWidths[COLUMN_GRAPH], columnWidths[COLUMN_DATE], columnWidths[COLUMN_AUTHOR], columnWidths[COLUMN_COMMIT], columnWidths[COLUMN_WORKTREE]];
+		this.gitRepos[this.currentRepo].columnWidths = [columnWidths[COLUMN_GRAPH], columnWidths[COLUMN_DATE], columnWidths[COLUMN_AUTHOR], columnWidths[COLUMN_COMMIT], columnWidths[COLUMN_WORKTREE], columnWidths[COLUMN_HOST]];
 		this.saveRepoState();
 	}
 
@@ -1010,6 +1096,7 @@ class GitTreeView {
 			commitElem: commitElem,
 			compareWithHash: compareWithHash,
 			compareWithElem: compareWithElem,
+			worktree: this.getOtherWorktreeOfRows(commitHash, compareWithHash),
 			commitDetails: null,
 			fileChanges: null,
 			fileTree: null,
@@ -1027,6 +1114,18 @@ class GitTreeView {
 			}
 		};
 		this.saveState();
+	}
+
+	/**
+	 * Get the other local worktree whose uncommitted changes the Commit Details View shows for some rows.
+	 * @param commitHash The hash of the row the view is open on.
+	 * @param compareWithHash The hash of the row it's compared with, or NULL if it isn't a comparison.
+	 * @returns The worktree's path, or undefined if neither row is another worktree's uncommitted changes.
+	 */
+	private getOtherWorktreeOfRows(commitHash: string, compareWithHash: string | null) {
+		const commits = [commitHash, compareWithHash].map((hash) => hash !== null ? this.commits[this.commitLookup[hash]] : undefined);
+		const commit = commits.find((commit) => typeof commit !== 'undefined' && typeof commit.worktree === 'string' && typeof commit.host === 'undefined');
+		return typeof commit !== 'undefined' ? commit.worktree : undefined;
 	}
 
 	public saveRepoStateValue<K extends keyof GG.GitRepoState>(repo: string, key: K, value: GG.GitRepoState[K]) {
@@ -1093,6 +1192,7 @@ class GitTreeView {
 
 		const html = '<tr id="tableColHeaders"><th id="tableHeaderGraphCol" class="tableColHeader" data-col="' + COLUMN_GRAPH + '">Graph</th><th class="tableColHeader" data-col="' + COLUMN_DESCRIPTION + '">Description</th>' +
 			(colVisibility.worktree ? '<th class="tableColHeader worktreeCol" data-col="' + COLUMN_WORKTREE + '">Worktree</th>' : '') +
+			(colVisibility.host ? '<th class="tableColHeader hostCol" data-col="' + COLUMN_HOST + '">Host</th>' : '') +
 			(colVisibility.date ? '<th class="tableColHeader dateCol" data-col="' + COLUMN_DATE + '">Date</th>' : '') +
 			(colVisibility.author ? '<th class="tableColHeader authorCol" data-col="' + COLUMN_AUTHOR + '">Author</th>' : '') +
 			(colVisibility.commit ? '<th class="tableColHeader" data-col="' + COLUMN_COMMIT + '">Commit</th>' : '') +
@@ -1121,7 +1221,8 @@ class GitTreeView {
 			const commitElem = this.getCommitElem(this.getCommitId(expandedCommit.commitHash), true);
 			const compareWithElem = expandedCommit.compareWithHash !== null ? this.getCommitElem(this.getCommitId(expandedCommit.compareWithHash), true) : null;
 
-			if (commitElem === null || (expandedCommit.compareWithHash !== null && compareWithElem === null)) {
+			// A row of another worktree's uncommitted changes is numbered by the worktree's place in the list, so it can now be another worktree's
+			if (commitElem === null || (expandedCommit.compareWithHash !== null && compareWithElem === null) || this.getOtherWorktreeOfRows(expandedCommit.commitHash, expandedCommit.compareWithHash) !== expandedCommit.worktree) {
 				this.closeCommitDetails(false);
 				this.saveState();
 			} else {
@@ -1132,8 +1233,8 @@ class GitTreeView {
 				if (expandedCommit.compareWithHash === null) {
 					// Commit Details View is open
 					if (!expandedCommit.loading && expandedCommit.commitDetails !== null && expandedCommit.fileTree !== null) {
-						this.showCommitDetails(expandedCommit.commitDetails, expandedCommit.fileTree, expandedCommit.avatar, expandedCommit.codeReview, expandedCommit.lastViewedFile, true);
-						if (expandedCommit.commitHash === UNCOMMITTED) {
+						this.showCommitDetails(this.cdvRepo, expandedCommit.commitDetails, expandedCommit.fileTree, expandedCommit.avatar, expandedCommit.codeReview, expandedCommit.lastViewedFile, true);
+						if (isUncommittedChanges(expandedCommit.commitHash)) {
 							this.requestCommitDetails(expandedCommit.commitHash, true);
 						}
 					} else {
@@ -1143,7 +1244,7 @@ class GitTreeView {
 					// Commit Comparison is open
 					if (!expandedCommit.loading && expandedCommit.fileChanges !== null && expandedCommit.fileTree !== null) {
 						this.showCommitComparison(expandedCommit.commitHash, expandedCommit.compareWithHash, expandedCommit.fileChanges, expandedCommit.fileTree, expandedCommit.codeReview, expandedCommit.lastViewedFile, true);
-						if (expandedCommit.commitHash === UNCOMMITTED || expandedCommit.compareWithHash === UNCOMMITTED) {
+						if (isUncommittedChanges(expandedCommit.commitHash) || isUncommittedChanges(expandedCommit.compareWithHash)) {
 							this.requestCommitComparison(expandedCommit.commitHash, expandedCommit.compareWithHash, true);
 						}
 					} else {
@@ -1208,6 +1309,9 @@ class GitTreeView {
 			this.commits.forEach((commit, i) => {
 				if (isUncommittedChanges(commit.hash) || lookup.byDetachedHead.has(commit.hash) || lookup.byHostHead.has(commit.hash) || commit.heads.some((branch) => lookup.byBranch.has(branch))) candidates.add(i);
 			});
+		}
+		if (colVisibility.host) {
+			addWidest((commit) => estimator.estimate(this.getHostsOfRow(commit, context.worktreeLookup).join(', ')));
 		}
 		if (this.config.referenceLabels.branchLabelsAlignedToGraph) {
 			// The branch labels are in the Graph column, after the graph: each label adds its icon, padding, border and margin to its text
@@ -1299,6 +1403,7 @@ class GitTreeView {
 			: '<tr class="commit' + (commit.hash === currentHash ? ' current' : '') + (context.mutedCommits[i] ? ' mute' : '') + (typeof commit.host === 'string' && isRemoteHostStale(this.getRemoteHost(commit.host)) ? ' ' + CLASS_STALE_HOST : '') + '"' + (commit.hash !== UNCOMMITTED ? '' : ' id="uncommittedChanges"') + ' data-id="' + i + '" data-color="' + this.graph.getVertexColour(i) + '">') +
 			(this.config.referenceLabels.branchLabelsAlignedToGraph ? '<td>' + (refBranches !== '' ? '<span style="margin-left:' + (this.graph.getWidthAtVertex(i) - 4) + 'px"' + refBranches.substring(5) : '') + '</td><td><span class="description">' + commitDot : '<td></td><td><span class="description">' + commitDot + refBranches) + (this.config.referenceLabels.tagLabelsOnRight ? message + refTags : refTags + message) + '</span></td>' +
 			(colVisibility.worktree ? this.getWorktreeCellHtml(commit, context.worktreeLookup) : '') +
+			(colVisibility.host ? this.getHostCellHtml(commit, context.worktreeLookup) : '') +
 			(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
 			(colVisibility.author ? '<td class="authorCol text" title="' + escapeHtml(commit.author + ' <' + commit.email + '>') + '">' + (this.config.fetchAvatars ? '<span class="avatar" data-email="' + escapeHtml(commit.email) + '">' + (typeof this.avatars[commit.email] === 'string' ? '<img class="avatarImg" src="' + this.avatars[commit.email] + '">' : '') + '</span>' : '') + escapeHtml(commit.author) + '</td>' : '') +
 			(colVisibility.commit ? (isUncommittedChanges(commit.hash) ? '<td class="text" title="' + UNCOMMITTED + '">' + UNCOMMITTED + '</td>' : '<td class="text" title="' + escapeHtml(commit.hash) + '">' + abbrevCommit(commit.hash) + '</td>') : '') +
@@ -1332,6 +1437,7 @@ class GitTreeView {
 			const date = formatShortDate(this.commits[i].date);
 			elem.innerHTML = '<td></td><td><span class="description">' + this.getUncommittedChangesHtml(this.commits[i]) + '</span></td>' +
 				(colVisibility.worktree ? this.getWorktreeCellHtml(this.commits[i], worktreeLookup) : '') +
+				(colVisibility.host ? this.getHostCellHtml(this.commits[i], worktreeLookup) : '') +
 				(colVisibility.date ? '<td class="dateCol text" title="' + date.title + '">' + date.formatted + '</td>' : '') +
 				(colVisibility.author ? '<td class="authorCol text" title="* <>">*</td>' : '') +
 				(colVisibility.commit ? '<td class="text" title="*">*</td>' : '');
@@ -1355,11 +1461,13 @@ class GitTreeView {
 	}
 
 	/**
-	 * Index the worktrees by what they have checked out, to label them on the rows of the table.
+	 * Index the worktrees by what they have checked out, to label them on the rows of the table. This machine's worktrees
+	 * aren't labelled when the Host dropdown chose a remote host.
 	 * @returns The lookup.
 	 */
 	private getWorktreeLookup(): WorktreeLookup {
 		const lookup: WorktreeLookup = { byBranch: new Map(), byDetachedHead: new Map(), byHostHead: new Map() };
+		const localWorktreesShown = this.areLocalWorktreesShown();
 		const addByHead = (map: Map<string, GG.GitWorktree[]>, head: string, worktree: GG.GitWorktree) => {
 			const worktrees = map.get(head);
 			if (typeof worktrees !== 'undefined') {
@@ -1373,6 +1481,8 @@ class GitTreeView {
 			if (typeof worktree.host !== 'undefined') {
 				// A remote host's worktree is labelled on the commit it is on, which its last refresh read
 				addByHead(lookup.byHostHead, worktree.head, worktree);
+			} else if (!localWorktreesShown) {
+				return;
 			} else if (worktree.branch !== null) {
 				lookup.byBranch.set(worktree.branch, worktree);
 			} else {
@@ -1393,7 +1503,7 @@ class GitTreeView {
 		if (isUncommittedChanges(commit.hash)) {
 			const worktree = this.getWorktreeOfUncommittedChanges(commit);
 			if (worktree !== null) {
-				html = this.getWorktreeLabelHtml(worktree, 'Uncommitted changes in the worktree ' + worktree.path + (typeof worktree.host !== 'undefined' ? ' on ' + worktree.host : '') + '.' + (commit.hash !== UNCOMMITTED ? ' Click the row to show this worktree.' : ''));
+				html = this.getWorktreeLabelHtml(worktree, 'Uncommitted changes in the worktree ' + worktree.path + (typeof worktree.host !== 'undefined' ? ' on ' + worktree.host + '. Their files can\'t be listed from here.' : '.'));
 			}
 		} else {
 			commit.heads.forEach((branch) => {
@@ -1410,6 +1520,32 @@ class GitTreeView {
 			});
 		}
 		return '<td class="worktreeCol">' + html + '</td>';
+	}
+
+	/**
+	 * Get the remote hosts on a row: the host of a remote host's uncommitted changes, or the hosts with a worktree or a branch at the row's commit.
+	 * @param commit The commit of the row.
+	 * @param lookup The worktrees, indexed by what they have checked out.
+	 * @returns The hosts' names, each once, in the order the row's labels have them.
+	 */
+	private getHostsOfRow(commit: GG.GitCommit, lookup: WorktreeLookup) {
+		if (isUncommittedChanges(commit.hash)) return typeof commit.host === 'string' ? [commit.host] : [];
+		const names = (lookup.byHostHead.get(commit.hash) || []).map((worktree) => worktree.host!).concat((commit.hostBranches || []).map((branch) => branch.host));
+		return names.filter((name, i) => names.indexOf(name) === i);
+	}
+
+	/**
+	 * Get the Host column's cell of a row: the name of each remote host on the row (getHostsOfRow). This machine's worktrees and branches leave it blank.
+	 * @param commit The commit of the row.
+	 * @param lookup The worktrees, indexed by what they have checked out.
+	 * @returns The HTML.
+	 */
+	private getHostCellHtml(commit: GG.GitCommit, lookup: WorktreeLookup) {
+		const html = this.getHostsOfRow(commit, lookup).map((name) => {
+			const host = this.getRemoteHost(name);
+			return '<span class="hostName' + (isRemoteHostStale(host) ? ' ' + CLASS_STALE_HOST : '') + '" title="' + escapeHtml('The remote host ' + name + '.' + getRemoteHostStateSuffix(host)) + '">' + escapeHtml(name) + '</span>';
+		}).join(', ');
+		return '<td class="hostCol text">' + html + '</td>';
 	}
 
 	/**
@@ -1434,12 +1570,21 @@ class GitTreeView {
 	}
 
 	/**
-	 * Get the remote hosts the view shows: all but those hidden in Repository Settings (hideHosts).
+	 * Get the remote hosts that aren't hidden in Repository Settings (hideHosts): those the Host dropdown lists, and that worktrees can be created on.
+	 * @returns The hosts.
+	 */
+	private getAvailableRemoteHosts() {
+		const hideHosts = this.gitRepos[this.currentRepo].hideHosts;
+		return this.gitRemoteHosts.filter((host) => !hideHosts.includes(host.name));
+	}
+
+	/**
+	 * Get the remote hosts the view shows: the available ones (getAvailableRemoteHosts) that the Host dropdown chose.
 	 * @returns The hosts.
 	 */
 	private getShownRemoteHosts() {
-		const hideHosts = this.gitRepos[this.currentRepo].hideHosts;
-		return this.gitRemoteHosts.filter((host) => !hideHosts.includes(host.name));
+		const choice = this.hostChoice;
+		return this.getAvailableRemoteHosts().filter((host) => choice === null || choice === host.name);
 	}
 
 	/**
@@ -1653,8 +1798,8 @@ class GitTreeView {
 				visible: true,
 				onClick: () => this.createWorktreeAction(hash, false, target)
 			},
-			// One for each remote host whose entry in the config is valid, and that isn't hidden
-			...this.getShownRemoteHosts().map((host): ContextMenuAction => ({
+			// One for each remote host whose entry in the config is valid, and that isn't hidden in Repository Settings
+			...this.getAvailableRemoteHosts().map((host): ContextMenuAction => ({
 				title: 'Create Worktree on ' + escapeHtml(host.name) + ELLIPSIS,
 				visible: host.state !== 'configError',
 				onClick: () => this.createWorktreeAction(hash, false, target, host)
@@ -2080,18 +2225,14 @@ class GitTreeView {
 	}
 
 	/**
-	 * If a row is another worktree's uncommitted changes, show that worktree and open its uncommitted changes. A remote host's
-	 * worktree is shown without them, because its changed files can't be read from here.
+	 * If a row is a remote host's uncommitted changes, say why the Commit Details View can't show it: the changed files are on the host.
 	 * @param commit The row.
-	 * @returns TRUE => the row is another worktree's uncommitted changes, FALSE => it isn't.
+	 * @returns TRUE => the row is a remote host's uncommitted changes, FALSE => it isn't.
 	 */
-	private showWorktreeOfUncommittedChanges(commit: GG.GitCommit) {
-		if (commit.hash === UNCOMMITTED || !isUncommittedChanges(commit.hash) || typeof commit.worktree === 'undefined') return false;
-		if (typeof commit.host === 'string') {
-			this.chooseWorktree(getWorktreeKey({ host: commit.host, path: commit.worktree }));
-		} else {
-			this.chooseWorktree(commit.worktree, true);
-		}
+	private rejectHostUncommittedChanges(commit: GG.GitCommit) {
+		if (!isUncommittedChanges(commit.hash) || typeof commit.host !== 'string') return false;
+		const worktree = this.getWorktreeOfUncommittedChanges(commit);
+		dialog.showMessage('The uncommitted changes of <b><i>' + escapeHtml(worktree !== null ? getWorktreeLabel(worktree) : commit.host) + '</i></b> are on <b><i>' + escapeHtml(commit.host) + '</i></b>, so Git Tree can\'t list their files from here. Right-click the row to open the worktree with Remote-SSH.');
 		return true;
 	}
 
@@ -2416,12 +2557,16 @@ class GitTreeView {
 		let mouseX = -1, col = -1, colIndex = -1;
 
 		const savedColumnWidths = this.gitRepos[this.currentRepo].columnWidths, columnWidths = this.getColumnWidths();
-		// The Worktree column isn't shown while the repository has one worktree, but its width is kept for when it has more
+		// The Worktree column isn't shown while the repository has one worktree, nor the Host column while the graph shows no remote host,
+		// but their widths are kept for when they are
 		const multipleWorktrees = this.hasMultipleWorktrees(), worktreeWidth = columnWidths[COLUMN_WORKTREE];
+		const hostsShown = this.getShownRemoteHosts().length > 0, hostWidth = columnWidths[COLUMN_HOST];
 		if (!multipleWorktrees) columnWidths[COLUMN_WORKTREE] = COLUMN_HIDDEN;
+		if (!hostsShown) columnWidths[COLUMN_HOST] = COLUMN_HIDDEN;
 		const saveColumnWidths = () => {
 			const widths = columnWidths.slice();
 			if (!multipleWorktrees) widths[COLUMN_WORKTREE] = worktreeWidth;
+			if (!hostsShown) widths[COLUMN_HOST] = hostWidth;
 			this.saveColumnWidths(widths);
 		};
 
@@ -2547,6 +2692,12 @@ class GitTreeView {
 						onClick: () => toggleColumnState(COLUMN_WORKTREE, WORKTREE_COLUMN_DEFAULT_WIDTH)
 					},
 					{
+						title: 'Host',
+						visible: hostsShown,
+						checked: columnWidths[COLUMN_HOST] !== COLUMN_HIDDEN,
+						onClick: () => toggleColumnState(COLUMN_HOST, HOST_COLUMN_DEFAULT_WIDTH)
+					},
+					{
 						title: 'Date',
 						visible: true,
 						checked: columnWidths[COLUMN_DATE] !== COLUMN_HIDDEN,
@@ -2593,6 +2744,7 @@ class GitTreeView {
 		const colWidths = this.getColumnWidths();
 		return {
 			worktree: colWidths[COLUMN_WORKTREE] !== COLUMN_HIDDEN && this.hasMultipleWorktrees(),
+			host: colWidths[COLUMN_HOST] !== COLUMN_HIDDEN && this.getShownRemoteHosts().length > 0,
 			date: colWidths[COLUMN_DATE] !== COLUMN_HIDDEN,
 			author: colWidths[COLUMN_AUTHOR] !== COLUMN_HIDDEN,
 			commit: colWidths[COLUMN_COMMIT] !== COLUMN_HIDDEN
@@ -2601,7 +2753,7 @@ class GitTreeView {
 
 	private getNumColumns() {
 		let colVisibility = this.getColumnVisibility();
-		return 2 + (colVisibility.worktree ? 1 : 0) + (colVisibility.date ? 1 : 0) + (colVisibility.author ? 1 : 0) + (colVisibility.commit ? 1 : 0);
+		return 2 + (colVisibility.worktree ? 1 : 0) + (colVisibility.host ? 1 : 0) + (colVisibility.date ? 1 : 0) + (colVisibility.author ? 1 : 0) + (colVisibility.commit ? 1 : 0);
 	}
 
 	/**
@@ -3102,8 +3254,7 @@ class GitTreeView {
 
 	public loadCommitDetails(commitElem: HTMLElement) {
 		const commit = this.getCommitOfElem(commitElem);
-		if (commit === null) return;
-		if (this.showWorktreeOfUncommittedChanges(commit)) return;
+		if (commit === null || this.rejectHostUncommittedChanges(commit)) return;
 
 		this.closeCommitDetails(false);
 		this.saveExpandedCommitLoading(parseInt(commitElem.dataset.id!), commit.hash, commitElem, null, null);
@@ -3139,9 +3290,13 @@ class GitTreeView {
 		}
 	}
 
-	public showCommitDetails(commitDetails: GG.GitCommitDetails, fileTree: FileTreeFolder, avatar: string | null, codeReview: GG.CodeReview | null, lastViewedFile: string | null, refresh: boolean) {
+	/**
+	 * Show the details the extension read for the open row. Every row of uncommitted changes has the same hash there, so the worktree they were read in must match too.
+	 * @param repo Where the details were read.
+	 */
+	public showCommitDetails(repo: string, commitDetails: GG.GitCommitDetails, fileTree: FileTreeFolder, avatar: string | null, codeReview: GG.CodeReview | null, lastViewedFile: string | null, refresh: boolean) {
 		const expandedCommit = this.expandedCommit;
-		if (expandedCommit === null || expandedCommit.commitElem === null || expandedCommit.commitHash !== commitDetails.hash || expandedCommit.compareWithHash !== null) return;
+		if (expandedCommit === null || expandedCommit.commitElem === null || getGitHash(expandedCommit.commitHash) !== commitDetails.hash || repo !== this.cdvRepo || expandedCommit.compareWithHash !== null) return;
 
 		if (!this.isCdvDocked()) {
 			const elem = document.getElementById('cdv');
@@ -3214,24 +3369,26 @@ class GitTreeView {
 	private loadCommitComparison(commitElem: HTMLElement, compareWithElem: HTMLElement) {
 		const commit = this.getCommitOfElem(commitElem);
 		const compareWithCommit = this.getCommitOfElem(compareWithElem);
-		// Another worktree's uncommitted changes can't be compared from here, so show that worktree instead
-		if (compareWithCommit !== null && this.showWorktreeOfUncommittedChanges(compareWithCommit)) return;
-
-		if (commit !== null && compareWithCommit !== null) {
-			if (this.expandedCommit !== null) {
-				if (this.expandedCommit.commitHash !== commit.hash) {
-					this.closeCommitDetails(false);
-				} else if (this.expandedCommit.compareWithHash !== compareWithCommit.hash) {
-					this.closeCommitComparison(false);
-				}
-			}
-
-			this.saveExpandedCommitLoading(parseInt(commitElem.dataset.id!), commit.hash, commitElem, compareWithCommit.hash, compareWithElem);
-			commitElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
-			compareWithElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
-			this.renderCommitDetailsView(false);
-			this.requestCommitComparison(commit.hash, compareWithCommit.hash, false);
+		if (commit === null || compareWithCommit === null || this.rejectHostUncommittedChanges(compareWithCommit)) return;
+		if (isUncommittedChanges(commit.hash) && isUncommittedChanges(compareWithCommit.hash)) {
+			// Git compares a commit with one worktree's files, and each row is a different worktree's
+			dialog.showMessage('Git Tree can\'t compare the uncommitted changes of two worktrees. Compare each with a commit instead.');
+			return;
 		}
+
+		if (this.expandedCommit !== null) {
+			if (this.expandedCommit.commitHash !== commit.hash) {
+				this.closeCommitDetails(false);
+			} else if (this.expandedCommit.compareWithHash !== compareWithCommit.hash) {
+				this.closeCommitComparison(false);
+			}
+		}
+
+		this.saveExpandedCommitLoading(parseInt(commitElem.dataset.id!), commit.hash, commitElem, compareWithCommit.hash, compareWithElem);
+		commitElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
+		compareWithElem.classList.add(CLASS_COMMIT_DETAILS_OPEN);
+		this.renderCommitDetailsView(false);
+		this.requestCommitComparison(commit.hash, compareWithCommit.hash, false);
 	}
 
 	public closeCommitComparison(saveAndRequestCommitDetails: boolean) {
@@ -3283,7 +3440,10 @@ class GitTreeView {
 
 		let elem = document.getElementById('cdv'), html = '<div id="cdvContent">', isDocked = this.isCdvDocked();
 		const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
-		const codeReviewPossible = !expandedCommit.loading && commitOrder.to !== UNCOMMITTED;
+		const codeReviewPossible = !expandedCommit.loading && !isUncommittedChanges(commitOrder.to);
+		// Another worktree's uncommitted changes say which worktree they are in, because the graph may show a different one
+		const otherWorktree = typeof expandedCommit.worktree === 'string' ? this.gitWorktrees.find((worktree) => typeof worktree.host === 'undefined' && worktree.path === expandedCommit.worktree) : undefined;
+		const inOtherWorktree = typeof otherWorktree !== 'undefined' ? ' in <b>' + escapeHtml(getWorktreeLabel(otherWorktree)) + '</b>' : '';
 		const externalDiffPossible = !expandedCommit.loading && (expandedCommit.compareWithHash !== null || this.commits[this.commitLookup[expandedCommit.commitHash]].parents.length > 0);
 
 		if (elem === null) {
@@ -3299,12 +3459,12 @@ class GitTreeView {
 		}
 
 		if (expandedCommit.loading) {
-			html += '<div id="cdvLoading">' + SVG_ICONS.loading + ' Loading ' + (expandedCommit.compareWithHash === null ? expandedCommit.commitHash !== UNCOMMITTED ? 'Commit Details' : 'Uncommitted Changes' : 'Commit Comparison') + ' ...</div>';
+			html += '<div id="cdvLoading">' + SVG_ICONS.loading + ' Loading ' + (expandedCommit.compareWithHash === null ? !isUncommittedChanges(expandedCommit.commitHash) ? 'Commit Details' : 'Uncommitted Changes' : 'Commit Comparison') + ' ...</div>';
 		} else {
 			html += '<div id="cdvSummary">';
 			if (expandedCommit.compareWithHash === null) {
 				// Commit details should be shown
-				if (expandedCommit.commitHash !== UNCOMMITTED) {
+				if (!isUncommittedChanges(expandedCommit.commitHash)) {
 					const textFormatter = new TextFormatter(this.commits, this.gitRepos[this.currentRepo].issueLinkingConfig, {
 						commits: true,
 						emoji: true,
@@ -3333,13 +3493,13 @@ class GitTreeView {
 						+ (expandedCommit.avatar !== null ? '<span class="cdvSummaryAvatar"><img src="' + expandedCommit.avatar + '"></span>' : '')
 						+ '</span></span><br><br>' + textFormatter.format(commitDetails.body);
 				} else {
-					html += 'Displaying all uncommitted changes.';
+					html += 'Displaying all uncommitted changes' + inOtherWorktree + '.';
 				}
 			} else {
 				// Commit comparison should be shown
-				html += 'Displaying all changes from <b>' + commitOrder.from + '</b> to <b>' + (commitOrder.to !== UNCOMMITTED ? commitOrder.to : 'Uncommitted Changes') + '</b>.';
+				html += 'Displaying all changes from <b>' + commitOrder.from + '</b> to <b>' + (!isUncommittedChanges(commitOrder.to) ? commitOrder.to : 'Uncommitted Changes') + '</b>' + inOtherWorktree + '.';
 			}
-			html += '</div><div id="cdvFiles">' + generateFileViewHtml(expandedCommit.fileTree!, expandedCommit.fileChanges!, expandedCommit.lastViewedFile, expandedCommit.contextMenuOpen.fileView, this.getFileViewType(), commitOrder.to === UNCOMMITTED) + '</div><div id="cdvDivider"></div>';
+			html += '</div><div id="cdvFiles">' + generateFileViewHtml(expandedCommit.fileTree!, expandedCommit.fileChanges!, expandedCommit.lastViewedFile, expandedCommit.contextMenuOpen.fileView, this.getFileViewType(), isUncommittedChanges(commitOrder.to)) + '</div><div id="cdvDivider"></div>';
 		}
 		html += '</div><div id="cdvControls"><div id="cdvClose" class="cdvControlBtn" title="Close">' + SVG_ICONS.close + '</div>' +
 			(codeReviewPossible ? '<div id="cdvCodeReview" class="cdvControlBtn">' + SVG_ICONS.review + '</div>' : '') +
@@ -3423,14 +3583,14 @@ class GitTreeView {
 					if (expandedCommit === null || e.target === null) return;
 					let sourceElem = <HTMLElement>(<Element>e.target).closest('#cdvCodeReview')!;
 					if (sourceElem.classList.contains(CLASS_ACTIVE)) {
-						sendMessage({ command: 'endCodeReview', repo: this.currentWorktree, id: expandedCommit.codeReview!.id });
+						sendMessage({ command: 'endCodeReview', repo: this.cdvRepo, id: expandedCommit.codeReview!.id });
 						this.endCodeReview();
 					} else {
 						const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
 						const id = expandedCommit.compareWithHash !== null ? commitOrder.from + '-' + commitOrder.to : expandedCommit.commitHash;
 						sendMessage({
 							command: 'startCodeReview',
-							repo: this.currentWorktree,
+							repo: this.cdvRepo,
 							id: id,
 							commitHash: expandedCommit.commitHash,
 							compareWithHash: expandedCommit.compareWithHash,
@@ -3448,9 +3608,9 @@ class GitTreeView {
 					const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
 					runAction({
 						command: 'openExternalDirDiff',
-						repo: this.currentWorktree,
-						fromHash: commitOrder.from,
-						toHash: commitOrder.to,
+						repo: this.cdvRepo,
+						fromHash: getGitHash(commitOrder.from),
+						toHash: getGitHash(commitOrder.to),
 						isGui: this.gitConfig.guiDiffTool !== null
 					}, 'Opening External Directory Diff');
 				});
@@ -3583,7 +3743,7 @@ class GitTreeView {
 
 			sendMessage({
 				command: 'updateCodeReview',
-				repo: this.currentWorktree,
+				repo: this.cdvRepo,
 				id: expandedCommit.codeReview.id,
 				remainingFiles: expandedCommit.codeReview.remainingFiles,
 				lastViewedFile: expandedCommit.lastViewedFile
@@ -3631,7 +3791,7 @@ class GitTreeView {
 		GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 		this.setFileViewType(type);
 		const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
-		filesElem.innerHTML = generateFileViewHtml(expandedCommit.fileTree, expandedCommit.fileChanges, expandedCommit.lastViewedFile, expandedCommit.contextMenuOpen.fileView, type, commitOrder.to === UNCOMMITTED);
+		filesElem.innerHTML = generateFileViewHtml(expandedCommit.fileTree, expandedCommit.fileChanges, expandedCommit.lastViewedFile, expandedCommit.contextMenuOpen.fileView, type, isUncommittedChanges(commitOrder.to));
 		this.makeCdvFileViewInteractive();
 		this.renderCdvFileViewTypeBtns();
 	}
@@ -3643,11 +3803,11 @@ class GitTreeView {
 		const getCommitHashForFile = (file: GG.GitFileChange, expandedCommit: ExpandedCommit) => {
 			const commit = this.commits[this.commitLookup[expandedCommit.commitHash]];
 			if (expandedCommit.compareWithHash !== null) {
-				return this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash).to;
+				return getGitHash(this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash).to);
 			} else if (commit.stash !== null && file.type === GG.GitFileStatus.Untracked) {
 				return commit.stash.untrackedFilesHash!;
 			} else {
-				return expandedCommit.commitHash;
+				return getGitHash(expandedCommit.commitHash);
 			}
 		};
 
@@ -3680,9 +3840,9 @@ class GitTreeView {
 			this.cdvUpdateFileState(file, fileElem, true, true);
 			sendMessage({
 				command: 'viewDiff',
-				repo: this.currentWorktree,
-				fromHash: fromHash,
-				toHash: toHash,
+				repo: this.cdvRepo,
+				fromHash: getGitHash(fromHash),
+				toHash: getGitHash(toHash),
 				oldFilePath: file.oldFilePath,
 				newFilePath: file.newFilePath,
 				type: fileStatus
@@ -3690,7 +3850,7 @@ class GitTreeView {
 		};
 
 		const triggerCopyFilePath = (file: GG.GitFileChange, absolute: boolean) => {
-			sendMessage({ command: 'copyFilePath', repo: this.currentWorktree, filePath: file.newFilePath, absolute: absolute });
+			sendMessage({ command: 'copyFilePath', repo: this.cdvRepo, filePath: file.newFilePath, absolute: absolute });
 		};
 
 		const triggerResetFileToRevision = (file: GG.GitFileChange, fileElem: HTMLElement) => {
@@ -3699,7 +3859,7 @@ class GitTreeView {
 
 			const commitHash = getCommitHashForFile(file, expandedCommit);
 			dialog.showConfirmation('Are you sure you want to reset <b><i>' + escapeHtml(file.newFilePath) + '</i></b> to it\'s state at commit <b><i>' + abbrevCommit(commitHash) + '</i></b>? Any uncommitted changes made to this file will be overwritten.', 'Yes, reset file', () => {
-				runAction({ command: 'resetFileToRevision', repo: this.currentWorktree, commitHash: commitHash, filePath: file.newFilePath }, 'Resetting file');
+				runAction({ command: 'resetFileToRevision', repo: this.cdvRepo, commitHash: commitHash, filePath: file.newFilePath }, 'Resetting file');
 			}, {
 				type: TargetType.CommitDetailsView,
 				hash: commitHash,
@@ -3712,7 +3872,7 @@ class GitTreeView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, true, true);
-			sendMessage({ command: 'viewFileAtRevision', repo: this.currentWorktree, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'viewFileAtRevision', repo: this.cdvRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
 		};
 
 		const triggerViewFileDiffWithWorkingFile = (file: GG.GitFileChange, fileElem: HTMLElement) => {
@@ -3720,7 +3880,7 @@ class GitTreeView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, null, true);
-			sendMessage({ command: 'viewDiffWithWorkingFile', repo: this.currentWorktree, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'viewDiffWithWorkingFile', repo: this.cdvRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
 		};
 
 		const triggerOpenFile = (file: GG.GitFileChange, fileElem: HTMLElement) => {
@@ -3728,7 +3888,7 @@ class GitTreeView {
 			if (expandedCommit === null) return;
 
 			this.cdvUpdateFileState(file, fileElem, true, true);
-			sendMessage({ command: 'openFile', repo: this.currentWorktree, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
+			sendMessage({ command: 'openFile', repo: this.cdvRepo, hash: getCommitHashForFile(file, expandedCommit), filePath: file.newFilePath });
 		};
 
 		addListenerToClass('fileTreeFolder', 'click', (e) => {
@@ -3792,8 +3952,10 @@ class GitTreeView {
 			const fileElem = getFileElemOfEventTarget(e.target);
 			const file = getFileOfFileElem(expandedCommit.fileChanges, fileElem);
 			const commitOrder = this.getCommitOrder(expandedCommit.commitHash, expandedCommit.compareWithHash === null ? expandedCommit.commitHash : expandedCommit.compareWithHash);
-			const isUncommitted = commitOrder.to === UNCOMMITTED;
-			const otherWorktrees = this.gitWorktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.isCurrent && !worktree.prunable);
+			const isUncommitted = isUncommittedChanges(commitOrder.to);
+			// The worktrees other than the one the view's commands run in
+			const cdvWorktree = expandedCommit.worktree;
+			const otherWorktrees = this.gitWorktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.prunable && (typeof cdvWorktree === 'string' ? worktree.path !== cdvWorktree : !worktree.isCurrent));
 
 			GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 			expandedCommit.contextMenuOpen.fileView = parseInt(fileElem.dataset.index!);
@@ -4021,7 +4183,7 @@ window.addEventListener('load', () => {
 				break;
 			case 'commitDetails':
 				if (msg.commitDetails !== null) {
-					gitTree.showCommitDetails(msg.commitDetails, gitTree.createFileTree(msg.commitDetails.fileChanges, msg.codeReview), msg.avatar, msg.codeReview, msg.codeReview !== null ? msg.codeReview.lastViewedFile : null, msg.refresh);
+					gitTree.showCommitDetails(msg.repo, msg.commitDetails, gitTree.createFileTree(msg.commitDetails.fileChanges, msg.codeReview), msg.avatar, msg.codeReview, msg.codeReview !== null ? msg.codeReview.lastViewedFile : null, msg.refresh);
 				} else {
 					gitTree.closeCommitDetails(true);
 					dialog.showError('Unable to load Commit Details', msg.error, null, null);

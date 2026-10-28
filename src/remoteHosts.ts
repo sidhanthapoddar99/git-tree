@@ -12,7 +12,7 @@ import { CONFIG_FILE, ParsedConfig, RemoteHostConfig, parseConfig, removeHostFro
 import { ProcessResult, SshFailure, classifySshFailure, getErrorLines, getForwardingSshOptions, getGitSshCommand, getSshOptions, isAuthenticationError, quotePosix, runProcess } from './remoteHosts/ssh';
 import { readSshAliases } from './remoteHosts/sshConfig';
 import { BranchTip, STATUS_SCRIPT, ServerWorktree, StatusOutput, getServerWorktrees, getStatusScriptArgs, parseStatusOutput } from './remoteHosts/status';
-import { ErrorInfo, GitRemoteHost, GitRemoteHostSettings, GitRemoteHostState, GitWorktree, RemoteFolderEntry, RemoteHostEntry, RemoteHostGitAction, RemoteRepositorySource, SshAlias } from './types';
+import { ErrorInfo, GitRemoteHost, GitRemoteHostSettings, GitRemoteHostState, GitWorktree, HostChoice, RemoteFolderEntry, RemoteHostEntry, RemoteHostGitAction, RemoteRepositorySource, SshAlias } from './types';
 import { GitExecutable, getPathFromStr } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
 import { Event, EventEmitter } from './utils/event';
@@ -54,6 +54,25 @@ const AUTH_RETRY_MAX_DELAY = 300000;
  */
 export function getHostBranchesPrefix(name: string) {
 	return HOST_REFS_PREFIX + name + '/heads/';
+}
+
+/**
+ * Does a view show a remote host: it isn't hidden in Repository Settings, and the Host dropdown chose All or this host.
+ * A host that isn't shown has no worktrees, branches or rows in the view, and the view's refreshes skip it.
+ * @param name The host's name.
+ * @param hideHosts The names of the hosts hidden in Repository Settings.
+ * @param hostChoice The Host dropdown's choice.
+ */
+export function isRemoteHostShown(name: string, hideHosts: ReadonlyArray<string>, hostChoice: HostChoice) {
+	return hideHosts.indexOf(name) === -1 && (hostChoice === null || hostChoice === name);
+}
+
+/**
+ * Does a view show this machine's worktrees' rows of uncommitted changes: unless the Host dropdown chose a remote host.
+ * @param hostChoice The Host dropdown's choice.
+ */
+export function areLocalWorktreesShown(hostChoice: HostChoice) {
+	return hostChoice === null || hostChoice === '';
 }
 
 /**
@@ -244,12 +263,15 @@ export class RemoteHosts extends Disposable {
 	/**
 	 * Start a refresh of each of a repository's hosts in the background, unless one is already running for that host.
 	 * Each host refreshes on its own, with a time limit, and `onDidChange` fires when one changed something.
+	 * The hosts the view doesn't show are skipped, so they cost no SSH call.
 	 * @param repo The path of the repository.
-	 * @param skip The names of the hosts not to refresh: those the view hides, so they cost no SSH call.
+	 * @param hideHosts The names of the hosts hidden in Repository Settings.
+	 * @param hostChoice The Host dropdown's choice.
 	 */
-	public refresh(repo: string, skip: ReadonlyArray<string> = []): void {
+	public refresh(repo: string, hideHosts: ReadonlyArray<string> = [], hostChoice: HostChoice = null): void {
 		this.loadEntry(repo).then((entry) => {
-			if (entry !== null) this.refreshEntry(entry, skip);
+			// The names are only known once the config is read, so the hosts to skip are worked out here
+			if (entry !== null) this.refreshEntry(entry, entry.hosts.map((host) => host.config.name).filter((name) => !isRemoteHostShown(name, hideHosts, hostChoice)));
 		}, (error) => this.logger.logError('Remote hosts: ' + error));
 	}
 

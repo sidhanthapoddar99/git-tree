@@ -336,6 +336,7 @@ export class GitTreeView extends Disposable {
 				]);
 				this.sendMessage({
 					command: 'commitDetails',
+					repo: msg.repo,
 					...data[0],
 					avatar: data[1],
 					codeReview: msg.commitHash !== UNCOMMITTED ? this.extensionState.getCodeReview(msg.repo, msg.commitHash) : null,
@@ -520,7 +521,7 @@ export class GitTreeView extends Disposable {
 			case 'loadCommits':
 				this.loadCommitsRefreshId = msg.refreshId;
 				this.sendMessage(createLoadCommitsResponse(msg.refreshId, msg.onlyFollowFirstParent, msg.token,
-					await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees, msg.onlyWorktreeHistory, msg.onlyHostWorktree, msg.hideHosts)
+					await this.dataSource.getCommits(msg.repo, msg.branches, msg.maxCommits, msg.showTags, msg.showRemoteBranches, msg.includeCommitsMentionedByReflogs, msg.onlyFollowFirstParent, msg.commitOrdering, msg.remotes, msg.hideRemotes, msg.stashes, msg.worktrees, msg.onlyWorktreeHistory, msg.onlyHostWorktree, msg.hideHosts, msg.hostChoice)
 				));
 				break;
 			case 'loadConfig':
@@ -544,7 +545,7 @@ export class GitTreeView extends Disposable {
 				break;
 			case 'loadRepoInfo':
 				this.loadRepoInfoRefreshId = msg.refreshId;
-				let repoInfo = await this.dataSource.getRepoInfo(msg.worktree, msg.showRemoteBranches, msg.showStashes, msg.hideRemotes, msg.hideHosts), isRepo = true;
+				let repoInfo = await this.dataSource.getRepoInfo(msg.worktree, msg.showRemoteBranches, msg.showStashes, msg.hideRemotes, msg.hideHosts, msg.hostChoice), isRepo = true;
 				if (repoInfo.error) {
 					// If an error occurred, check to make sure the repo (or the worktree being viewed) still exists
 					isRepo = (await this.dataSource.repoRoot(msg.worktree)) !== null;
@@ -583,7 +584,7 @@ export class GitTreeView extends Disposable {
 				// becomes visible again (currentRepo is reset while it is hidden), and when the user refreshes it. The hosts
 				// the view hides are skipped, so they cost no SSH call.
 				if ((repoChanged || msg.refreshHosts) && this.dataSource.remoteHosts) {
-					this.dataSource.remoteHosts.refresh(msg.repo, msg.hideHosts);
+					this.dataSource.remoteHosts.refresh(msg.repo, msg.hideHosts, msg.hostChoice);
 				}
 				break;
 			case 'loadRepos':
@@ -990,8 +991,8 @@ export class GitTreeView extends Disposable {
 				<div id="controls">
 					<span id="repoControl"><span class="unselectable controlText">Repo: </span><div id="repoDropdown" class="dropdown"></div></span>
 					<span id="branchControl"><span class="unselectable controlText">Branches: </span><div id="branchDropdown" class="dropdown"></div></span>
+					<span id="hostControl"><span class="unselectable controlText">Host: </span><div id="hostDropdown" class="dropdown"></div></span>
 					<span id="worktreeControl"><span class="unselectable controlText">Worktree: </span><div id="worktreeDropdown" class="dropdown"></div></span>
-					<label id="showRemoteBranchesControl" title="Show Remote Branches"><input type="checkbox" id="showRemoteBranchesCheckbox" tabindex="-1"><span class="customCheckbox"></span><span class="controlText">Show Remote Branches</span></label>
 					<div id="findBtn" title="Find"></div>
 					<div id="terminalBtn" title="Open a Terminal for this Repository"></div>
 					<div id="settingsBtn" title="Repository Settings"></div>

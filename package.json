@@ -549,6 +549,10 @@
 								"type": "boolean",
 								"title": "Visibility of the Worktree column"
 							},
+							"Host": {
+								"type": "boolean",
+								"title": "Visibility of the Host column"
+							},
 							"Date": {
 								"type": "boolean",
 								"title": "Visibility of the Date column"
@@ -564,11 +568,12 @@
 						},
 						"default": {
 							"Worktree": true,
+							"Host": true,
 							"Date": true,
 							"Author": true,
 							"Commit": true
 						},
-						"description": "An object specifying the default visibility of the Worktree, Date, Author & Commit columns. The Worktree column only appears when the repository has more than one worktree. Worktree may be left out, and then defaults to true. Example: {\"Worktree\": true, \"Date\": true, \"Author\": true, \"Commit\": true}"
+						"description": "An object specifying the default visibility of the Worktree, Host, Date, Author & Commit columns. The Worktree column only appears when the repository has more than one worktree, and the Host column only when the graph shows a remote host. Worktree and Host may be left out, and then default to true. Example: {\"Worktree\": true, \"Host\": true, \"Date\": true, \"Author\": true, \"Commit\": true}"
 					},
 					"git-tree.dialog.addTag.pushToRemote": {
 						"type": "boolean",

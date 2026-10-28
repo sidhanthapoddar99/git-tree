@@ -161,11 +161,12 @@ class Config {
 	 */
 	get defaultColumnVisibility(): DefaultColumnVisibility {
 		let obj: any = this.config.get('defaultColumnVisibility', {});
-		// Worktree may be left out, because the setting had no Worktree column before 0.3.2
-		if (typeof obj === 'object' && obj !== null && typeof obj['Date'] === 'boolean' && typeof obj['Author'] === 'boolean' && typeof obj['Commit'] === 'boolean' && (typeof obj['Worktree'] === 'boolean' || typeof obj['Worktree'] === 'undefined')) {
-			return { author: obj['Author'], commit: obj['Commit'], date: obj['Date'], worktree: typeof obj['Worktree'] === 'boolean' ? obj['Worktree'] : true };
+		// Worktree and Host may be left out, because the setting had no Worktree column before 0.3.2, and no Host column before 0.6.2
+		const isOptionalBoolean = (value: any) => typeof value === 'boolean' || typeof value === 'undefined';
+		if (typeof obj === 'object' && obj !== null && typeof obj['Date'] === 'boolean' && typeof obj['Author'] === 'boolean' && typeof obj['Commit'] === 'boolean' && isOptionalBoolean(obj['Worktree']) && isOptionalBoolean(obj['Host'])) {
+			return { author: obj['Author'], commit: obj['Commit'], date: obj['Date'], worktree: obj['Worktree'] !== false, host: obj['Host'] !== false };
 		} else {
-			return { author: true, commit: true, date: true, worktree: true };
+			return { author: true, commit: true, date: true, worktree: true, host: true };
 		}
 	}
 

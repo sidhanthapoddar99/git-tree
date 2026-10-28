@@ -190,6 +190,7 @@ class SettingsWidget {
 				settingsRowHtml('Initial Branches', initialBranchesStr + scope(initialBranchesLocallyConfigured), initialBranchesStr + ' (' + (initialBranchesLocallyConfigured ? 'Local' : 'Global') + ')',
 					settingsIconButtonHtml('id="editInitialBranches"', 'Edit Initial Branches' + ELLIPSIS, SVG_ICONS.pencil) + (initialBranchesLocallyConfigured ? settingsIconButtonHtml('id="clearInitialBranches"', 'Clear Initial Branches' + ELLIPSIS, SVG_ICONS.close) : '')) +
 				'<div class="settingsSwitches">' +
+				settingsSwitchHtml('settingsShowRemoteBranchesCheckbox', 'Show Remote Branches', null, getShowRemoteBranches(this.repo.showRemoteBranchesV2)) +
 				settingsSwitchHtml('settingsShowStashesCheckbox', 'Show Stashes', null, getShowStashes(this.repo.showStashes)) +
 				settingsSwitchHtml('settingsShowTagsCheckbox', 'Show Tags', null, getShowTags(this.repo.showTags)) +
 				settingsSwitchHtml('settingsIncludeCommitsMentionedByReflogsCheckbox', 'Include commits only mentioned by reflogs', 'Only applies when showing all branches.', getIncludeCommitsMentionedByReflogs(this.repo.includeCommitsMentionedByReflogs)) +
@@ -323,8 +324,8 @@ class SettingsWidget {
 			}
 
 			// Each switch saves its setting, and the view reloads to show it
-			const switches: ReadonlyArray<readonly [string, 'showStashes' | 'showTags' | 'includeCommitsMentionedByReflogs' | 'onlyFollowFirstParent']> = [
-				['settingsShowStashesCheckbox', 'showStashes'], ['settingsShowTagsCheckbox', 'showTags'],
+			const switches: ReadonlyArray<readonly [string, 'showRemoteBranchesV2' | 'showStashes' | 'showTags' | 'includeCommitsMentionedByReflogs' | 'onlyFollowFirstParent']> = [
+				['settingsShowRemoteBranchesCheckbox', 'showRemoteBranchesV2'], ['settingsShowStashesCheckbox', 'showStashes'], ['settingsShowTagsCheckbox', 'showTags'],
 				['settingsIncludeCommitsMentionedByReflogsCheckbox', 'includeCommitsMentionedByReflogs'], ['settingsOnlyFollowFirstParentCheckbox', 'onlyFollowFirstParent']
 			];
 			switches.forEach(([id, key]) => {

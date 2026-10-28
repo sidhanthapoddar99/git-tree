@@ -277,8 +277,8 @@ code{
 	opacity:0.5;
 }
 
-/* A remote host that isn't ok: its worktrees' rows and labels, and its branches, are from its last good refresh */
-#commitTable tr.commit.staleHost td.text, #commitTable tr.commit.staleHost span.description .text, .gitRef.staleHost{
+/* A remote host that isn't ok: its worktrees' rows and labels, its branches, and its name in the Host column, are from its last good refresh */
+#commitTable tr.commit.staleHost td.text, #commitTable tr.commit.staleHost span.description .text, .gitRef.staleHost, #commitTable tr.commit:not(.staleHost) .hostName.staleHost{
 	opacity:0.5;
 }
 
@@ -293,21 +293,21 @@ code{
 	width:100%;
 	max-width:0;
 }
-#commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol{
+#commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol, #commitTable.autoLayout td.hostCol, #commitTable.autoLayout th.hostCol{
 	max-width:124px;
 }
 @media screen and (min-width: 775px) and (max-width: 850px) {
-	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol{
+	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol, #commitTable.autoLayout td.hostCol, #commitTable.autoLayout th.hostCol{
 		max-width:100px;
 	}
 }
 @media screen and (min-width: 700px) and (max-width: 775px) {
-	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol{
+	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol, #commitTable.autoLayout td.hostCol, #commitTable.autoLayout th.hostCol{
 		max-width:90px;
 	}
 }
 @media screen and (max-width: 700px) {
-	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol{
+	#commitTable.autoLayout td.dateCol, #commitTable.autoLayout th.dateCol, #commitTable.autoLayout td.authorCol, #commitTable.autoLayout th.authorCol, #commitTable.autoLayout td.worktreeCol, #commitTable.autoLayout th.worktreeCol, #commitTable.autoLayout td.hostCol, #commitTable.autoLayout th.hostCol{
 		max-width:80px;
 	}
 }
@@ -837,7 +837,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 }
 
 /* The controls stay on one row: each one shrinks, and its dropdown shortens its text with an ellipsis. */
-#repoControl, #branchControl, #worktreeControl, #showRemoteBranchesControl{
+#repoControl, #branchControl, #hostControl, #worktreeControl{
 	display:flex;
 	align-items:center;
 	flex:0 1 auto;
@@ -858,17 +858,11 @@ body.tagLabelsRightAligned .gitRef.tag{
 #branchControl{
 	flex-shrink:2;
 }
-#showRemoteBranchesControl{
-	flex-shrink:0;
-}
-#showRemoteBranchesControl > .customCheckbox{
-	margin-right:6px;
-}
 
 .dropdownCurrentValue{
 	max-width:30vw;
 }
-#controls.singleRepo #repoControl, #controls.singleWorktree #worktreeControl{
+#controls.singleRepo #repoControl, #controls.noHosts #hostControl, #controls.singleWorktree #worktreeControl{
 	display:none;
 }
 
@@ -877,12 +871,9 @@ body.tagLabelsRightAligned .gitRef.tag{
 	#controls .controlText{
 		display:none;
 	}
-	#showRemoteBranchesControl > .customCheckbox{
-		margin-right:0;
-	}
 }
 @media (max-width:480px){
-	#repoControl, #branchControl, #worktreeControl, #showRemoteBranchesControl{
+	#repoControl, #branchControl, #hostControl, #worktreeControl{
 		margin:0 4px;
 	}
 }

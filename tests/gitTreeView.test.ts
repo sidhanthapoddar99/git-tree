@@ -1142,6 +1142,7 @@ describe('GitTreeView', () => {
 					expect(messages).toStrictEqual([
 						{
 							command: 'commitDetails',
+							repo: '/path/to/repo',
 							commitDetails: null,
 							avatar: getAvatarImageResolvedValue,
 							codeReview: getCodeReviewResolvedValue,
@@ -1179,6 +1180,7 @@ describe('GitTreeView', () => {
 					expect(messages).toStrictEqual([
 						{
 							command: 'commitDetails',
+							repo: '/path/to/repo',
 							commitDetails: null,
 							avatar: null,
 							codeReview: null,
@@ -1223,6 +1225,7 @@ describe('GitTreeView', () => {
 					expect(messages).toStrictEqual([
 						{
 							command: 'commitDetails',
+							repo: '/path/to/repo',
 							commitDetails: null,
 							avatar: null,
 							codeReview: getCodeReviewResolvedValue,
@@ -2409,6 +2412,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
 					hideHosts: [],
+					hostChoice: null,
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
@@ -2418,7 +2422,7 @@ describe('GitTreeView', () => {
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null, []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null, [], null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2458,6 +2462,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
 					hideHosts: [],
+					hostChoice: null,
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
@@ -2467,7 +2472,7 @@ describe('GitTreeView', () => {
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, true, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null, []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, true, false, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null, [], null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2507,6 +2512,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
 					hideHosts: [],
+					hostChoice: null,
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
@@ -2516,7 +2522,7 @@ describe('GitTreeView', () => {
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, true, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null, []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, true, false, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null, [], null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2556,6 +2562,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin', 'upstream'],
 					hideRemotes: ['upstream'],
 					hideHosts: [],
+					hostChoice: null,
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
@@ -2565,7 +2572,7 @@ describe('GitTreeView', () => {
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, false, true, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null, []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo', null, 300, false, false, false, true, CommitOrdering.Date, ['origin', 'upstream'], ['upstream'], [], [], false, null, [], null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2609,6 +2616,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin'],
 					hideRemotes: [],
 					hideHosts: [],
+					hostChoice: null,
 					stashes: [],
 					worktrees: worktrees,
 					onlyWorktreeHistory: true,
@@ -2618,7 +2626,7 @@ describe('GitTreeView', () => {
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo/.worktrees/review', ['develop'], 300, true, true, false, false, CommitOrdering.Date, ['origin'], [], [], worktrees, true, null, []);
+					expect(spyOnGetCommits).toHaveBeenCalledWith('/path/to/repo/.worktrees/review', ['develop'], 300, true, true, false, false, CommitOrdering.Date, ['origin'], [], [], worktrees, true, null, [], null);
 					expect(messages).toStrictEqual([
 						{
 							command: 'loadCommits',
@@ -2655,6 +2663,7 @@ describe('GitTreeView', () => {
 					remotes: ['origin'],
 					hideRemotes: [],
 					hideHosts: [],
+					hostChoice: null,
 					stashes: [],
 					worktrees: [],
 					onlyWorktreeHistory: false,
@@ -2771,12 +2780,13 @@ describe('GitTreeView', () => {
 					showStashes: false,
 					hideRemotes: ['upstream'],
 					hideHosts: [],
+					hostChoice: null,
 					refreshHosts: false
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream'], []);
+					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream'], [], null);
 					expect(spyOnRepoRoot).not.toHaveBeenCalled();
 					expect(spyOnSetLastActiveRepo).toHaveBeenCalledWith('/path/to/repo');
 					expect(spyOnRepoFileWatcherStart).toHaveBeenCalledWith('/path/to/repo', []);
@@ -2809,7 +2819,7 @@ describe('GitTreeView', () => {
 				spyOnWriteCommitGraphIfMissing.mockResolvedValueOnce('error message');
 
 				// Run
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], refreshHosts: false });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], hostChoice: null, refreshHosts: false });
 
 				// Assert
 				await waitForExpect(() => expect(spyOnLogError).toHaveBeenCalledWith('Unable to write the commit-graph of /path/to/repo: error message'));
@@ -2824,7 +2834,7 @@ describe('GitTreeView', () => {
 				spyOnRepoFileWatcherStart.mockImplementationOnce(() => { });
 
 				// Run
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], refreshHosts: false });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], hostChoice: null, refreshHosts: false });
 
 				// Assert
 				await waitForExpect(() => expect(spyOnRepoFileWatcherStart).toHaveBeenCalled());
@@ -2859,12 +2869,13 @@ describe('GitTreeView', () => {
 					showStashes: false,
 					hideRemotes: ['upstream'],
 					hideHosts: [],
+					hostChoice: null,
 					refreshHosts: false
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream'], []);
+					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream'], [], null);
 					expect(spyOnRepoRoot).not.toHaveBeenCalled();
 					expect(spyOnSetLastActiveRepo).not.toHaveBeenCalled();
 					expect(spyOnRepoFileWatcherStart).not.toHaveBeenCalled();
@@ -2916,12 +2927,13 @@ describe('GitTreeView', () => {
 					showStashes: false,
 					hideRemotes: ['upstream'],
 					hideHosts: [],
+					hostChoice: null,
 					refreshHosts: false
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream'], []);
+					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream'], [], null);
 					expect(spyOnRepoRoot).toHaveBeenCalledWith('/path/to/repo');
 					expect(spyOnSetLastActiveRepo).not.toHaveBeenCalled();
 					expect(spyOnRepoFileWatcherStart).not.toHaveBeenCalled();
@@ -2973,12 +2985,13 @@ describe('GitTreeView', () => {
 					showStashes: false,
 					hideRemotes: ['upstream'],
 					hideHosts: [],
+					hostChoice: null,
 					refreshHosts: false
 				});
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream'], []);
+					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, ['upstream'], [], null);
 					expect(spyOnRepoRoot).toHaveBeenCalledWith('/path/to/repo');
 					expect(spyOnSetLastActiveRepo).not.toHaveBeenCalled();
 					expect(spyOnRepoFileWatcherStart).not.toHaveBeenCalled();
@@ -3012,18 +3025,18 @@ describe('GitTreeView', () => {
 				spyOnRepoFileWatcherStart.mockImplementation(() => { });
 
 				// Run
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo-feature', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], refreshHosts: false });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo-feature', refreshId: 0, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], hostChoice: null, refreshHosts: false });
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo-feature', true, false, [], []);
+					expect(spyOnGetRepoInfo).toHaveBeenCalledWith('/path/to/repo-feature', true, false, [], [], null);
 					expect(spyOnRepoFileWatcherStart).toHaveBeenCalledWith('/path/to/repo', ['/path/to/repo', '/path/to/repo-feature']);
 					expect(GitTreeView.currentPanel!['currentRepo']).toBe('/path/to/repo');
 					expect(GitTreeView.currentPanel!['panel'].title).toBe('Git Tree: repo (repo-feature)');
 				});
 
 				// Run: switch back to the main worktree, which watches the same worktrees
-				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 1, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], refreshHosts: false });
+				onDidReceiveMessage({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: 1, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], hostChoice: null, refreshHosts: false });
 
 				// Assert
 				await waitForExpect(() => expect(GitTreeView.currentPanel!['panel'].title).toBe('Git Tree: repo'));
@@ -4193,7 +4206,7 @@ describe('GitTreeView', () => {
 		});
 
 		describe('loadRepoInfo', () => {
-			const loadRepoInfo = (refreshId: number, refreshHosts: boolean): RequestMessage => ({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: refreshId, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], refreshHosts: refreshHosts });
+			const loadRepoInfo = (refreshId: number, refreshHosts: boolean): RequestMessage => ({ command: 'loadRepoInfo', repo: '/path/to/repo', worktree: '/path/to/repo', refreshId: refreshId, showRemoteBranches: true, showStashes: false, hideRemotes: [], hideHosts: [], hostChoice: null, refreshHosts: refreshHosts });
 
 			beforeEach(() => {
 				jest.spyOn(dataSource, 'getRepoInfo').mockResolvedValue({ branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], hosts: [hostSnapshot.host], error: null });
@@ -4207,7 +4220,7 @@ describe('GitTreeView', () => {
 
 				// Assert
 				await waitForExpect(() => {
-					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo', []);
+					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo', [], null);
 					expect(messages).toStrictEqual([
 						{ command: 'loadRepoInfo', refreshId: 0, branches: ['master'], head: 'master', remotes: [], stashes: [], worktrees: [], hosts: [hostSnapshot.host], error: null, isRepo: true }
 					]);
@@ -4233,8 +4246,19 @@ describe('GitTreeView', () => {
 
 				// Assert
 				await waitForExpect(() => {
-					expect(dataSource.getRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, [], ['server']);
-					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo', ['server']);
+					expect(dataSource.getRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, [], ['server'], null);
+					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo', ['server'], null);
+				});
+			});
+
+			it('Should pass the Host dropdown\'s choice on, so the hosts it doesn\'t show are left out and skipped', async () => {
+				// Run
+				onDidReceiveMessage(Object.assign({}, loadRepoInfo(0, false), { hideHosts: ['other'], hostChoice: 'server' }));
+
+				// Assert
+				await waitForExpect(() => {
+					expect(dataSource.getRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, [], ['other'], 'server');
+					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo', ['other'], 'server');
 				});
 			});
 

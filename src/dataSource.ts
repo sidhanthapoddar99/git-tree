@@ -8,8 +8,8 @@ import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
 import { getConfig } from './config';
 import { BranchListEntry, CommitDetailsEntry, DiffOutput, Engine, EngineAnswer, EngineDetailsFormat, EngineFormat, EngineLogRequest, LogEntry, ShowRefEntry, StashListEntry, TagDetailsEntry, WorktreeListEntry } from './engine';
 import { Logger } from './logger';
-import { HOST_REFS_PREFIX, RemoteHostSnapshot, RemoteHosts, getHostBranchesPrefix } from './remoteHosts';
-import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRemoteHost, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
+import { HOST_REFS_PREFIX, RemoteHostSnapshot, RemoteHosts, areLocalWorktreesShown, getHostBranchesPrefix, isRemoteHostShown } from './remoteHosts';
+import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRemoteHost, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, HostChoice, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, UNCOMMITTED, abbrevCommit, getGitExecutableError, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
 import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
@@ -159,9 +159,10 @@ export class DataSource extends Disposable {
 	 * @param showStashes Are stashes shown.
 	 * @param hideRemotes An array of hidden remotes.
 	 * @param hideHosts The names of the hidden remote hosts, whose worktrees are left out.
-	 * @returns The repositories information. Its worktrees are the local ones, then each shown remote host's worktrees from the host's last refresh. Its hosts are all of them, hidden or not.
+	 * @param hostChoice The Host dropdown's choice: the remote hosts it doesn't show are left out too.
+	 * @returns The repositories information. Its worktrees are the local ones, then each shown remote host's worktrees from the host's last refresh. Its hosts are all of them, shown or not.
 	 */
-	public getRepoInfo(repo: string, showRemoteBranches: boolean, showStashes: boolean, hideRemotes: ReadonlyArray<string>, hideHosts: ReadonlyArray<string> = []): Promise<GitRepoInfo> {
+	public getRepoInfo(repo: string, showRemoteBranches: boolean, showStashes: boolean, hideRemotes: ReadonlyArray<string>, hideHosts: ReadonlyArray<string> = [], hostChoice: HostChoice = null): Promise<GitRepoInfo> {
 		// One engine crossing reads the four parts, and each part keeps its own Git CLI fallback
 		const repoInfoPart = shareEngineRead((engine) => engine.repoInfo(repo, showRemoteBranches, showStashes ? this.engineFormat : null));
 		// The hosts as they are now: this never waits for the network
@@ -172,7 +173,7 @@ export class DataSource extends Disposable {
 			showStashes ? this.getStashes(repo, repoInfoPart((answer) => answer.stashes !== null ? answer.stashes : { failed: 'the answer has no stashes' })) : Promise.resolve([]),
 			this.getWorktrees(repo, repoInfoPart((answer) => answer.worktrees))
 		]).then((results) => {
-			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], worktrees: results[3].concat(getRemoteHostWorktrees(hosts.filter((snapshot) => hideHosts.indexOf(snapshot.host.name) === -1))), hosts: hosts.map((snapshot) => snapshot.host), error: null };
+			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], worktrees: results[3].concat(getRemoteHostWorktrees(hosts.filter((snapshot) => isRemoteHostShown(snapshot.host.name, hideHosts, hostChoice)))), hosts: hosts.map((snapshot) => snapshot.host), error: null };
 		}).catch((errorMessage) => {
 			return { branches: [], head: null, remotes: [], stashes: [], worktrees: [], hosts: [], error: errorMessage };
 		});
@@ -195,12 +196,14 @@ export class DataSource extends Disposable {
 	 * @param onlyWorktreeHistory Show only the history of the worktree that `repo` is: its HEAD joins `branches` as a start point (all branches are left out when `branches` is NULL), and other worktrees' uncommitted changes are left out.
 	 * @param onlyHostWorktree A remote host's worktree (one of `worktrees`) whose history alone is shown: its HEAD commit joins `branches` as a start point if it is on this machine, and only its uncommitted changes are shown. `repo` is then the repository. NULL => none.
 	 * @param hideHosts The names of the hidden remote hosts: their refs are neither start points nor labels, and their worktrees get no rows.
+	 * @param hostChoice The Host dropdown's choice: the remote hosts it doesn't show are left out too, and when it chose a host, this machine's worktrees get no rows.
 	 * @returns The commits in the repository.
 	 */
-	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, worktrees: ReadonlyArray<GitWorktree>, onlyWorktreeHistory: boolean = false, onlyHostWorktree: GitWorktree | null = null, hideHosts: ReadonlyArray<string> = []): Promise<GitCommitData> {
+	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, worktrees: ReadonlyArray<GitWorktree>, onlyWorktreeHistory: boolean = false, onlyHostWorktree: GitWorktree | null = null, hideHosts: ReadonlyArray<string> = [], hostChoice: HostChoice = null): Promise<GitCommitData> {
 		const config = getConfig();
 		// The shown hosts as they are now: their names give the refs to read, and their snapshots the counts of their worktrees' changes
-		const hosts = this.getRemoteHosts(repo).filter((snapshot) => hideHosts.indexOf(snapshot.host.name) === -1);
+		const hosts = this.getRemoteHosts(repo).filter((snapshot) => isRemoteHostShown(snapshot.host.name, hideHosts, hostChoice));
+		const localWorktreesShown = areLocalWorktreesShown(hostChoice);
 		const hostNames = hosts.map((snapshot) => snapshot.host.name).filter((name) => HOST_NAME_REGEXP.test(name));
 		let startPoints: ReadonlyArray<string> | null;
 		if (onlyHostWorktree !== null) {
@@ -221,20 +224,20 @@ export class DataSource extends Disposable {
 		const log = this.getLog(repo, logRead, commitsPart((answer) => answer.log));
 		const refs = this.getRefs(repo, showRemoteBranches, config.showRemoteHeads, hideRemotes, commitsPart((answer) => answer.refs), hostNames).then((refData: GitRefData) => refData, (errorMessage: string) => errorMessage);
 		// Git status is often the slowest command in a large repository, so it runs alongside the log instead of after it
-		const uncommittedChanges = config.showUncommittedChanges && onlyHostWorktree === null ? this.getUncommittedChanges(repo) : null;
+		const uncommittedChanges = config.showUncommittedChanges && onlyHostWorktree === null && localWorktreesShown ? this.getUncommittedChanges(repo) : null;
 		if (uncommittedChanges !== null) {
 			// Its result, or error, is only used when HEAD is one of the loaded commits
 			uncommittedChanges.catch(() => { });
 		}
 		// The other local worktrees' uncommitted changes, also read alongside the log. The index of each worktree in `worktrees` identifies its row.
 		const indexedWorktrees = worktrees.map((worktree, index) => ({ worktree: worktree, index: index }));
-		const otherWorktrees = config.showUncommittedChanges && !onlyWorktreeHistory && onlyHostWorktree === null
+		const otherWorktrees = config.showUncommittedChanges && !onlyWorktreeHistory && onlyHostWorktree === null && localWorktreesShown
 			? indexedWorktrees.filter((item) => typeof item.worktree.host === 'undefined' && !item.worktree.isCurrent && !item.worktree.prunable && item.worktree.head !== null)
 			: [];
 		const otherUncommittedChanges = Promise.all(otherWorktrees.map((item) => this.getUncommittedChanges(item.worktree.path).catch(() => null)));
 		// The remote hosts' worktrees, whose counts come from each host's last refresh, after the local worktrees' rows
 		const hostWorktrees = config.showUncommittedChanges && !onlyWorktreeHistory
-			? indexedWorktrees.filter((item) => typeof item.worktree.host !== 'undefined' && hideHosts.indexOf(item.worktree.host) === -1 && !item.worktree.prunable && item.worktree.head !== null &&
+			? indexedWorktrees.filter((item) => typeof item.worktree.host !== 'undefined' && isRemoteHostShown(item.worktree.host, hideHosts, hostChoice) && !item.worktree.prunable && item.worktree.head !== null &&
 				(onlyHostWorktree === null || (item.worktree.host === onlyHostWorktree.host && item.worktree.path === onlyHostWorktree.path)))
 			: [];
 

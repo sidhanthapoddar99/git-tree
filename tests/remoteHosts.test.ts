@@ -1248,6 +1248,32 @@ describe('RemoteHosts', () => {
 			expect(sshCalls().map((call) => call.args[call.args.length - 2])).toStrictEqual(['other']);
 		});
 
+		it('Should refresh only the host the Host dropdown chose', async () => {
+			// Setup
+			servers['other'] = server('/srv/other');
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '  other:', '    ssh: other', '    path: /srv/other');
+
+			// Run
+			remoteHosts.refresh(main, [], 'box');
+			await settle();
+
+			// Assert
+			expect(sshCalls().map((call) => call.args[call.args.length - 2])).toStrictEqual(['box']);
+		});
+
+		it('Should refresh no host when the Host dropdown chose Local', async () => {
+			// Setup
+			servers['other'] = server('/srv/other');
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '  other:', '    ssh: other', '    path: /srv/other');
+
+			// Run
+			remoteHosts.refresh(main, [], '');
+			await settle();
+
+			// Assert
+			expect(sshCalls()).toStrictEqual([]);
+		});
+
 		function entry(name: string, ssh: string, serverPath: string, worktrees: boolean = true, forwardAgent: boolean = false): RemoteHostEntry {
 			return { name: name, ssh: ssh, path: serverPath, worktrees: worktrees, forwardAgent: forwardAgent };
 		}

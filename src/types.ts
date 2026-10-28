@@ -548,6 +548,7 @@ export const enum DateType {
 
 export interface DefaultColumnVisibility {
 	readonly worktree: boolean;
+	readonly host: boolean;
 	readonly date: boolean;
 	readonly author: boolean;
 	readonly commit: boolean;
@@ -875,6 +876,7 @@ export interface RequestCommitDetails extends RepoRequest {
 }
 export interface ResponseCommitDetails extends ResponseWithErrorInfo {
 	readonly command: 'commitDetails';
+	readonly repo: string; // Where the details were read: the request's repo. Every worktree's uncommitted changes have the same hash, so this says whose they are.
 	readonly commitDetails: GitCommitDetails | null;
 	readonly avatar: string | null;
 	readonly codeReview: CodeReview | null;
@@ -1109,6 +1111,13 @@ export interface ResponseFetchIntoLocalBranch extends ResponseWithErrorInfo {
 	readonly command: 'fetchIntoLocalBranch';
 }
 
+/**
+ * The Host dropdown's choice. NULL => All: this machine's worktrees, and every remote host's but those hidden in Repository
+ * Settings. '' => Local: only this machine's worktrees (no host name is empty). Otherwise the name of the only remote host
+ * shown, without this machine's worktrees.
+ */
+export type HostChoice = string | null;
+
 export interface RequestLoadCommits extends RepoRequest {
 	readonly command: 'loadCommits';
 	readonly refreshId: number;
@@ -1122,6 +1131,7 @@ export interface RequestLoadCommits extends RepoRequest {
 	readonly remotes: ReadonlyArray<string>;
 	readonly hideRemotes: ReadonlyArray<string>;
 	readonly hideHosts: ReadonlyArray<string>; // Remote hosts left out: their branches as start points, and their worktrees' rows
+	readonly hostChoice: HostChoice; // Leaves out the remote hosts it doesn't show, as hideHosts does, and this machine's worktrees' rows when it chose a host
 	readonly stashes: ReadonlyArray<GitStash>;
 	readonly worktrees: ReadonlyArray<GitWorktree>;
 	readonly onlyWorktreeHistory: boolean; // TRUE => only the history of the worktree that repo is: its HEAD joins branches as a start point, and no other worktree's uncommitted changes are read
@@ -1174,6 +1184,7 @@ export interface RequestLoadRepoInfo extends RepoRequest {
 	readonly showStashes: boolean;
 	readonly hideRemotes: ReadonlyArray<string>;
 	readonly hideHosts: ReadonlyArray<string>; // Remote hosts whose worktrees and branches are left out
+	readonly hostChoice: HostChoice; // Leaves out, and doesn't refresh, the remote hosts it doesn't show, as hideHosts does
 	readonly refreshHosts: boolean; // TRUE => the user asked for a refresh, so the remote hosts are refreshed too (they also are when the view loads the repository)
 }
 export interface ResponseLoadRepoInfo extends ResponseWithErrorInfo {

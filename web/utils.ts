@@ -77,8 +77,19 @@ const UNCOMMITTED = '*';
 function isUncommittedChanges(hash: string) {
 	return hash.startsWith(UNCOMMITTED);
 }
+
+/**
+ * Get the hash the extension reads a row with. Every row of uncommitted changes is UNCOMMITTED there, read in the worktree the request runs in.
+ * @param hash The commit hash of the row.
+ * @returns The hash for the extension.
+ */
+function getGitHash(hash: string) {
+	return isUncommittedChanges(hash) ? UNCOMMITTED : hash;
+}
 const SHOW_ALL_BRANCHES = '';
 const ALL_WORKTREES = ''; // The Worktree dropdown's All option. Its other options are the paths of worktrees, and the keys of remote hosts' worktrees.
+const ALL_HOSTS = ':all'; // The Host dropdown's All option. A host's name can't contain ':', so no option of a host is it.
+const LOCAL_HOSTS = ''; // The Host dropdown's Local option, as GG.HostChoice has it. A host's name can't be empty.
 const HOST_WORKTREE_KEY_PREFIX = 'host:'; // The start of a remote host's worktree's key (getWorktreeKey). A path on this machine is absolute, so it never starts with it.
 
 const COLUMN_HIDDEN = -100;
@@ -91,10 +102,12 @@ const COLUMN_LEFT_RIGHT_PADDING = 24;
 const COLUMN_GRAPH = 0;
 const COLUMN_DESCRIPTION = 1;
 const COLUMN_WORKTREE = 2;
-const COLUMN_DATE = 3;
-const COLUMN_AUTHOR = 4;
-const COLUMN_COMMIT = 5;
+const COLUMN_HOST = 3;
+const COLUMN_DATE = 4;
+const COLUMN_AUTHOR = 5;
+const COLUMN_COMMIT = 6;
 const WORKTREE_COLUMN_DEFAULT_WIDTH = 128; // The width the Worktree column gets in a fixed layout, including its padding
+const HOST_COLUMN_DEFAULT_WIDTH = 96; // The width the Host column gets in a fixed layout, including its padding
 
 const CLASS_ACTIVE = 'active';
 const CLASS_BRANCH_LABELS_ALIGNED_TO_GRAPH = 'branchLabelsAlignedToGraph';
