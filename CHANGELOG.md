@@ -4,7 +4,7 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-10-30
 
 ### Added
 
@@ -335,7 +335,8 @@ The first version of Git Tree.
 
 - Telemetry. Git Tree sends no usage data.
 
-[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.1...v0.6.2
