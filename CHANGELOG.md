@@ -4,6 +4,21 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-30
+
+### Added
+
+- **Labels that don't fit collapse into a "+N" chip.** The Description, Worktree and Host cells show the branch, tag, worktree and host chips that fit, then "+N" for the rest, instead of cutting them off with "…". The commit message always keeps room to be read.
+- **Hover a cell with hidden chips to see them all.** A card lists every label in the cell, grouped by kind, with each worktree's branch and each host's state.
+- **The row whose details are open shows every chip.** Its chips wrap onto as many lines as they need, the commit message stays on one line, and the graph stays lined up with the taller row.
+- **The terminal button asks which worktree to open in.** A menu lists this machine's worktrees, then each remote host's, with their branches, and ticks the one you're viewing. With only one worktree, it opens straight away as before. The extension only opens a local terminal in one of the repository's own worktrees.
+
+### Changed
+
+- **The Host dropdown is a multi-select.** Tick Local and any hosts, use a row's "only" button to show just that one, or use the *All* row to tick or clear them all. Hosts added later show up while *All* is chosen.
+- **The Host and Worktree choices are saved per repository**, so they survive a restart of Visual Studio Code. Choices saved by 0.6.2 are dropped once.
+- Dropdowns show real checkboxes, and menus can show group headings and dim hints.
+
 ## [0.6.2] - 2026-10-29
 
 ### Added
@@ -294,6 +309,7 @@ The first version of Git Tree.
 - Telemetry. Git Tree sends no usage data.
 
 [Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[0.7.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.5.0...v0.6.0
