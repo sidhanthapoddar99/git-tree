@@ -4,6 +4,17 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-30
+
+### Added
+
+- **The Manage Worktrees panel.** A button next to Refresh opens it. It has a section for this machine and one for each remote host that isn't hidden in Repository Settings. Each section shows the disk's free space and every worktree's size, branch, uncommitted changes and distance from the main branch. Linked worktrees inside the main worktree, and the shared `.git` folder, are each counted once. Git facts show at once, and sizes fill in as `du` finishes.
+- **Fast-forward a worktree to the main branch from the panel.** The main branch is the one `origin/HEAD` points to, else `main`, else `master`. The button only works when the worktree is clean (no untracked files either), is on a branch, and hasn't diverged from main. The extension checks all of this again, on the server too, just before it runs `git merge --ff-only`.
+
+### Fixed
+
+- A remote host that refuses the panel's SSH login waits out its retry delay, instead of adding a failed login on every refresh.
+
 ## [0.7.0] - 2026-10-30
 
 ### Added
@@ -309,6 +320,7 @@ The first version of Git Tree.
 - Telemetry. Git Tree sends no usage data.
 
 [Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[0.8.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.0...v0.6.1
