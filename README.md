@@ -115,6 +115,8 @@ The main worktree is called **Root** everywhere: in the dropdown, in the Worktre
 
 Git actions, such as checkout, commit details and opening files, run in the worktree you pick. Branches you pick in the Branches dropdown are shown as well. The dropdown appears when a repository has more than one worktree.
 
+Git Tree remembers the choice for each repository, also after VS Code restarts. If the worktree you picked has been removed, the dropdown goes back to **All**.
+
 ### Create, open and remove worktrees
 
 Right-click to work with worktrees:
@@ -125,6 +127,8 @@ Right-click to work with worktrees:
 - **A worktree label:** show the worktree, open it in a new window or this one, remove it, or copy its path.
 
 **Ctrl+click** (**Cmd+click** on macOS) or double-click a worktree label to open that worktree in a new VS Code window.
+
+Click the **terminal** button in the top bar to open a terminal. With one worktree, it opens there. Otherwise a menu asks which worktree: Root and this machine's other worktrees first, each with its branch, and then each remote host's worktrees, which open over SSH. The worktree you're viewing is ticked. A host whose last refresh failed stays in the menu, with its state next to its name, because the terminal tries SSH again and can ask for a password.
 
 ![A commit's context menu, with Create Worktree, Checkout, Cherry Pick, Merge and Rebase](docs/images/commit-menu.webp)
 
@@ -181,15 +185,19 @@ A server worktree's Uncommitted Changes row shows how many files changed, but Gi
 
 #### Filter by host
 
-The **Host** dropdown in the top bar picks which machines the graph shows. The history is always this machine's, so the dropdown changes the hosts' branch labels, the worktree labels and the Uncommitted Changes rows:
+The **Host** dropdown in the top bar picks which machines the graph shows. Tick any mix of rows. The history is always this machine's, so the dropdown changes the hosts' branch labels, the worktree labels and the Uncommitted Changes rows:
 
-| Choice | Shows |
+| Row | When ticked, shows |
 | --- | --- |
-| **All** (the default) | This machine's worktrees and every host's |
-| **Local** | Only this machine's worktrees. Git Tree doesn't read the hosts |
-| *a host's name* | Only that host's worktrees and branches. Git Tree reads only that host |
+| **All** (the default) | This machine's worktrees and every host's, including hosts you add later |
+| **Local** | This machine's worktrees |
+| *a host's name* | That host's worktrees and branches |
 
-The Worktree dropdown then lists only the worktrees the Host dropdown shows. The dropdown appears when a repository has a remote host. A host hidden in Repository Settings isn't listed. With `git-tree.remoteHosts.refreshInterval` turned on, the interval still reads every host that isn't hidden in Repository Settings.
+Click **All** to tick every row, or to clear them all when they're all ticked. Hover over a row and click **only** to show just that row. The closed dropdown reads *All*, the names you ticked (such as *Local, build-box*), a count such as *3 hosts*, or *None*. Git Tree reads only the hosts you ticked.
+
+Git Tree remembers the choice for each repository, also after VS Code restarts. A host you ticked that's later removed, or hidden in Repository Settings, is ignored. If none of the ticked hosts is left, the dropdown shows everything.
+
+The Worktree dropdown then lists only the worktrees from the sources the Host dropdown shows. If its choice is no longer listed, it goes back to **All**. The Host dropdown appears when a repository has a remote host. A host hidden in Repository Settings isn't listed. With `git-tree.remoteHosts.refreshInterval` turned on, the interval reads every host that a saved Host choice of the repository shows.
 
 The **Host** column names the host on each row that has a server's worktree or branch, or a server worktree's uncommitted changes. Rows with only this machine's worktrees leave it blank. The column appears when the graph shows a remote host, and `git-tree.defaultColumnVisibility` can hide it.
 
@@ -200,6 +208,10 @@ Coding agents can keep the host list up to date. Click **Copy** next to *Using a
 ### Commit details and comparisons
 
 Click a commit to see its details and changed files. Click a file to see its diff, or right-click it to open the file, view it at that commit, or copy its path. Ctrl+click (Cmd+click) a second commit to compare the two.
+
+### Labels that don't fit
+
+When a row has more branch, tag, stash, worktree or host labels than its cell has room for, the cell shows the labels that fit and a **+N** label that counts the others. In the Description column the labels give way first, so the commit message keeps room to be read. Hover over the cell to see all of its labels, grouped by kind. The row of the commit whose details are open shows every label, wrapped onto as many lines as they need.
 
 ### Tabs
 

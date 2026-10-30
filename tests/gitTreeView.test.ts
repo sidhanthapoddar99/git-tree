@@ -3345,29 +3345,114 @@ describe('GitTreeView', () => {
 		});
 
 		describe('openTerminal', () => {
-			it('Should open a terminal', async () => {
-				// Setup
-				const openGitTerminalResolvedValue = null;
-				const spyOnOpenGitTerminal = jest.spyOn(dataSource, 'openGitTerminal');
-				spyOnOpenGitTerminal.mockResolvedValueOnce(openGitTerminalResolvedValue);
+			const worktree = (path: string, isMain: boolean, isCurrent: boolean, prunable: boolean) => ({ path: path, name: path.substring(path.lastIndexOf('/') + 1), head: '1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d5e6f1a2b', branch: null, isMain: isMain, isCurrent: isCurrent, locked: false, prunable: prunable });
+			const worktrees = [
+				worktree('/path/to/repo', true, true, false),
+				worktree('/path/to/repo/.worktrees/feature', false, false, false),
+				worktree('/path/to/repo/.worktrees/gone', false, false, true)
+			];
+			let spyOnGetWorktrees: jest.SpyInstance;
+			let spyOnOpenGitTerminal: jest.SpyInstance;
+			beforeEach(() => {
+				spyOnGetWorktrees = jest.spyOn(dataSource, 'getWorktrees');
+				spyOnGetWorktrees.mockResolvedValueOnce(worktrees);
+				spyOnOpenGitTerminal = jest.spyOn(dataSource, 'openGitTerminal');
+				spyOnOpenGitTerminal.mockResolvedValueOnce(null);
+			});
+			afterEach(() => {
+				// A test that refuses to open the terminal leaves its values unused, so they're cleared for the next tests
+				spyOnGetWorktrees.mockReset();
+				spyOnOpenGitTerminal.mockReset();
+			});
 
+			it('Should open a terminal in a linked worktree, named after the repository and the worktree', async () => {
 				// Run
-				onDidReceiveMessage({
-					command: 'openTerminal',
-					repo: '/path/to/repo',
-					name: 'repo-name'
-				});
+				onDidReceiveMessage({ command: 'openTerminal', repo: '/path/to/repo', path: '/path/to/repo/.worktrees/feature' });
 
 				// Assert
 				await waitForExpect(() => {
-					expect(spyOnOpenGitTerminal).toHaveBeenCalledWith('/path/to/repo', null, 'repo-name');
-					expect(messages).toStrictEqual([
-						{
-							command: 'openTerminal',
-							error: openGitTerminalResolvedValue
-						}
-					]);
+					expect(spyOnGetWorktrees).toHaveBeenCalledWith('/path/to/repo');
+					expect(spyOnOpenGitTerminal).toHaveBeenCalledWith('/path/to/repo/.worktrees/feature', null, 'repo (feature)');
+					expect(messages).toStrictEqual([{ command: 'openTerminal', error: null }]);
 				});
+			});
+
+			it('Should open a terminal in the main worktree, named Root', async () => {
+				// Setup
+				spyOnGetRepos.mockReturnValueOnce({ '/path/to/repo': mockRepoState({ name: 'My Repo' }) });
+
+				// Run
+				onDidReceiveMessage({ command: 'openTerminal', repo: '/path/to/repo', path: '/path/to/repo' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnOpenGitTerminal).toHaveBeenCalledWith('/path/to/repo', null, 'My Repo (Root)');
+					expect(messages).toStrictEqual([{ command: 'openTerminal', error: null }]);
+				});
+			});
+
+			it('Should open a terminal in the repository itself, when Git lists it by its real path', async () => {
+				// Setup
+				spyOnGetWorktrees.mockReset();
+				spyOnGetWorktrees.mockResolvedValueOnce([worktree('/real/path/to/repo', true, true, false)]);
+
+				// Run
+				onDidReceiveMessage({ command: 'openTerminal', repo: '/path/to/repo', path: '/path/to/repo' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnOpenGitTerminal).toHaveBeenCalledWith('/real/path/to/repo', null, 'repo (Root)');
+					expect(messages).toStrictEqual([{ command: 'openTerminal', error: null }]);
+				});
+			});
+
+			it('Shouldn\'t open a terminal in a path that isn\'t a worktree of the repository', async () => {
+				// Run
+				onDidReceiveMessage({ command: 'openTerminal', repo: '/path/to/repo', path: '/etc' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(messages).toStrictEqual([{ command: 'openTerminal', error: '/etc isn\'t a worktree of this repository. Refresh the view, then try again.' }]);
+				});
+				expect(spyOnOpenGitTerminal).not.toHaveBeenCalled();
+			});
+
+			it('Shouldn\'t open a terminal in a worktree whose folder no longer exists', async () => {
+				// Run
+				onDidReceiveMessage({ command: 'openTerminal', repo: '/path/to/repo', path: '/path/to/repo/.worktrees/gone' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(messages).toStrictEqual([{ command: 'openTerminal', error: 'The folder of the worktree /path/to/repo/.worktrees/gone no longer exists.' }]);
+				});
+				expect(spyOnOpenGitTerminal).not.toHaveBeenCalled();
+			});
+
+			it('Shouldn\'t open a terminal for a repository that isn\'t in Git Tree', async () => {
+				// Run
+				onDidReceiveMessage({ command: 'openTerminal', repo: '/path/to/other', path: '/path/to/other' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(messages).toStrictEqual([{ command: 'openTerminal', error: 'The repository /path/to/other isn\'t in Git Tree.' }]);
+				});
+				expect(spyOnGetWorktrees).not.toHaveBeenCalled();
+				expect(spyOnOpenGitTerminal).not.toHaveBeenCalled();
+			});
+
+			it('Should return the error when the worktrees can\'t be read', async () => {
+				// Setup
+				spyOnGetWorktrees.mockReset();
+				spyOnGetWorktrees.mockRejectedValueOnce('fatal: not a git repository');
+
+				// Run
+				onDidReceiveMessage({ command: 'openTerminal', repo: '/path/to/repo', path: '/path/to/repo' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(messages).toStrictEqual([{ command: 'openTerminal', error: 'fatal: not a git repository' }]);
+				});
+				expect(spyOnOpenGitTerminal).not.toHaveBeenCalled();
 			});
 		});
 
@@ -3839,6 +3924,25 @@ describe('GitTreeView', () => {
 					expect(messages).toHaveLength(0);
 				});
 			});
+
+			it('Should save the Host and Worktree dropdowns\' choices with the Repository State', async () => {
+				// Setup
+				const repoState = mockRepoState({ hostChoice: ['', 'aws-ns'], worktreeChoice: 'host:aws-ns:/srv/app' });
+				const spyOnSetRepoState = jest.spyOn(repoManager, 'setRepoState');
+				spyOnSetRepoState.mockImplementationOnce(() => { });
+
+				// Run
+				onDidReceiveMessage({
+					command: 'setRepoState',
+					repo: '/path/to/repo',
+					state: repoState
+				});
+
+				// Assert
+				await waitForExpect(() => {
+					expect(spyOnSetRepoState).toHaveBeenCalledWith('/path/to/repo', expect.objectContaining({ hostChoice: ['', 'aws-ns'], worktreeChoice: 'host:aws-ns:/srv/app' }));
+				});
+			});
 		});
 
 		describe('setWorkspaceViewState', () => {
@@ -4253,12 +4357,23 @@ describe('GitTreeView', () => {
 
 			it('Should pass the Host dropdown\'s choice on, so the hosts it doesn\'t show are left out and skipped', async () => {
 				// Run
-				onDidReceiveMessage(Object.assign({}, loadRepoInfo(0, false), { hideHosts: ['other'], hostChoice: 'server' }));
+				onDidReceiveMessage(Object.assign({}, loadRepoInfo(0, false), { hideHosts: ['other'], hostChoice: ['', 'server'] }));
 
 				// Assert
 				await waitForExpect(() => {
-					expect(dataSource.getRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, [], ['other'], 'server');
-					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo', ['other'], 'server');
+					expect(dataSource.getRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, [], ['other'], ['', 'server']);
+					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo', ['other'], ['', 'server']);
+				});
+			});
+
+			it('Should pass a Host dropdown choice of no sources on as it is', async () => {
+				// Run
+				onDidReceiveMessage(Object.assign({}, loadRepoInfo(0, false), { hostChoice: [] }));
+
+				// Assert
+				await waitForExpect(() => {
+					expect(dataSource.getRepoInfo).toHaveBeenCalledWith('/path/to/repo', true, false, [], [], []);
+					expect(remoteHosts.refresh).toHaveBeenCalledWith('/path/to/repo', [], []);
 				});
 			});
 
@@ -4359,6 +4474,23 @@ describe('GitTreeView', () => {
 					expect(remoteHosts.openTerminal).toHaveBeenCalledWith('/path/to/repo', 'server', '/home/dev/app-wt');
 					expect(messages).toStrictEqual([{ command: 'openRemoteTerminal', error: null }]);
 				});
+			});
+
+			it('Shouldn\'t open a local terminal in a host\'s worktree path', async () => {
+				// Setup
+				const spyOnGetWorktrees = jest.spyOn(dataSource, 'getWorktrees');
+				spyOnGetWorktrees.mockResolvedValueOnce([{ path: '/path/to/repo', name: 'repo', head: null, branch: 'main', isMain: true, isCurrent: true, locked: false, prunable: false }]);
+				const spyOnOpenGitTerminal = jest.spyOn(dataSource, 'openGitTerminal');
+
+				// Run
+				onDidReceiveMessage({ command: 'openTerminal', repo: '/path/to/repo', path: '/home/dev/app-wt' });
+
+				// Assert
+				await waitForExpect(() => {
+					expect(messages).toStrictEqual([{ command: 'openTerminal', error: '/home/dev/app-wt isn\'t a worktree of this repository. Refresh the view, then try again.' }]);
+				});
+				expect(spyOnOpenGitTerminal).not.toHaveBeenCalled();
+				expect(remoteHosts.openTerminal).not.toHaveBeenCalled();
 			});
 		});
 

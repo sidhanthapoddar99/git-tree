@@ -79,6 +79,10 @@
 .dropdownOption.selected{
 	background-color:rgba(128,128,128,0.15);
 }
+/* Where several options can be chosen, their checkboxes show which are */
+.dropdown.multi .dropdownOption.selected:not(:hover){
+	background-color:transparent;
+}
 .dropdownOption:hover{
 	background-color:var(--vscode-menu-selectionBackground, var(--vscode-menu-background));
 	color:var(--vscode-menu-selectionForeground, var(--vscode-menu-foreground));
@@ -124,21 +128,64 @@ body.vscode-high-contrast .dropdownOption:hover{
 	opacity:0.35;
 }
 
-.dropdownOptionMultiSelected{
+.dropdownOptionCheckbox{
 	position:absolute;
-	width:12px;
-	height:16px;
-	top:7px;
-	left:10px;
+	display:flex;
+	align-items:center;
+	justify-content:center;
+	box-sizing:border-box;
+	width:14px;
+	height:14px;
+	top:50%;
+	left:9px;
+	margin-top:-7px;
+	border:1px solid var(--vscode-checkbox-border, var(--git-tree-border));
+	border-radius:3px;
+	background-color:var(--vscode-checkbox-background, transparent);
 }
-.dropdownOptionMultiSelected svg{
-	fill:var(--vscode-menu-foreground);
-	opacity:0.7;
+.dropdownOptionCheckbox svg{
+	width:10px;
+	height:12px;
+	fill:var(--vscode-checkbox-foreground, var(--vscode-menu-foreground));
+}
+.dropdownOptionCheckbox.partial:after{
+	content:"";
+	width:8px;
+	height:2px;
+	border-radius:1px;
+	background-color:var(--vscode-checkbox-foreground, var(--vscode-menu-foreground));
 }
 
-.dropdownOption:hover svg{
+.dropdownOption:hover .dropdownOptionInfo svg{
 	fill:var(--vscode-menu-selectionForeground, var(--vscode-menu-foreground));
 	opacity:0.85;
+}
+
+/* A checklist's "only" button, shown on the hovered option, in space kept free for it */
+.dropdownOptions.checklist .dropdownOption{
+	padding-right:50px;
+}
+.dropdownOptionOnly{
+	display:none;
+	position:absolute;
+	box-sizing:border-box;
+	top:50%;
+	right:8px;
+	height:18px;
+	margin-top:-9px;
+	padding:0 6px;
+	border:1px solid currentColor;
+	border-radius:3px;
+	font-size:11px;
+	line-height:16px;
+	opacity:0.8;
+}
+.dropdownOption:hover .dropdownOptionOnly{
+	display:block;
+}
+.dropdownOptionOnly:hover{
+	opacity:1;
+	background-color:var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.2));
 }
 
 .dropdown.dropdownOpen .dropdownCurrentValue{

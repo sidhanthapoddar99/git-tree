@@ -33,7 +33,9 @@ interface VirtualTableSource {
 /**
  * Renders the rows of the commit table virtually: only the rows in view, plus a margin, exist in the DOM. A spacer row stands in for each run
  * of rows that isn't rendered, so the table keeps its full height and every row keeps its position. Every row has the same height, except
- * for the expansion below one row (the inline Commit Details View), which belongs to the view and stays in the DOM after its row.
+ * for the expanded row and the expansion below it (the inline Commit Details View), which belongs to the view and stays in the DOM after its
+ * row. The expanded row shows all of its labels, so it can be taller than the others: the table measures by how much, and counts it as part
+ * of the expansion.
  */
 class VirtualTable {
 	private readonly viewElem: HTMLElement;
@@ -49,6 +51,7 @@ class VirtualTable {
 	private headerHeight: number = 0;
 	private expandedIndex: number = -1;
 	private expandedHeight: number = 0;
+	private expandedRowExtra: number = 0; // How much taller the expanded row is than the others
 
 	private start: number = 0;
 	private end: number = 0;
@@ -81,17 +84,19 @@ class VirtualTable {
 		this.headerHeight = (<HTMLElement>bodyElem.firstElementChild).offsetHeight;
 		this.expandedIndex = -1;
 		this.expandedHeight = 0;
+		this.expandedRowExtra = 0;
 		this.start = 0;
 		this.end = 0;
 		this.requestedRows = [];
 	}
 
 	/**
-	 * Set the expansion below a row, which moves every later row down by its height.
+	 * Set the expanded row and the expansion below it, which move every later row down by their extra height. measure() measures the row.
 	 * @param index The index of the expanded row, or -1 if no row is expanded.
-	 * @param height The height of the expansion.
+	 * @param height The height of the expansion below the row (0 if there isn't one).
 	 */
 	public setExpansion(index: number, height: number) {
+		if (index !== this.expandedIndex) this.expandedRowExtra = 0;
 		this.expandedIndex = index;
 		this.expandedHeight = index > -1 ? height : 0;
 	}
@@ -151,32 +156,39 @@ class VirtualTable {
 	}
 
 	/**
-	 * Measure the height of a row, and where the first row starts, from the rendered table. If either differs from what the table assumed,
-	 * render it again, and the caller then draws what depends on the rendered rows.
+	 * Measure the height of a row, where the first row starts, and how much taller the expanded row is, from the rendered table. If any of them
+	 * differs from what the table assumed, render it again, and the caller then draws what depends on the rendered rows.
+	 * @returns TRUE => The table was rendered again, FALSE => Nothing changed.
 	 */
 	public measure() {
+		let changed = false;
 		for (let attempt = 0; attempt < 2 && this.bodyElem !== null && this.bodyElem.isConnected; attempt++) {
 			const firstItem = <HTMLElement | null>this.bodyElem.firstElementChild!.nextElementSibling;
-			if (firstItem === null) return;
+			if (firstItem === null) break;
 
-			// The first row or spacer also holds half of the column headers' border, so a row's height is measured from another row
+			// The first row or spacer also holds half of the column headers' border, and the expanded row can be taller, so a row's height is measured from another row
 			let rowHeight = this.rowHeight;
-			for (const elem of this.rows.values()) {
-				if (elem !== firstItem) {
+			for (const [index, elem] of this.rows) {
+				if (elem !== firstItem && index !== this.expandedIndex) {
 					rowHeight = elem.getBoundingClientRect().height;
 					break;
 				}
 			}
+			const expandedElem = this.rows.get(this.expandedIndex);
+			const expandedRowExtra = typeof expandedElem !== 'undefined' ? Math.max(expandedElem.getBoundingClientRect().height - rowHeight, 0) : 0;
 
 			// Where the rows would start if the first one were like the others: the bottom of the first row or spacer, less the rows it holds
 			const numRowsInFirstItem = firstItem.classList.contains(CLASS_VIRTUAL_SPACER) ? parseInt(firstItem.dataset.rows!) : 1;
-			const headerHeight = firstItem.getBoundingClientRect().bottom - this.bodyElem.getBoundingClientRect().top - numRowsInFirstItem * rowHeight;
+			const headerHeight = firstItem.getBoundingClientRect().bottom - this.bodyElem.getBoundingClientRect().top - numRowsInFirstItem * rowHeight - (firstItem === expandedElem ? expandedRowExtra : 0);
 
-			if (rowHeight <= 0 || (rowHeight === this.rowHeight && headerHeight === this.headerHeight)) return;
+			if (rowHeight <= 0 || (rowHeight === this.rowHeight && headerHeight === this.headerHeight && expandedRowExtra === this.expandedRowExtra)) break;
 			this.rowHeight = rowHeight;
 			this.headerHeight = headerHeight;
+			this.expandedRowExtra = expandedRowExtra;
 			this.update(true, -1);
+			changed = true;
 		}
+		return changed;
 	}
 
 	/**
@@ -314,24 +326,33 @@ class VirtualTable {
 	}
 
 	/**
+	 * Get how far the expanded row moves the later rows down: how much taller it is than the others, plus the expansion below it. The graph
+	 * stretches its lines by this much below the expanded row's commit.
+	 * @returns The height, or 0 if no row is expanded.
+	 */
+	public getExpansionHeight() {
+		return this.expandedIndex > -1 ? this.expandedRowExtra + this.expandedHeight : 0;
+	}
+
+	/**
 	 * Get the top of a row, relative to the top of the table.
 	 * @param index The index of the row.
 	 */
 	public getRowTop(index: number) {
-		return this.headerHeight + index * this.rowHeight + (this.expandedIndex > -1 && index > this.expandedIndex ? this.expandedHeight : 0);
+		return this.headerHeight + index * this.rowHeight + (this.expandedIndex > -1 && index > this.expandedIndex ? this.getExpansionHeight() : 0);
 	}
 
 	/**
-	 * Get the row at a position. The expansion belongs to the row it is below.
+	 * Get the row at a position. The expansion, and the expanded row's extra height, belong to the expanded row.
 	 * @param y The position, relative to the top of the table.
 	 * @returns The index of the row, which may be outside the table.
 	 */
 	private getRowAt(y: number) {
 		let offset = y - this.headerHeight;
 		if (this.expandedIndex > -1) {
-			const expansionTop = (this.expandedIndex + 1) * this.rowHeight;
-			if (offset >= expansionTop + this.expandedHeight) {
-				offset -= this.expandedHeight;
+			const expansionTop = (this.expandedIndex + 1) * this.rowHeight, expansionHeight = this.getExpansionHeight();
+			if (offset >= expansionTop + expansionHeight) {
+				offset -= expansionHeight;
 			} else if (offset >= expansionTop) {
 				return this.expandedIndex;
 			}

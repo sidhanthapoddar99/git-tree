@@ -1230,6 +1230,7 @@ describe('RepoManager', () => {
 				fileViewType: FileViewType.Default,
 				hideHosts: [],
 				hideRemotes: [],
+				hostChoice: ['', 'aws-ns'],
 				includeCommitsMentionedByReflogs: BooleanOverride.Default,
 				issueLinkingConfig: null,
 				lastImportAt: 0,
@@ -1242,7 +1243,8 @@ describe('RepoManager', () => {
 				showRemoteBranchesV2: BooleanOverride.Default,
 				showStashes: BooleanOverride.Default,
 				showTags: BooleanOverride.Default,
-				workspaceFolderIndex: 0
+				workspaceFolderIndex: 0,
+				worktreeChoice: '/path/to/workspace-folder1/repo2-feature'
 			};
 
 			// Run
@@ -1900,6 +1902,7 @@ describe('RepoManager', () => {
 						fileViewType: FileViewType.Default,
 						hideHosts: [],
 						hideRemotes: [],
+						hostChoice: null,
 						includeCommitsMentionedByReflogs: BooleanOverride.Default,
 						issueLinkingConfig: null,
 						lastImportAt: 1587559258000,
@@ -1912,7 +1915,8 @@ describe('RepoManager', () => {
 						showRemoteBranchesV2: BooleanOverride.Default,
 						showStashes: BooleanOverride.Default,
 						showTags: BooleanOverride.Default,
-						workspaceFolderIndex: 0
+						workspaceFolderIndex: 0,
+						worktreeChoice: null
 					}
 				};
 				expected['/path/to/workspace-folder1/repo'][stateKey] = stateValue;
@@ -2260,6 +2264,7 @@ describe('RepoManager', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 1587559258000,
@@ -2272,7 +2277,8 @@ describe('RepoManager', () => {
 					showRemoteBranchesV2: BooleanOverride.Default,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: 0
+					workspaceFolderIndex: 0,
+					worktreeChoice: null
 				}
 			});
 
@@ -2339,6 +2345,7 @@ describe('RepoManager', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 1587559258000,
@@ -2351,7 +2358,8 @@ describe('RepoManager', () => {
 					showRemoteBranchesV2: BooleanOverride.Default,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: 0
+					workspaceFolderIndex: 0,
+					worktreeChoice: null
 				}
 			});
 

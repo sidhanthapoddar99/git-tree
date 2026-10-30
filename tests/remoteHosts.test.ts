@@ -13,7 +13,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { DEFAULT_REPO_STATE, ExtensionState } from '../src/extensionState';
 import { Logger } from '../src/logger';
-import { RemoteHosts, getHostBranchesPrefix, getHostDetachedRef, resolveServerWorktreePath } from '../src/remoteHosts';
+import { RemoteHosts, getHostBranchesPrefix, getHostDetachedRef, getHostFilter, resolveServerWorktreePath } from '../src/remoteHosts';
 import { AGENT_INSTRUCTION } from '../src/remoteHosts/agentInstruction';
 import { BROWSE_SCRIPT } from '../src/remoteHosts/browse';
 import { CONFIG_FILE } from '../src/remoteHosts/config';
@@ -1254,7 +1254,7 @@ describe('RemoteHosts', () => {
 			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '  other:', '    ssh: other', '    path: /srv/other');
 
 			// Run
-			remoteHosts.refresh(main, [], 'box');
+			remoteHosts.refresh(main, [], ['box']);
 			await settle();
 
 			// Assert
@@ -1267,11 +1267,50 @@ describe('RemoteHosts', () => {
 			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '  other:', '    ssh: other', '    path: /srv/other');
 
 			// Run
-			remoteHosts.refresh(main, [], '');
+			remoteHosts.refresh(main, [], ['']);
 			await settle();
 
 			// Assert
 			expect(sshCalls()).toStrictEqual([]);
+		});
+
+		it('Should refresh no host when the Host dropdown shows no source', async () => {
+			// Setup
+			servers['other'] = server('/srv/other');
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '  other:', '    ssh: other', '    path: /srv/other');
+
+			// Run
+			remoteHosts.refresh(main, [], []);
+			await settle();
+
+			// Assert
+			expect(sshCalls()).toStrictEqual([]);
+		});
+
+		it('Should refresh the host the Host dropdown shows with Local', async () => {
+			// Setup
+			servers['other'] = server('/srv/other');
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '  other:', '    ssh: other', '    path: /srv/other');
+
+			// Run
+			remoteHosts.refresh(main, [], ['', 'other']);
+			await settle();
+
+			// Assert
+			expect(sshCalls().map((call) => call.args[call.args.length - 2])).toStrictEqual(['other']);
+		});
+
+		it('Should refresh every host when the Host dropdown\'s only host isn\'t in the config', async () => {
+			// Setup
+			servers['other'] = server('/srv/other');
+			writeConfig('  box:', '    ssh: box', '    path: /srv/app', '  other:', '    ssh: other', '    path: /srv/other');
+
+			// Run
+			remoteHosts.refresh(main, [], ['ghost']);
+			await settle();
+
+			// Assert
+			expect(sshCalls().map((call) => call.args[call.args.length - 2]).sort()).toStrictEqual(['box', 'other']);
 		});
 
 		function entry(name: string, ssh: string, serverPath: string, worktrees: boolean = true, forwardAgent: boolean = false): RemoteHostEntry {
@@ -1299,12 +1338,13 @@ describe('RemoteHosts', () => {
 			}
 		});
 
+		const getHiddenHosts = (repos: string[]) => remoteHosts['getHiddenHosts'](<any>{ repos: new Set(repos), hosts: ['a', 'b', 'c'].map((name) => ({ config: { name: name } })) });
+
 		it('Should leave out the hosts that every saved view state of the repository hides', () => {
 			// Setup
 			const repoState = (hideHosts: string[]) => Object.assign({}, DEFAULT_REPO_STATE, { hideHosts: hideHosts });
 			const spyOnGetRepos = jest.spyOn(extensionState, 'getRepos');
 			spyOnGetRepos.mockReturnValue({ '/repo': repoState(['a', 'b']), '/repo/.worktrees/x': repoState(['b', 'c']) });
-			const getHiddenHosts = (repos: string[]) => remoteHosts['getHiddenHosts'](<any>{ repos: new Set(repos) });
 
 			// Assert
 			expect(getHiddenHosts(['/repo', '/repo/.worktrees/x'])).toStrictEqual(['b']);
@@ -1312,6 +1352,61 @@ describe('RemoteHosts', () => {
 			expect(getHiddenHosts(['/elsewhere'])).toStrictEqual([]);
 			spyOnGetRepos.mockRestore();
 		});
+
+		it('Should leave out the hosts that the Host dropdown of every saved view state of the repository doesn\'t show', () => {
+			// Setup
+			const repoState = (hideHosts: string[], hostChoice: string[] | null) => Object.assign({}, DEFAULT_REPO_STATE, { hideHosts: hideHosts, hostChoice: hostChoice });
+			const spyOnGetRepos = jest.spyOn(extensionState, 'getRepos');
+			spyOnGetRepos.mockReturnValue({ '/repo': repoState([], ['', 'a']), '/repo/.worktrees/x': repoState(['c'], null), '/other': repoState([], []), '/stale': repoState([], ['ghost']) });
+
+			// Assert
+			expect(getHiddenHosts(['/repo'])).toStrictEqual(['b', 'c']);
+			expect(getHiddenHosts(['/repo', '/repo/.worktrees/x'])).toStrictEqual(['c']);
+			expect(getHiddenHosts(['/other'])).toStrictEqual(['a', 'b', 'c']);
+			expect(getHiddenHosts(['/stale'])).toStrictEqual([]);
+			spyOnGetRepos.mockRestore();
+		});
+	});
+});
+
+describe('getHostFilter', () => {
+	const hosts = ['aws-ns', 'gcp'];
+
+	it('Should show this machine and every host but the hidden ones for All (NULL)', () => {
+		expect(getHostFilter(hosts, [], null)).toStrictEqual({ local: true, hosts: ['aws-ns', 'gcp'] });
+		expect(getHostFilter(hosts, ['gcp'], null)).toStrictEqual({ local: true, hosts: ['aws-ns'] });
+	});
+
+	it('Should show nothing for an empty choice', () => {
+		expect(getHostFilter(hosts, [], [])).toStrictEqual({ local: false, hosts: [] });
+	});
+
+	it('Should show only this machine for Local', () => {
+		expect(getHostFilter(hosts, [], [''])).toStrictEqual({ local: true, hosts: [] });
+	});
+
+	it('Should show only the chosen hosts, in the config\'s order', () => {
+		expect(getHostFilter(hosts, [], ['gcp'])).toStrictEqual({ local: false, hosts: ['gcp'] });
+		expect(getHostFilter(hosts, [], ['gcp', 'aws-ns'])).toStrictEqual({ local: false, hosts: ['aws-ns', 'gcp'] });
+	});
+
+	it('Should show this machine and one host for Local and the host', () => {
+		expect(getHostFilter(hosts, [], ['', 'aws-ns'])).toStrictEqual({ local: true, hosts: ['aws-ns'] });
+	});
+
+	it('Should ignore a host that isn\'t in the config', () => {
+		expect(getHostFilter(hosts, [], ['', 'ghost'])).toStrictEqual({ local: true, hosts: [] });
+		expect(getHostFilter(hosts, [], ['gcp', 'ghost'])).toStrictEqual({ local: false, hosts: ['gcp'] });
+	});
+
+	it('Should show everything for a choice of only hosts that aren\'t in the config, or are hidden', () => {
+		expect(getHostFilter(hosts, [], ['ghost'])).toStrictEqual({ local: true, hosts: ['aws-ns', 'gcp'] });
+		expect(getHostFilter([], [], ['aws-ns'])).toStrictEqual({ local: true, hosts: [] });
+		expect(getHostFilter(hosts, ['aws-ns'], ['aws-ns'])).toStrictEqual({ local: true, hosts: ['gcp'] });
+	});
+
+	it('Should never show a hidden host, even when it is chosen with another source', () => {
+		expect(getHostFilter(hosts, ['aws-ns'], ['', 'aws-ns'])).toStrictEqual({ local: true, hosts: [] });
 	});
 });
 

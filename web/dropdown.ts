@@ -8,11 +8,22 @@ interface DropdownOption {
 }
 
 /**
+ * How a dropdown's options are chosen. The first option of a dropdown where several can be chosen stands for all of them.
+ * - `single`: one option.
+ * - `showAll`: the first option ("Show All") on its own, or any of the others. Choosing another unselects the first, and unselecting every other selects it.
+ * - `checklist`: any of the options, even none, each with a checkbox. The first ("All") is ticked when every other is. Clicking it ticks them all, or clears
+ *   them all when they all are. Each other option has an "only" button, which ticks just it.
+ */
+type DropdownSelection = 'single' | 'showAll' | 'checklist';
+
+/**
  * Implements the dropdown inputs used in the Git Tree View's top control bar.
  */
 class Dropdown {
 	private readonly showInfo: boolean;
+	private readonly selection: DropdownSelection;
 	private readonly multipleAllowed: boolean;
+	private readonly dropdownType: string;
 	private readonly changeCallback: (values: string[]) => void;
 
 	private options: ReadonlyArray<DropdownOption> = [];
@@ -34,14 +45,16 @@ class Dropdown {
 	 * Constructs a Dropdown instance.
 	 * @param id The ID of the HTML Element that the dropdown should be rendered in.
 	 * @param showInfo Should an information icon be shown on the right of each dropdown item.
-	 * @param multipleAllowed Can multiple items be selected.
-	 * @param dropdownType The type of content the dropdown is being used for.
-	 * @param changeCallback A callback to be invoked when the selected item(s) of the dropdown changes.
+	 * @param selection How the items are chosen.
+	 * @param dropdownType The type of content the dropdown is being used for, in the plural.
+	 * @param changeCallback A callback to be invoked when the selected item(s) of the dropdown changes. A checklist passes the ticked items other than the first.
 	 * @returns The Dropdown instance.
 	 */
-	constructor(id: string, showInfo: boolean, multipleAllowed: boolean, dropdownType: string, changeCallback: (values: string[]) => void) {
+	constructor(id: string, showInfo: boolean, selection: DropdownSelection, dropdownType: string, changeCallback: (values: string[]) => void) {
 		this.showInfo = showInfo;
-		this.multipleAllowed = multipleAllowed;
+		this.selection = selection;
+		this.multipleAllowed = selection !== 'single';
+		this.dropdownType = dropdownType;
 		this.changeCallback = changeCallback;
 		this.elem = document.getElementById(id)!;
 
@@ -65,7 +78,7 @@ class Dropdown {
 		this.currentValueElem = this.elem.appendChild(document.createElement('div'));
 		this.currentValueElem.className = 'dropdownCurrentValue';
 
-		alterClass(this.elem, 'multi', multipleAllowed);
+		alterClass(this.elem, 'multi', this.multipleAllowed);
 		this.elem.appendChild(this.menuElem);
 
 		document.addEventListener('click', (e) => {
@@ -87,7 +100,11 @@ class Dropdown {
 				} else {
 					const option = <HTMLElement | null>(<HTMLElement>e.target).closest('.dropdownOption');
 					if (option !== null && option.parentNode === this.optionsElem && typeof option.dataset.id !== 'undefined' && !this.options[parseInt(option.dataset.id!)].disabled) {
-						this.onOptionClick(parseInt(option.dataset.id!));
+						if ((<HTMLElement>e.target).closest('.dropdownOptionOnly') !== null) {
+							this.onOptionOnlyClick(parseInt(option.dataset.id!));
+						} else {
+							this.onOptionClick(parseInt(option.dataset.id!));
+						}
 					}
 				}
 			}
@@ -99,9 +116,9 @@ class Dropdown {
 	/**
 	 * Set the options that should be displayed in the dropdown.
 	 * @param options An array of the options to display in the dropdown.
-	 * @param optionsSelected An array of the selected options in the dropdown.
+	 * @param optionsSelected An array of the selected options in the dropdown. In a checklist, the first option's value ticks every option.
 	 */
-	public setOptions(options: ReadonlyArray<DropdownOption>, optionsSelected: string[]) {
+	public setOptions(options: ReadonlyArray<DropdownOption>, optionsSelected: ReadonlyArray<string>) {
 		this.options = options;
 		this.optionsSelected = [];
 		let selectedOption = -1, isSelected;
@@ -112,7 +129,11 @@ class Dropdown {
 				selectedOption = i;
 			}
 		}
-		if (selectedOption === -1) {
+		if (this.selection === 'checklist') {
+			// A checklist can have nothing ticked
+			if (this.optionsSelected[0]) this.optionsSelected.fill(true);
+			this.updateChecklistAll();
+		} else if (selectedOption === -1) {
 			selectedOption = 0;
 			this.optionsSelected[selectedOption] = true;
 		}
@@ -148,7 +169,7 @@ class Dropdown {
 	 */
 	public selectOption(value: string) {
 		const optionIndex = this.options.findIndex((option) => value === option.value);
-		if (this.multipleAllowed && optionIndex > -1 && !this.optionsSelected[0] && !this.optionsSelected[optionIndex]) {
+		if (this.selection === 'showAll' && optionIndex > -1 && !this.optionsSelected[0] && !this.optionsSelected[optionIndex]) {
 			// Select the option with the specified value
 			this.optionsSelected[optionIndex] = true;
 
@@ -168,7 +189,7 @@ class Dropdown {
 	 */
 	public unselectOption(value: string) {
 		const optionIndex = this.options.findIndex((option) => value === option.value);
-		if (this.multipleAllowed && optionIndex > -1 && (this.optionsSelected[0] || this.optionsSelected[optionIndex])) {
+		if (this.selection === 'showAll' && optionIndex > -1 && (this.optionsSelected[0] || this.optionsSelected[optionIndex])) {
 			if (this.optionsSelected[0]) {
 				// Show All is currently selected, so unselect it, and select all branch options
 				this.optionsSelected[0] = false;
@@ -224,10 +245,12 @@ class Dropdown {
 	private render() {
 		this.elem.classList.add('loaded');
 
-		const curValueText = formatCommaSeparatedList(this.getSelectedOptions(true));
+		const curValueText = this.getCurrentValueText();
 		this.currentValueElem.title = curValueText;
 		this.currentValueElem.innerHTML = escapeHtml(curValueText);
 
+		// The first option of a checklist shows a dash while only some options are ticked
+		const checklist = this.selection === 'checklist', partial = checklist && !this.optionsSelected[0] && this.optionsSelected.includes(true);
 		let html = '';
 		for (let i = 0; i < this.options.length; i++) {
 			const escapedName = escapeHtml(this.options[i].name), group = this.options[i].group;
@@ -235,12 +258,13 @@ class Dropdown {
 				html += '<div class="dropdownGroup" data-group="' + i + '" title="' + escapeHtml(group) + '">' + escapeHtml(group) + '</div>';
 			}
 			html += '<div class="dropdownOption' + (this.optionsSelected[i] ? ' ' + CLASS_SELECTED : '') + (this.options[i].disabled ? ' ' + CLASS_DISABLED : '') + '" data-id="' + i + '" title="' + escapedName + '">' +
-				(this.multipleAllowed && this.optionsSelected[i] ? '<div class="dropdownOptionMultiSelected">' + SVG_ICONS.check + '</div>' : '') +
+				(this.multipleAllowed ? '<div class="dropdownOptionCheckbox' + (i === 0 && partial ? ' partial' : '') + '">' + (this.optionsSelected[i] ? SVG_ICONS.check : '') + '</div>' : '') +
 				escapedName + (typeof this.options[i].hint === 'string' && this.options[i].hint !== '' ? '<span class="dropdownOptionHint">' + escapeHtml(this.options[i].hint!) + '</span>' : '') +
 				(this.showInfo ? '<div class="dropdownOptionInfo" title="' + escapeHtml(this.options[i].value) + '">' + SVG_ICONS.info + '</div>' : '') +
+				(checklist && i > 0 ? '<div class="dropdownOptionOnly" title="' + escapeHtml('Show only ' + this.options[i].name) + '">only</div>' : '') +
 				'</div>';
 		}
-		this.optionsElem.className = 'dropdownOptions' + (this.showInfo ? ' showInfo' : '');
+		this.optionsElem.className = 'dropdownOptions' + (this.showInfo ? ' showInfo' : '') + (checklist ? ' checklist' : '');
 		this.optionsElem.innerHTML = html;
 		this.filterInput.style.display = 'none';
 		this.noResultsElem.style.display = 'none';
@@ -294,12 +318,30 @@ class Dropdown {
 	}
 
 	/**
+	 * Get the text of the closed dropdown. A checklist says "All" (its first option) when every option is ticked, "None" when none is, the
+	 * names of up to two options, or else how many are ticked.
+	 * @returns The text.
+	 */
+	private getCurrentValueText() {
+		if (this.selection !== 'checklist') return formatCommaSeparatedList(this.getSelectedOptions(true));
+		if (this.options.length > 0 && this.optionsSelected[0]) return this.options[0].name;
+		const names = this.getSelectedOptions(true);
+		return names.length === 0 ? 'None' : names.length <= 2 ? names.join(', ') : names.length + ' ' + this.dropdownType.toLowerCase();
+	}
+
+	/**
 	 * Get an array of the selected dropdown options.
 	 * @param names TRUE => Return the names of the selected options, FALSE => Return the values of the selected options.
-	 * @returns The array of the selected options.
+	 * @returns The array of the selected options. A checklist's are the ticked options other than the first.
 	 */
 	private getSelectedOptions(names: boolean) {
 		let selected = [];
+		if (this.selection === 'checklist') {
+			for (let i = 1; i < this.options.length; i++) {
+				if (this.optionsSelected[i]) selected.push(names ? this.options[i].name : this.options[i].value);
+			}
+			return selected;
+		}
 		if (this.multipleAllowed && this.optionsSelected[0]) {
 			// Note: Show All is always the first option (0 index) when multiple selected items are allowed
 			return [names ? this.options[0].name : this.options[0].value];
@@ -320,6 +362,18 @@ class Dropdown {
 			// An action leaves the choice as it was
 			this.close();
 			action();
+			return;
+		}
+
+		if (this.selection === 'checklist') {
+			// Each click counts, so quick clicks on checkboxes aren't taken as a double click
+			if (option === 0) {
+				this.optionsSelected.fill(!this.optionsSelected[0]);
+			} else {
+				this.optionsSelected[option] = !this.optionsSelected[option];
+				this.updateChecklistAll();
+			}
+			this.applyChecklistChange();
 			return;
 		}
 
@@ -391,6 +445,35 @@ class Dropdown {
 		this.doubleClickTimeout = setTimeout(() => {
 			this.clearDoubleClickTimeout();
 		}, 500);
+	}
+
+	/**
+	 * Tick just one option of a checklist: its "only" button was clicked.
+	 * @param option The index of the option.
+	 */
+	private onOptionOnlyClick(option: number) {
+		if (this.optionsSelected.every((selected, i) => selected === (i === option))) return;
+		this.optionsSelected.fill(false);
+		this.optionsSelected[option] = true;
+		this.updateChecklistAll();
+		this.applyChecklistChange();
+	}
+
+	/**
+	 * Tick the first option of a checklist when every other option is ticked, and only then.
+	 */
+	private updateChecklistAll() {
+		if (this.options.length > 0) this.optionsSelected[0] = this.optionsSelected.every((selected, i) => i === 0 || selected);
+	}
+
+	/**
+	 * Show a change to the ticked options of a checklist, keeping the menu where it was scrolled to, and pass the change on.
+	 */
+	private applyChecklistChange() {
+		const menuScroll = this.menuElem.scrollTop;
+		this.render();
+		if (this.dropdownVisible) this.menuElem.scroll(0, menuScroll);
+		this.changeCallback(this.getSelectedOptions(false));
 	}
 
 	/**

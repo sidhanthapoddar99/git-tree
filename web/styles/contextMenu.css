@@ -35,6 +35,29 @@ body.vscode-high-contrast .contextMenu li.contextMenuItem:hover{
 	outline-offset:-2px;
 }
 
+.contextMenu li.contextMenuHeading{
+	padding:4px 20px 2px;
+	font-size:11px;
+	font-weight:bold;
+	opacity:0.75;
+	white-space:nowrap;
+}
+.contextMenu.checked li.contextMenuHeading{
+	padding-left:35px;
+}
+
+.contextMenu .contextMenuHint{
+	display:inline-block;
+	max-width:220px;
+	margin-left:8px;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
+	vertical-align:top;
+	font-weight:normal;
+	opacity:0.6;
+}
+
 .contextMenu li.contextMenuDivider{
 	margin:4px 10px;
 	border-top:1px solid var(--vscode-menu-separatorBackground);

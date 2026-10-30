@@ -8,12 +8,12 @@ import { AskpassEnvironment, AskpassManager } from './askpass/askpassManager';
 import { getConfig } from './config';
 import { BranchListEntry, CommitDetailsEntry, DiffOutput, Engine, EngineAnswer, EngineDetailsFormat, EngineFormat, EngineLogRequest, LogEntry, ShowRefEntry, StashListEntry, TagDetailsEntry, WorktreeListEntry } from './engine';
 import { Logger } from './logger';
-import { HOST_REFS_PREFIX, RemoteHostSnapshot, RemoteHosts, areLocalWorktreesShown, getHostBranchesPrefix, isRemoteHostShown } from './remoteHosts';
+import { HOST_REFS_PREFIX, RemoteHostSnapshot, RemoteHosts, getHostBranchesPrefix, getHostFilter } from './remoteHosts';
 import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRemoteHost, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, HostChoice, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, UNCOMMITTED, abbrevCommit, getGitExecutableError, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
 import { Disposable } from './utils/disposable';
 import { Event } from './utils/event';
-import { parseWorktreeList } from './worktreeList';
+import { getWorktreeFromEntry, parseWorktreeList } from './worktreeList';
 
 const DRIVE_LETTER_PATH_REGEX = /^[a-z]:\//;
 const EOL_REGEX = /\r\n|\r|\n/g;
@@ -166,14 +166,14 @@ export class DataSource extends Disposable {
 		// One engine crossing reads the four parts, and each part keeps its own Git CLI fallback
 		const repoInfoPart = shareEngineRead((engine) => engine.repoInfo(repo, showRemoteBranches, showStashes ? this.engineFormat : null));
 		// The hosts as they are now: this never waits for the network
-		const hosts = this.getRemoteHosts(repo);
+		const hosts = this.getRemoteHosts(repo), shownHosts = getHostFilter(hosts.map((snapshot) => snapshot.host.name), hideHosts, hostChoice).hosts;
 		return Promise.all([
 			this.getBranches(repo, showRemoteBranches, hideRemotes, repoInfoPart((answer) => answer.branches)),
 			this.getRemotes(repo, repoInfoPart((answer) => answer.remotes)),
 			showStashes ? this.getStashes(repo, repoInfoPart((answer) => answer.stashes !== null ? answer.stashes : { failed: 'the answer has no stashes' })) : Promise.resolve([]),
 			this.getWorktrees(repo, repoInfoPart((answer) => answer.worktrees))
 		]).then((results) => {
-			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], worktrees: results[3].concat(getRemoteHostWorktrees(hosts.filter((snapshot) => isRemoteHostShown(snapshot.host.name, hideHosts, hostChoice)))), hosts: hosts.map((snapshot) => snapshot.host), error: null };
+			return { branches: results[0].branches, head: results[0].head, remotes: results[1], stashes: results[2], worktrees: results[3].concat(getRemoteHostWorktrees(hosts.filter((snapshot) => shownHosts.indexOf(snapshot.host.name) > -1))), hosts: hosts.map((snapshot) => snapshot.host), error: null };
 		}).catch((errorMessage) => {
 			return { branches: [], head: null, remotes: [], stashes: [], worktrees: [], hosts: [], error: errorMessage };
 		});
@@ -196,14 +196,15 @@ export class DataSource extends Disposable {
 	 * @param onlyWorktreeHistory Show only the history of the worktree that `repo` is: its HEAD joins `branches` as a start point (all branches are left out when `branches` is NULL), and other worktrees' uncommitted changes are left out.
 	 * @param onlyHostWorktree A remote host's worktree (one of `worktrees`) whose history alone is shown: its HEAD commit joins `branches` as a start point if it is on this machine, and only its uncommitted changes are shown. `repo` is then the repository. NULL => none.
 	 * @param hideHosts The names of the hidden remote hosts: their refs are neither start points nor labels, and their worktrees get no rows.
-	 * @param hostChoice The Host dropdown's choice: the remote hosts it doesn't show are left out too, and when it chose a host, this machine's worktrees get no rows.
+	 * @param hostChoice The Host dropdown's choice: the remote hosts it doesn't show are left out too, and when it doesn't show Local, this machine's worktrees get no rows.
 	 * @returns The commits in the repository.
 	 */
 	public getCommits(repo: string, branches: ReadonlyArray<string> | null, maxCommits: number, showTags: boolean, showRemoteBranches: boolean, includeCommitsMentionedByReflogs: boolean, onlyFollowFirstParent: boolean, commitOrdering: CommitOrdering, remotes: ReadonlyArray<string>, hideRemotes: ReadonlyArray<string>, stashes: ReadonlyArray<GitStash>, worktrees: ReadonlyArray<GitWorktree>, onlyWorktreeHistory: boolean = false, onlyHostWorktree: GitWorktree | null = null, hideHosts: ReadonlyArray<string> = [], hostChoice: HostChoice = null): Promise<GitCommitData> {
 		const config = getConfig();
 		// The shown hosts as they are now: their names give the refs to read, and their snapshots the counts of their worktrees' changes
-		const hosts = this.getRemoteHosts(repo).filter((snapshot) => isRemoteHostShown(snapshot.host.name, hideHosts, hostChoice));
-		const localWorktreesShown = areLocalWorktreesShown(hostChoice);
+		const allHosts = this.getRemoteHosts(repo), hostFilter = getHostFilter(allHosts.map((snapshot) => snapshot.host.name), hideHosts, hostChoice);
+		const hosts = allHosts.filter((snapshot) => hostFilter.hosts.indexOf(snapshot.host.name) > -1);
+		const localWorktreesShown = hostFilter.local;
 		const hostNames = hosts.map((snapshot) => snapshot.host.name).filter((name) => HOST_NAME_REGEXP.test(name));
 		let startPoints: ReadonlyArray<string> | null;
 		if (onlyHostWorktree !== null) {
@@ -237,7 +238,7 @@ export class DataSource extends Disposable {
 		const otherUncommittedChanges = Promise.all(otherWorktrees.map((item) => this.getUncommittedChanges(item.worktree.path).catch(() => null)));
 		// The remote hosts' worktrees, whose counts come from each host's last refresh, after the local worktrees' rows
 		const hostWorktrees = config.showUncommittedChanges && !onlyWorktreeHistory
-			? indexedWorktrees.filter((item) => typeof item.worktree.host !== 'undefined' && isRemoteHostShown(item.worktree.host, hideHosts, hostChoice) && !item.worktree.prunable && item.worktree.head !== null &&
+			? indexedWorktrees.filter((item) => typeof item.worktree.host !== 'undefined' && hostFilter.hosts.indexOf(item.worktree.host) > -1 && !item.worktree.prunable && item.worktree.head !== null &&
 				(onlyHostWorktree === null || (item.worktree.host === onlyHostWorktree.host && item.worktree.path === onlyHostWorktree.path)))
 			: [];
 
@@ -1980,12 +1981,12 @@ export class DataSource extends Disposable {
 	}
 
 	/**
-	 * Get the worktrees of a repository.
+	 * Get the worktrees of a repository. It is public so the view can check that a worktree path it is sent is one of them.
 	 * @param repo The path of the repository.
 	 * @param engineRead Reads the worktree records with the engine (default: the engine's `worktrees` read).
 	 * @returns An array of the worktrees, with the main worktree first.
 	 */
-	private getWorktrees(repo: string, engineRead: EngineRead<WorktreeListEntry[]> = (engine) => engine.worktrees(repo)): Promise<GitWorktree[]> {
+	public getWorktrees(repo: string, engineRead: EngineRead<WorktreeListEntry[]> = (engine) => engine.worktrees(repo)): Promise<GitWorktree[]> {
 		return Promise.all([
 			this.readWithEngine('worktrees', engineRead, () => this.spawnGit(['worktree', 'list', '--porcelain'], repo, parseWorktreeList)),
 			realpath(repo)
@@ -2267,16 +2268,7 @@ function getWorktreesFromList(entries: ReadonlyArray<WorktreeListEntry>, viewedR
 		if (entry.path === null || entry.bare) continue;
 
 		const worktreePath = getPathFromUri(vscode.Uri.file(path.normalize(entry.path)));
-		worktrees.push({
-			path: worktreePath,
-			name: path.basename(worktreePath),
-			head: entry.head === null || /^0+$/.test(entry.head) ? null : entry.head,
-			branch: entry.branch === null ? null : entry.branch.replace(/^refs\/heads\//, ''),
-			isMain: i === 0,
-			isCurrent: viewedRepoPaths.includes(worktreePath),
-			locked: entry.locked,
-			prunable: entry.prunable
-		});
+		worktrees.push(Object.assign(getWorktreeFromEntry(entry, worktreePath, path.basename(worktreePath), i === 0), { isCurrent: viewedRepoPaths.includes(worktreePath) }));
 	}
 	return worktrees;
 }

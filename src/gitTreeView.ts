@@ -10,7 +10,7 @@ import { RepoFileWatcher } from './repoFileWatcher';
 import { resolveServerWorktreePath } from './remoteHosts';
 import { AGENT_INSTRUCTION } from './remoteHosts/agentInstruction';
 import { RepoManager } from './repoManager';
-import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewConfig, GitTreeViewInitialState, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
+import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewConfig, GitTreeViewInitialState, GitWorktree, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
 import { UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, escapeHtml, getNonce, getRepoName, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
 
@@ -627,7 +627,7 @@ export class GitTreeView extends Disposable {
 			case 'openTerminal':
 				this.sendMessage({
 					command: 'openTerminal',
-					error: await this.dataSource.openGitTerminal(msg.repo, null, msg.name)
+					error: await this.openTerminal(msg.repo, msg.path)
 				});
 				break;
 			case 'openWorktree':
@@ -852,6 +852,30 @@ export class GitTreeView extends Disposable {
 	}
 
 	/**
+	 * Open a terminal in one of a repository's worktrees on this machine. The path comes from the Webview, so the terminal
+	 * only opens in a worktree that Git lists for a repository in Git Tree, and never in any other folder.
+	 * @param repo The path of the repository.
+	 * @param worktreePath The path of the worktree: one from the repository's worktrees, or the repository itself.
+	 * @returns The ErrorInfo from opening the terminal.
+	 */
+	private async openTerminal(repo: string, worktreePath: string): Promise<ErrorInfo> {
+		const repoState = this.repoManager.getRepos()[repo];
+		if (typeof repoState === 'undefined') return 'The repository ' + repo + ' isn\'t in Git Tree.';
+		let worktrees: GitWorktree[];
+		try {
+			worktrees = await this.dataSource.getWorktrees(repo);
+		} catch (errorMessage) {
+			return <ErrorInfo>errorMessage;
+		}
+		// Git lists worktrees by their real path, so the repository itself is also found by being the current worktree
+		const worktree = worktrees.find((worktree) => worktree.path === worktreePath) || (worktreePath === repo ? worktrees.find((worktree) => worktree.isCurrent) : undefined);
+		if (typeof worktree === 'undefined') return worktreePath + ' isn\'t a worktree of this repository. Refresh the view, then try again.';
+		if (worktree.prunable) return 'The folder of the worktree ' + worktree.path + ' no longer exists.';
+		const label = worktree.isMain ? 'Root' : worktree.name;
+		return this.dataSource.openGitTerminal(worktree.path, null, (repoState.name || getRepoName(repo)) + ' (' + label + ')');
+	}
+
+	/**
 	 * Send a message to the front-end.
 	 * @param msg The message to be sent.
 	 */
@@ -994,7 +1018,7 @@ export class GitTreeView extends Disposable {
 					<span id="hostControl"><span class="unselectable controlText">Host: </span><div id="hostDropdown" class="dropdown"></div></span>
 					<span id="worktreeControl"><span class="unselectable controlText">Worktree: </span><div id="worktreeDropdown" class="dropdown"></div></span>
 					<div id="findBtn" title="Find"></div>
-					<div id="terminalBtn" title="Open a Terminal for this Repository"></div>
+					<div id="terminalBtn" title="Open a Terminal"></div>
 					<div id="settingsBtn" title="Repository Settings"></div>
 					<div id="fetchBtn"></div>
 					<div id="refreshBtn"></div>

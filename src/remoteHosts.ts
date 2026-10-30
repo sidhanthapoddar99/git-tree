@@ -56,23 +56,29 @@ export function getHostBranchesPrefix(name: string) {
 	return HOST_REFS_PREFIX + name + '/heads/';
 }
 
-/**
- * Does a view show a remote host: it isn't hidden in Repository Settings, and the Host dropdown chose All or this host.
- * A host that isn't shown has no worktrees, branches or rows in the view, and the view's refreshes skip it.
- * @param name The host's name.
- * @param hideHosts The names of the hosts hidden in Repository Settings.
- * @param hostChoice The Host dropdown's choice.
- */
-export function isRemoteHostShown(name: string, hideHosts: ReadonlyArray<string>, hostChoice: HostChoice) {
-	return hideHosts.indexOf(name) === -1 && (hostChoice === null || hostChoice === name);
+/** What a view shows of a repository's worktrees (getHostFilter). */
+export interface HostFilter {
+	readonly local: boolean; // This machine's worktrees' rows of uncommitted changes
+	readonly hosts: ReadonlyArray<string>; // The names of the remote hosts shown
 }
 
 /**
- * Does a view show this machine's worktrees' rows of uncommitted changes: unless the Host dropdown chose a remote host.
- * @param hostChoice The Host dropdown's choice.
+ * Work out what a view shows from the Host dropdown's choice. A remote host is shown when it isn't hidden in Repository
+ * Settings, and the choice is All or names it. A host that isn't shown has no worktrees, branches or rows in the view, and
+ * the view's refreshes skip it. The webview's resolveHostChoice (web/main.ts) applies the same rules.
+ * @param hostNames The names of the repository's remote hosts, from its config.
+ * @param hideHosts The names of the hosts hidden in Repository Settings.
+ * @param hostChoice The Host dropdown's choice. The names it has of hosts that aren't in `hostNames`, or are hidden, are
+ * ignored, and a choice of only such names counts as All, so a stale choice never hides everything.
+ * @returns What the view shows.
  */
-export function areLocalWorktreesShown(hostChoice: HostChoice) {
-	return hostChoice === null || hostChoice === '';
+export function getHostFilter(hostNames: ReadonlyArray<string>, hideHosts: ReadonlyArray<string>, hostChoice: HostChoice): HostFilter {
+	const available = hostNames.filter((name) => hideHosts.indexOf(name) === -1);
+	const known = hostChoice !== null ? hostChoice.filter((name) => name === '' || available.indexOf(name) > -1) : [];
+	if (hostChoice === null || (hostChoice.length > 0 && known.length === 0)) {
+		return { local: true, hosts: available };
+	}
+	return { local: known.indexOf('') > -1, hosts: available.filter((name) => known.indexOf(name) > -1) };
 }
 
 /**
@@ -271,7 +277,9 @@ export class RemoteHosts extends Disposable {
 	public refresh(repo: string, hideHosts: ReadonlyArray<string> = [], hostChoice: HostChoice = null): void {
 		this.loadEntry(repo).then((entry) => {
 			// The names are only known once the config is read, so the hosts to skip are worked out here
-			if (entry !== null) this.refreshEntry(entry, entry.hosts.map((host) => host.config.name).filter((name) => !isRemoteHostShown(name, hideHosts, hostChoice)));
+			if (entry === null) return;
+			const names = entry.hosts.map((host) => host.config.name), shown = getHostFilter(names, hideHosts, hostChoice).hosts;
+			this.refreshEntry(entry, names.filter((name) => shown.indexOf(name) === -1));
 		}, (error) => this.logger.logError('Remote hosts: ' + error));
 	}
 
@@ -894,15 +902,17 @@ export class RemoteHosts extends Disposable {
 	}
 
 	/**
-	 * Get the hosts that every saved view state of a repository hides, which the interval leaves alone, as a view's own
-	 * refresh does.
+	 * Get the hosts that no saved view state of a repository shows (getHostFilter), which the interval leaves alone, as a
+	 * view's own refresh does.
 	 * @param entry The repository's entry.
 	 * @returns The names of the hosts. Empty when no view state of the repository is saved.
 	 */
 	private getHiddenHosts(entry: RepoEntry): string[] {
 		const repoStates = this.extensionState.getRepos();
 		const states = Array.from(entry.repos).map((repo) => repoStates[repo]).filter((state) => typeof state !== 'undefined');
-		return states.length > 0 ? states[0].hideHosts.filter((name) => states.every((state) => state.hideHosts.indexOf(name) > -1)) : [];
+		const names = entry.hosts.map((host) => host.config.name);
+		const shown = states.map((state) => getHostFilter(names, state.hideHosts, state.hostChoice).hosts);
+		return states.length > 0 ? names.filter((name) => shown.every((hosts) => hosts.indexOf(name) === -1)) : [];
 	}
 
 	/**

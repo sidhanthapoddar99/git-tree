@@ -64,6 +64,7 @@ describe('ExtensionState', () => {
 				fileViewType: FileViewType.List,
 				hideHosts: [],
 				hideRemotes: [],
+				hostChoice: ['', 'aws-ns'],
 				includeCommitsMentionedByReflogs: BooleanOverride.Enabled,
 				issueLinkingConfig: null,
 				lastImportAt: 0,
@@ -76,7 +77,8 @@ describe('ExtensionState', () => {
 				showRemoteBranchesV2: BooleanOverride.Enabled,
 				showStashes: BooleanOverride.Enabled,
 				showTags: BooleanOverride.Enabled,
-				workspaceFolderIndex: 0
+				workspaceFolderIndex: 0,
+				worktreeChoice: '/path/to/repo-feature'
 			};
 			extensionContext.workspaceState.get.mockReturnValueOnce({
 				'/path/to/repo': repoState
@@ -113,6 +115,7 @@ describe('ExtensionState', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 0,
@@ -125,9 +128,39 @@ describe('ExtensionState', () => {
 					showRemoteBranchesV2: BooleanOverride.Default,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: null
+					workspaceFolderIndex: null,
+					worktreeChoice: null
 				}
 			});
+		});
+
+		it('Should default the Host and Worktree dropdowns\' choices to All in a state saved without them', () => {
+			// Setup
+			extensionContext.workspaceState.get.mockReturnValueOnce({
+				'/path/to/repo': { hideHosts: ['aws-ns'], columnWidths: null }
+			});
+
+			// Run
+			const result = extensionState.getRepos();
+
+			// Assert
+			expect(result['/path/to/repo'].hideHosts).toStrictEqual(['aws-ns']);
+			expect(result['/path/to/repo'].hostChoice).toBe(null);
+			expect(result['/path/to/repo'].worktreeChoice).toBe(null);
+		});
+
+		it('Should keep a Host dropdown choice of no sources, rather than defaulting it to All', () => {
+			// Setup
+			extensionContext.workspaceState.get.mockReturnValueOnce({
+				'/path/to/repo': { hostChoice: [], worktreeChoice: null }
+			});
+
+			// Run
+			const result = extensionState.getRepos();
+
+			// Assert
+			expect(result['/path/to/repo'].hostChoice).toStrictEqual([]);
+			expect(result['/path/to/repo'].worktreeChoice).toBe(null);
 		});
 
 		it('Should migrate showRemoteBranches = TRUE from boolean to enum (repository.showRemoteBranches = TRUE)', () => {
@@ -152,6 +185,7 @@ describe('ExtensionState', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 0,
@@ -164,7 +198,8 @@ describe('ExtensionState', () => {
 					showRemoteBranchesV2: BooleanOverride.Default,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: null
+					workspaceFolderIndex: null,
+					worktreeChoice: null
 				}
 			});
 		});
@@ -191,6 +226,7 @@ describe('ExtensionState', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 0,
@@ -203,7 +239,8 @@ describe('ExtensionState', () => {
 					showRemoteBranchesV2: BooleanOverride.Disabled,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: null
+					workspaceFolderIndex: null,
+					worktreeChoice: null
 				}
 			});
 		});
@@ -230,6 +267,7 @@ describe('ExtensionState', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 0,
@@ -242,7 +280,8 @@ describe('ExtensionState', () => {
 					showRemoteBranchesV2: BooleanOverride.Default,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: null
+					workspaceFolderIndex: null,
+					worktreeChoice: null
 				}
 			});
 		});
@@ -269,6 +308,7 @@ describe('ExtensionState', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 0,
@@ -281,7 +321,8 @@ describe('ExtensionState', () => {
 					showRemoteBranchesV2: BooleanOverride.Enabled,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: null
+					workspaceFolderIndex: null,
+					worktreeChoice: null
 				}
 			});
 		});
@@ -311,6 +352,7 @@ describe('ExtensionState', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 0,
@@ -323,7 +365,8 @@ describe('ExtensionState', () => {
 					showRemoteBranchesV2: BooleanOverride.Default,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: null
+					workspaceFolderIndex: null,
+					worktreeChoice: null
 				},
 				'/path/to/repo-2': {
 					cdvDivider: 0.5,
@@ -333,6 +376,7 @@ describe('ExtensionState', () => {
 					fileViewType: FileViewType.Default,
 					hideHosts: [],
 					hideRemotes: [],
+					hostChoice: null,
 					includeCommitsMentionedByReflogs: BooleanOverride.Default,
 					issueLinkingConfig: null,
 					lastImportAt: 0,
@@ -345,7 +389,8 @@ describe('ExtensionState', () => {
 					showRemoteBranchesV2: BooleanOverride.Disabled,
 					showStashes: BooleanOverride.Default,
 					showTags: BooleanOverride.Default,
-					workspaceFolderIndex: null
+					workspaceFolderIndex: null,
+					worktreeChoice: null
 				}
 			});
 			expect(workspaceConfiguration.get).toHaveBeenCalledTimes(1);

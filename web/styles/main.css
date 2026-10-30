@@ -262,7 +262,7 @@ code{
 #commitTable tr.commit span.description{
 	display:flex;
 }
-#commitTable tr.commit span.description .commitHeadDot, #commitTable tr.commit td span.description .gitRef{
+#commitTable tr.commit span.description > *{
 	flex-shrink:0;
 }
 #commitTable tr.commit span.description .text{
@@ -271,14 +271,58 @@ code{
 	white-space:nowrap;
 	overflow:hidden;
 	flex-grow:1;
+	flex-shrink:1;
+}
+
+/* Chips: the labels in the Description, Worktree and Host cells. A row shows the chips that fit whole, then a +N chip for the others (TableChips) */
+#commitTable .cellChips{
+	display:flex;
+}
+#commitTable .cellChips > *{
+	flex-shrink:0;
+}
+#commitTable span.description > .gitRef, #commitTable span.description > .chipMore, #commitTable .cellChips > *{
+	margin-bottom:2px; /* With margin-top, a line of chips is as tall as a row */
+}
+#commitTable tr.commit:not(.rowExpanded) .chipHidden{
+	display:none;
+}
+/* A Worktree or Host cell keeps its first chip, shortened with an ellipsis if the cell is too narrow for it */
+#commitTable .cellChips:not(.chipsFitting) > :first-child{
+	flex-shrink:1;
+}
+#commitTable .cellChips > .gitRef{
+	display:flex;
+}
+#commitTable .cellChips > .gitRef > svg{
+	flex-shrink:0;
+}
+#commitTable .cellChips > .gitRef > .gitRefName, #commitTable .hostChip{
+	min-width:0;
+	overflow:hidden;
+	text-overflow:ellipsis;
+}
+
+/* The expanded row (the open Commit Details View's) shows all of its chips, wrapped onto as many lines as they need. The message keeps its minimum width beside them, or moves onto its own line */
+#commitTable tr.commit.rowExpanded td{
+	vertical-align:top;
+}
+#commitTable tr.commit.rowExpanded span.description, #commitTable tr.commit.rowExpanded .cellChips{
+	flex-wrap:wrap;
+}
+#commitTable tr.commit.rowExpanded span.description .text{
+	flex-basis:var(--messageMinWidth);
+}
+#commitTable tr.commit.rowExpanded .chipMore{
+	display:none;
 }
 
 #commitTable tr.commit.mute td.text, #commitTable tr.commit.mute span.description .text{
 	opacity:0.5;
 }
 
-/* A remote host that isn't ok: its worktrees' rows and labels, its branches, and its name in the Host column, are from its last good refresh */
-#commitTable tr.commit.staleHost td.text, #commitTable tr.commit.staleHost span.description .text, .gitRef.staleHost, #commitTable tr.commit:not(.staleHost) .hostName.staleHost{
+/* A remote host that isn't ok: its worktrees' rows and labels, its branches, and its chip in the Host column, are from its last good refresh */
+#commitTable tr.commit.staleHost td.text, #commitTable tr.commit.staleHost span.description .text, .gitRef.staleHost, #commitTable tr.commit:not(.staleHost) .hostChip.staleHost{
 	opacity:0.5;
 }
 
@@ -732,7 +776,7 @@ body.vscode-high-contrast #commitTable tr.commit.findCurrentCommit{
 
 /* Ref labels */
 
-.gitRef{
+.gitRef, .hostChip, .chipMore{
 	display:inline-block;
 	height:18px;
 	line-height:18px;
@@ -745,6 +789,21 @@ body.vscode-high-contrast #commitTable tr.commit.findCurrentCommit{
 	font-size:12px;
 	cursor:default;
 	overflow:hidden;
+}
+.hostChip, .chipMore{
+	padding:0 5px;
+}
+/* The count is drawn by CSS, so Find doesn't match it */
+.chipMore{
+	cursor:pointer;
+	font-variant-numeric:tabular-nums;
+}
+.chipMore::before{
+	content:'+' attr(data-count);
+}
+body.tagLabelsRightAligned span.description > .text ~ .chipMore{
+	margin-left:5px;
+	margin-right:0;
 }
 .gitRef.active{
 	border-color:var(--git-tree-color);
@@ -775,8 +834,12 @@ body.vscode-high-contrast #commitTable tr.commit.findCurrentCommit{
 	color:var(--vscode-editor-background);
 }
 
-#commitTable tr.commit.commitDetailsOpen:hover .gitRef, #commitTable tr.commit.commitDetailsOpen.contextMenuActive .gitRef, #commitTable tr.commit.commitDetailsOpen.dialogActive .gitRef, #commitTable tr.commit.commitDetailsOpen.graphVertexActive .gitRef{
+#commitTable tr.commit.commitDetailsOpen:hover .gitRef, #commitTable tr.commit.commitDetailsOpen.contextMenuActive .gitRef, #commitTable tr.commit.commitDetailsOpen.dialogActive .gitRef, #commitTable tr.commit.commitDetailsOpen.graphVertexActive .gitRef,
+#commitTable tr.commit.commitDetailsOpen:hover .hostChip, #commitTable tr.commit.commitDetailsOpen.contextMenuActive .hostChip, #commitTable tr.commit.commitDetailsOpen.dialogActive .hostChip, #commitTable tr.commit.commitDetailsOpen.graphVertexActive .hostChip{
 	background-color:rgba(128,128,128,0.05);
+}
+#commitTable .chipMore:hover{
+	background-color:var(--git-tree-surface-hover);
 }
 
 .gitRef .contextMenuActive, .gitRef .dialogActive, .gitRef .gitRefName:hover, .gitRef .gitRefHeadRemote:hover{
@@ -789,6 +852,72 @@ body.branchLabelsAlignedToGraph tr.commit td:first-child .gitRef:last-child{
 body.tagLabelsRightAligned .gitRef.tag{
 	margin-left:5px;
 	margin-right:0;
+}
+
+
+/* Chip card: every chip of a hovered cell that hides some of them */
+
+#chipCard{
+	position:fixed;
+	z-index:10;
+	box-sizing:border-box;
+	max-width:min(360px, calc(100vw - 8px));
+	max-height:calc(100vh - 8px);
+	overflow:hidden;
+	padding:4px 0;
+	background-color:var(--vscode-editorHoverWidget-background, var(--vscode-menu-background));
+	border:1px solid var(--vscode-editorHoverWidget-border, var(--git-tree-border));
+	border-radius:5px;
+	box-shadow:0 1px 4px 1px var(--vscode-widget-shadow);
+	color:var(--vscode-editorHoverWidget-foreground, var(--vscode-menu-foreground));
+	font-size:12px;
+	line-height:20px;
+	white-space:nowrap;
+	pointer-events:none;
+	-webkit-user-select:none;
+	user-select:none;
+}
+.chipCardGroup + .chipCardGroup{
+	margin-top:4px;
+	padding-top:4px;
+	border-top:1px solid var(--git-tree-border);
+}
+.chipCardTitle{
+	padding:0 10px;
+	font-size:11px;
+	opacity:0.7;
+}
+.chipCardItem{
+	display:flex;
+	align-items:center;
+	padding:0 10px;
+}
+.chipCardItem > svg{
+	flex-shrink:0;
+	width:14px;
+	height:14px;
+	margin-right:6px;
+	fill:currentColor;
+	opacity:0.8;
+}
+.chipCardName, .chipCardHint{
+	min-width:0;
+	overflow:hidden;
+	text-overflow:ellipsis;
+}
+.chipCardName{
+	flex-shrink:1;
+}
+.chipCardHint{
+	flex-shrink:100; /* The hint is shortened first */
+	margin-left:8px;
+	opacity:0.6;
+}
+.chipCardItem.active .chipCardName{
+	font-weight:bold;
+}
+.chipCardItem.staleHost{
+	opacity:0.5;
 }
 
 

@@ -1,13 +1,20 @@
 const CLASS_CONTEXT_MENU_ACTIVE = 'contextMenuActive';
 
 interface ContextMenuAction {
-	readonly title: string;
+	readonly title: string; // HTML
 	readonly visible: boolean;
 	readonly onClick: () => void;
 	readonly checked?: boolean; // Required in checked context menus
+	readonly hint?: string; // Dim text after the title, such as a branch name. Plain text.
 }
 
-type ContextMenuActions = ReadonlyArray<ReadonlyArray<ContextMenuAction>>;
+/** A dim heading above a group's actions. It is shown when one of the group's actions is visible. */
+interface ContextMenuHeading {
+	readonly heading: string; // Plain text
+	readonly hint?: string; // Dim text after the heading. Plain text.
+}
+
+type ContextMenuActions = ReadonlyArray<ReadonlyArray<ContextMenuAction | ContextMenuHeading>>;
 
 type ContextMenuTarget = {
 	type: TargetType.Commit | TargetType.Ref | TargetType.CommitDetailsView;
@@ -40,27 +47,30 @@ class ContextMenu {
 	 * @param actions The collection of actions to display in the context menu.
 	 * @param checked Should the context menu display checks to the left of each action.
 	 * @param target The target that the context menu was triggered on.
-	 * @param event The mouse event that triggered the context menu.
+	 * @param at The mouse event that triggered the context menu, which is shown at the cursor, or the element (such as a button) that the context menu is shown under.
 	 * @param frameElem The HTML Element that the context menu should be rendered within (and be positioned relative to it's content).
 	 * @param onClose An optional callback to be invoked when the context menu is closed.
 	 * @param className An optional class name to add to the context menu.
 	 */
-	public show(actions: ContextMenuActions, checked: boolean, target: ContextMenuTarget | null, event: MouseEvent, frameElem: HTMLElement, onClose: (() => void) | null = null, className: string | null = null) {
+	public show(actions: ContextMenuActions, checked: boolean, target: ContextMenuTarget | null, at: MouseEvent | HTMLElement, frameElem: HTMLElement, onClose: (() => void) | null = null, className: string | null = null) {
 		let html = '', handlers: (() => void)[] = [], handlerId = 0;
 		this.close();
 
 		for (let i = 0; i < actions.length; i++) {
-			let groupHtml = '';
+			let groupHtml = '', headingHtml = '';
 			for (let j = 0; j < actions[i].length; j++) {
-				if (actions[i][j].visible) {
-					groupHtml += '<li class="contextMenuItem" data-index="' + handlerId++ + '">' + (checked ? '<span class="contextMenuItemCheck">' + (actions[i][j].checked ? SVG_ICONS.check : '') + '</span>' : '') + actions[i][j].title + '</li>';
-					handlers.push(actions[i][j].onClick);
+				const item = actions[i][j];
+				if ('heading' in item) {
+					headingHtml = '<li class="contextMenuHeading">' + escapeHtml(item.heading) + getContextMenuHintHtml(item.hint) + '</li>';
+				} else if (item.visible) {
+					groupHtml += '<li class="contextMenuItem" data-index="' + handlerId++ + '">' + (checked ? '<span class="contextMenuItemCheck">' + (item.checked ? SVG_ICONS.check : '') + '</span>' : '') + item.title + getContextMenuHintHtml(item.hint) + '</li>';
+					handlers.push(item.onClick);
 				}
 			}
 
 			if (groupHtml !== '') {
 				if (html !== '') html += '<li class="contextMenuDivider"></li>';
-				html += groupHtml;
+				html += headingHtml + groupHtml;
 			}
 		}
 
@@ -72,18 +82,28 @@ class ContextMenu {
 		menu.innerHTML = html;
 		frameElem.appendChild(menu);
 		const menuBounds = menu.getBoundingClientRect(), frameBounds = frameElem.getBoundingClientRect();
-		const relativeX = event.pageX + menuBounds.width < frameBounds.right
-			? -2 // context menu fits to the right
-			: event.pageX - menuBounds.width > frameBounds.left
-				? 2 - menuBounds.width // context menu fits to the left
-				: -2 - (menuBounds.width - (frameBounds.width - (event.pageX - frameBounds.left))); // Overlap the context menu horizontally with the cursor
-		const relativeY = event.pageY + menuBounds.height < frameBounds.bottom
-			? -2 // context menu fits below
-			: event.pageY - menuBounds.height > frameBounds.top
-				? 2 - menuBounds.height // context menu fits above
-				: -2 - (menuBounds.height - (frameBounds.height - (event.pageY - frameBounds.top))); // Overlap the context menu vertically with the cursor
-		menu.style.left = (frameElem.scrollLeft + Math.max(event.pageX - frameBounds.left + relativeX, 2)) + 'px';
-		menu.style.top = (frameElem.scrollTop + Math.max(event.pageY - frameBounds.top + relativeY, 2)) + 'px';
+		if (at instanceof HTMLElement) {
+			// Under the element, lined up with its left edge, or with its right edge when the menu doesn't fit to the right. Above it when the menu doesn't fit below.
+			const anchorBounds = at.getBoundingClientRect();
+			const x = anchorBounds.left + menuBounds.width < frameBounds.right ? anchorBounds.left : anchorBounds.right - menuBounds.width;
+			const y = anchorBounds.bottom + 2 + menuBounds.height < frameBounds.bottom ? anchorBounds.bottom + 2 : anchorBounds.top - 2 - menuBounds.height;
+			menu.style.left = (frameElem.scrollLeft + Math.max(x - frameBounds.left, 2)) + 'px';
+			menu.style.top = (frameElem.scrollTop + Math.max(y - frameBounds.top, 2)) + 'px';
+		} else {
+			const event = at;
+			const relativeX = event.pageX + menuBounds.width < frameBounds.right
+				? -2 // context menu fits to the right
+				: event.pageX - menuBounds.width > frameBounds.left
+					? 2 - menuBounds.width // context menu fits to the left
+					: -2 - (menuBounds.width - (frameBounds.width - (event.pageX - frameBounds.left))); // Overlap the context menu horizontally with the cursor
+			const relativeY = event.pageY + menuBounds.height < frameBounds.bottom
+				? -2 // context menu fits below
+				: event.pageY - menuBounds.height > frameBounds.top
+					? 2 - menuBounds.height // context menu fits above
+					: -2 - (menuBounds.height - (frameBounds.height - (event.pageY - frameBounds.top))); // Overlap the context menu vertically with the cursor
+			menu.style.left = (frameElem.scrollLeft + Math.max(event.pageX - frameBounds.left + relativeX, 2)) + 'px';
+			menu.style.top = (frameElem.scrollTop + Math.max(event.pageY - frameBounds.top + relativeY, 2)) + 'px';
+		}
 		menu.style.opacity = '1';
 		this.elem = menu;
 		this.onClose = onClose;
@@ -185,4 +205,13 @@ class ContextMenu {
 	public isTargetDynamicSource() {
 		return this.isOpen() && this.target !== null;
 	}
+}
+
+/**
+ * Get the HTML of the dim hint after a context menu item's title or a heading.
+ * @param hint The hint, or undefined for none.
+ * @returns The HTML.
+ */
+function getContextMenuHintHtml(hint: string | undefined) {
+	return typeof hint === 'string' && hint !== '' ? '<span class="contextMenuHint" title="' + escapeHtml(hint) + '">' + escapeHtml(hint) + '</span>' : '';
 }

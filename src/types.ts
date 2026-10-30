@@ -301,6 +301,7 @@ export interface GitRepoState {
 	fileViewType: FileViewType;
 	hideHosts: string[]; // The remote hosts whose worktrees and branches the view leaves out
 	hideRemotes: string[];
+	hostChoice: HostChoice; // The Host dropdown's choice
 	includeCommitsMentionedByReflogs: BooleanOverride;
 	issueLinkingConfig: IssueLinkingConfig | null;
 	lastImportAt: number;
@@ -314,6 +315,7 @@ export interface GitRepoState {
 	showStashes: BooleanOverride;
 	showTags: BooleanOverride;
 	workspaceFolderIndex: number | null;
+	worktreeChoice: string | null; // The Worktree dropdown's choice: a worktree's path, or a remote host's worktree's key. NULL => All
 }
 
 
@@ -1113,10 +1115,11 @@ export interface ResponseFetchIntoLocalBranch extends ResponseWithErrorInfo {
 
 /**
  * The Host dropdown's choice. NULL => All: this machine's worktrees, and every remote host's but those hidden in Repository
- * Settings. '' => Local: only this machine's worktrees (no host name is empty). Otherwise the name of the only remote host
- * shown, without this machine's worktrees.
+ * Settings, including hosts added later. Otherwise the sources shown: '' for Local, this machine's worktrees (no host name
+ * is empty), and the names of the remote hosts. An empty list shows no worktrees. Names of hosts the repository doesn't
+ * have, or hides, are ignored, and a list of only such names counts as All.
  */
-export type HostChoice = string | null;
+export type HostChoice = ReadonlyArray<string> | null;
 
 export interface RequestLoadCommits extends RepoRequest {
 	readonly command: 'loadCommits';
@@ -1131,7 +1134,7 @@ export interface RequestLoadCommits extends RepoRequest {
 	readonly remotes: ReadonlyArray<string>;
 	readonly hideRemotes: ReadonlyArray<string>;
 	readonly hideHosts: ReadonlyArray<string>; // Remote hosts left out: their branches as start points, and their worktrees' rows
-	readonly hostChoice: HostChoice; // Leaves out the remote hosts it doesn't show, as hideHosts does, and this machine's worktrees' rows when it chose a host
+	readonly hostChoice: HostChoice; // Leaves out the remote hosts it doesn't show, as hideHosts does, and this machine's worktrees' rows when it doesn't show Local
 	readonly stashes: ReadonlyArray<GitStash>;
 	readonly worktrees: ReadonlyArray<GitWorktree>;
 	readonly onlyWorktreeHistory: boolean; // TRUE => only the history of the worktree that repo is: its HEAD joins branches as a start point, and no other worktree's uncommitted changes are read
@@ -1262,9 +1265,10 @@ export interface ResponseOpenFile extends ResponseWithErrorInfo {
 	readonly command: 'openFile';
 }
 
+/** Open a terminal in one of the repository's worktrees on this machine. `repo` is the repository. */
 export interface RequestOpenTerminal extends RepoRequest {
 	readonly command: 'openTerminal';
-	readonly name: string;
+	readonly path: string; // The worktree's path. The terminal only opens if it is one of the repository's worktrees.
 }
 export interface ResponseOpenTerminal extends ResponseWithErrorInfo {
 	readonly command: 'openTerminal';

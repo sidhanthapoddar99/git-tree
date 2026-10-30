@@ -36,8 +36,6 @@ class GitTreeView {
 	private currentBranches: string[] | null = null;
 
 	private currentRepo!: string;
-	private worktreeChoices: { [repo: string]: string } = {}; // The Worktree dropdown's choice in each repository that has one other than All
-	private hostChoices: { [repo: string]: string } = {}; // The Host dropdown's choice in each repository that has one other than All: LOCAL_HOSTS, or a remote host's name
 	private currentRepoLoading: boolean = true;
 	private currentRepoRefreshState: {
 		inProgress: boolean;
@@ -53,6 +51,7 @@ class GitTreeView {
 
 	private readonly graph: Graph;
 	private readonly virtualTable: VirtualTable;
+	private readonly tableChips: TableChips;
 	private tableRowContext: TableRowContext | null = null;
 	private readonly config: Config;
 
@@ -110,15 +109,21 @@ class GitTreeView {
 		this.virtualTable = new VirtualTable(viewElem, this.config.graph.grid.y, {
 			getRowsHtml: (start, end) => this.getCommitRowsHtml(start, end),
 			getPinnedRows: () => this.getPinnedRows(),
-			onRowRendered: (elem, index) => this.findWidget.highlightRow(elem, index),
+			onRowRendered: (elem, index) => {
+				this.findWidget.highlightRow(elem, index);
+				this.tableChips.queueRow(elem);
+			},
 			onWindowChanged: () => this.drawGraph()
 		});
+		this.tableChips = new TableChips(this.tableElem, viewElem, (callback) => this.virtualTable.forEachRow(callback), () => {
+			if (this.virtualTable.measure()) this.drawGraph();
+		});
 
-		this.repoDropdown = new Dropdown('repoDropdown', true, false, 'Repos', (values) => {
+		this.repoDropdown = new Dropdown('repoDropdown', true, 'single', 'Repos', (values) => {
 			this.loadRepo(values[0]);
 		});
 
-		this.branchDropdown = new Dropdown('branchDropdown', false, true, 'Branches', (values) => {
+		this.branchDropdown = new Dropdown('branchDropdown', false, 'showAll', 'Branches', (values) => {
 			this.currentBranches = values;
 			this.maxCommits = this.config.initialLoadCommits;
 			this.saveState();
@@ -126,11 +131,11 @@ class GitTreeView {
 			this.requestLoadRepoInfoAndCommits(true, true);
 		});
 
-		this.hostDropdown = new Dropdown('hostDropdown', true, false, 'Hosts', (values) => {
-			this.chooseHost(values[0] !== ALL_HOSTS ? values[0] : null);
+		this.hostDropdown = new Dropdown('hostDropdown', false, 'checklist', 'Hosts', (values) => {
+			this.chooseHost(values);
 		});
 
-		this.worktreeDropdown = new Dropdown('worktreeDropdown', true, false, 'Worktrees', (values) => {
+		this.worktreeDropdown = new Dropdown('worktreeDropdown', true, 'single', 'Worktrees', (values) => {
 			this.chooseWorktree(values[0]);
 		});
 
@@ -156,12 +161,6 @@ class GitTreeView {
 		this.observeUrls();
 		this.observeTableEvents();
 
-		if (prevState && typeof prevState.worktreeChoices !== 'undefined') {
-			this.worktreeChoices = Object.assign({}, prevState.worktreeChoices);
-		}
-		if (prevState && typeof prevState.hostChoices !== 'undefined') {
-			this.hostChoices = Object.assign({}, prevState.hostChoices);
-		}
 		if (prevState && !prevState.currentRepoLoading && typeof this.gitRepos[prevState.currentRepo] !== 'undefined') {
 			this.currentRepo = prevState.currentRepo;
 			this.currentBranches = prevState.currentBranches;
@@ -197,12 +196,12 @@ class GitTreeView {
 		settingsBtn.innerHTML = SVG_ICONS.gear;
 		settingsBtn.addEventListener('click', () => this.settingsWidget.show(this.currentRepo));
 		terminalBtn.innerHTML = SVG_ICONS.terminal;
-		terminalBtn.addEventListener('click', () => {
-			runAction({
-				command: 'openTerminal',
-				repo: this.currentWorktree,
-				name: this.gitRepos[this.currentRepo].name || getRepoName(this.currentRepo)
-			}, 'Opening Terminal');
+		terminalBtn.addEventListener('click', (e) => {
+			// A click while a menu is open only closes it, as any click does
+			if (contextMenu.isOpen()) return;
+			// The menu would otherwise be closed by this click reaching the document
+			handledEvent(e);
+			this.openTerminalAction(terminalBtn);
 		});
 	}
 
@@ -266,10 +265,11 @@ class GitTreeView {
 	}
 
 	/**
-	 * The Worktree dropdown's choice in the current repository: ALL_WORKTREES, or the key of a worktree (getWorktreeKey). It is All until another is chosen.
+	 * The Worktree dropdown's choice in the current repository: ALL_WORKTREES, or the key of a worktree (getWorktreeKey). It is All until another
+	 * is chosen. The repository's state keeps it, so it is remembered when Visual Studio Code restarts.
 	 */
 	private get worktreeChoice() {
-		const choice = this.worktreeChoices[this.currentRepo];
+		const choice = this.gitRepos[this.currentRepo].worktreeChoice;
 		return typeof choice === 'string' ? choice : ALL_WORKTREES;
 	}
 
@@ -311,69 +311,79 @@ class GitTreeView {
 	 */
 	private chooseWorktree(choice: string) {
 		if (this.worktreeChoice === choice) return;
-		if (choice === ALL_WORKTREES) {
-			delete this.worktreeChoices[this.currentRepo];
-		} else {
-			this.worktreeChoices[this.currentRepo] = choice;
-		}
+		this.saveRepoStateValue(this.currentRepo, 'worktreeChoice', choice !== ALL_WORKTREES ? choice : null);
 		this.reloadForNewChoice();
 	}
 
 	/**
-	 * Is the Worktree dropdown's choice still available? All and Root always are. A linked worktree isn't once it has been removed.
+	 * Is the Worktree dropdown's choice still available? All and Root always are. A linked worktree isn't once it has been removed. A remote
+	 * host's worktrees are only known once the host has been read, which takes a moment after a restart, so until then its worktree's choice
+	 * is kept, and the view shows All.
 	 */
 	private isWorktreeChoiceAvailable() {
 		const choice = this.worktreeChoice;
-		return choice === ALL_WORKTREES || choice === this.currentRepo || this.gitWorktrees.some((worktree) => !worktree.prunable && getWorktreeKey(worktree) === choice);
+		if (choice === ALL_WORKTREES || choice === this.currentRepo || this.gitWorktrees.some((worktree) => !worktree.prunable && getWorktreeKey(worktree) === choice)) return true;
+		const hostName = getHostOfWorktreeKey(choice);
+		if (hostName === null) return false;
+		const host = this.getRemoteHost(hostName);
+		return host === null || host.lastRefresh === null;
 	}
 
 	/**
-	 * Does the Worktree dropdown list its choice, given what the Host dropdown shows? All always is. This machine's worktrees aren't
-	 * when a remote host is chosen, and a remote host's worktrees aren't when Local or another host is.
+	 * Does the Worktree dropdown list its choice, given what the Host dropdown shows? All always is. This machine's worktrees are
+	 * when Local is shown, and a remote host's worktrees are when the host is.
 	 */
 	private isWorktreeChoiceShown() {
-		const choice = this.worktreeChoice, hostChoice = this.hostChoice;
+		const choice = this.worktreeChoice;
 		if (choice === ALL_WORKTREES) return true;
-		if (!isHostWorktreeKey(choice)) return this.areLocalWorktreesShown();
-		return hostChoice === null || choice.startsWith(HOST_WORKTREE_KEY_PREFIX + hostChoice + ':');
+		const hostName = getHostOfWorktreeKey(choice);
+		return hostName !== null ? this.isRemoteHostShown(hostName) : this.areLocalWorktreesShown();
 	}
 
 	/**
-	 * The Host dropdown's choice in the current repository (GG.HostChoice): NULL for All, LOCAL_HOSTS, or a remote host's name. It is All
-	 * until another is chosen. A host hidden in Repository Settings isn't shown, whatever the dropdown chose, so choosing it counts as All.
+	 * The Host dropdown's choice in the current repository, as the view applies it (GG.HostChoice): NULL for All, or the sources shown,
+	 * LOCAL_HOSTS for this machine. It is All until another is chosen. The repository's state keeps the choice, so it is remembered when
+	 * Visual Studio Code restarts. The names it has of hosts that aren't available (getAvailableRemoteHosts) are ignored (resolveHostChoice).
 	 */
 	private get hostChoice(): GG.HostChoice {
-		const choice = this.hostChoices[this.currentRepo];
-		return typeof choice === 'string' && !this.gitRepos[this.currentRepo].hideHosts.includes(choice) ? choice : null;
+		return resolveHostChoice(this.gitRepos[this.currentRepo].hostChoice, this.getAvailableRemoteHosts().map((host) => host.name));
 	}
 
 	/**
-	 * Does the view show this machine's worktrees: their labels and rows of uncommitted changes? Not when the Host dropdown chose a remote host.
+	 * Does the view show this machine's worktrees: their labels and rows of uncommitted changes? Only when the Host dropdown shows Local.
 	 */
 	private areLocalWorktreesShown() {
 		const choice = this.hostChoice;
-		return choice === null || choice === LOCAL_HOSTS;
+		return choice === null || choice.includes(LOCAL_HOSTS);
 	}
 
 	/**
-	 * Choose what the Host dropdown shows: this machine's worktrees and every remote host's (All), this machine's only (Local), or one
-	 * remote host's only. The history is always this machine's, so only the hosts' branches, the worktrees' labels and their rows change.
-	 * @param choice The choice.
+	 * Does the view show a remote host: it isn't hidden in Repository Settings, and the Host dropdown shows it?
+	 * @param name The host's name.
 	 */
-	private chooseHost(choice: GG.HostChoice) {
-		// The saved choice is replaced even when the view shows the same, so a host hidden in Repository Settings isn't chosen again once it's shown
-		const changed = this.hostChoice !== choice;
-		if (choice === null) {
-			delete this.hostChoices[this.currentRepo];
-		} else {
-			this.hostChoices[this.currentRepo] = choice;
-		}
+	private isRemoteHostShown(name: string) {
+		const choice = this.hostChoice;
+		return !this.gitRepos[this.currentRepo].hideHosts.includes(name) && (choice === null || choice.includes(name));
+	}
+
+	/**
+	 * Choose what the Host dropdown shows: any of this machine's worktrees (Local) and the remote hosts' worktrees, or none. The history
+	 * is always this machine's, so only the hosts' branches, the worktrees' labels and their rows change.
+	 * @param values The ticked rows: LOCAL_HOSTS, and the names of remote hosts. Every row ticked is All, which also shows hosts added later.
+	 */
+	private chooseHost(values: ReadonlyArray<string>) {
+		const rows = [LOCAL_HOSTS].concat(this.getAvailableRemoteHosts().map((host) => host.name));
+		const state = this.gitRepos[this.currentRepo], shownBefore = this.hostChoice;
+		// The saved choice is replaced even when the view shows the same, so the hosts it ignored (hidden in Repository Settings, or no longer known) aren't chosen again once they're back
+		state.hostChoice = rows.every((row) => values.includes(row)) ? null : values.slice();
+		const changed = !isSameHostChoice(shownBefore, this.hostChoice);
+		// The Worktree dropdown no longer lists a worktree from a source that isn't shown, so its choice goes back to All
+		if (changed && !this.isWorktreeChoiceShown()) state.worktreeChoice = null;
+		this.saveRepoState();
 		if (!changed) {
 			this.saveState();
 			return;
 		}
-		// The Worktree dropdown no longer lists a worktree on the side that isn't shown, so its choice goes back to All
-		if (!this.isWorktreeChoiceShown()) delete this.worktreeChoices[this.currentRepo];
 		// The view's refreshes skipped the hosts it didn't show, so the ones it shows now are refreshed
 		this.refreshRemoteHosts = true;
 		this.reloadForNewChoice();
@@ -392,17 +402,14 @@ class GitTreeView {
 
 	private renderHostDropdown() {
 		const hosts = this.getAvailableRemoteHosts(), choice = this.hostChoice;
-		// Shown while the repository has a remote host, and while a choice is kept that can be undone
-		alterClass(this.controlsElem, 'noHosts', hosts.length === 0 && choice === null);
+		// Shown while the repository has a remote host, and while Local is left out, so that can be undone
+		alterClass(this.controlsElem, 'noHosts', hosts.length === 0 && this.areLocalWorktreesShown());
+		// All ticks every row, or clears them all. The saved names of hosts that aren't available have no row (resolveHostChoice).
 		const options: DropdownOption[] = [
 			{ name: 'All', value: ALL_HOSTS, hint: 'this machine and every host' },
 			{ name: 'Local', value: LOCAL_HOSTS, hint: 'this machine' }
 		].concat(hosts.map((host) => ({ name: host.name, value: host.name, hint: host.state !== 'ok' ? getRemoteHostStateText(host) : host.ssh })));
-		if (choice !== null && choice !== LOCAL_HOSTS && !hosts.some((host) => host.name === choice)) {
-			// The chosen host isn't in the repository's hosts: it was removed, or they haven't been read yet
-			options.push({ name: choice, value: choice, hint: 'unknown host' });
-		}
-		this.hostDropdown.setOptions(options, [choice !== null ? choice : ALL_HOSTS]);
+		this.hostDropdown.setOptions(options, choice !== null ? choice : [ALL_HOSTS]);
 	}
 
 	private renderWorktreeDropdown() {
@@ -517,7 +524,7 @@ class GitTreeView {
 			} else if (this.currentWorktree !== this.currentRepo || isHostWorktreeKey(this.worktreeChoice)) {
 				// The chosen worktree no longer exists, so show All
 				refreshState.inProgress = false;
-				delete this.worktreeChoices[this.currentRepo];
+				this.saveRepoStateValue(this.currentRepo, 'worktreeChoice', null);
 				this.saveState();
 				this.refresh(true);
 			} else {
@@ -908,7 +915,7 @@ class GitTreeView {
 			showStashes: getShowStashes(repoState.showStashes),
 			hideRemotes: repoState.hideRemotes,
 			hideHosts: repoState.hideHosts,
-			hostChoice: this.hostChoice,
+			hostChoice: repoState.hostChoice, // The extension ignores the names of hosts it doesn't know, as hostChoice does
 			refreshHosts: this.refreshRemoteHosts
 		});
 		this.refreshRemoteHosts = false;
@@ -930,7 +937,7 @@ class GitTreeView {
 			remotes: this.gitRemotes,
 			hideRemotes: repoState.hideRemotes,
 			hideHosts: repoState.hideHosts,
-			hostChoice: this.hostChoice,
+			hostChoice: repoState.hostChoice,
 			stashes: this.gitStashes,
 			worktrees: this.gitWorktrees,
 			onlyWorktreeHistory: this.isOnlyWorktreeHistory(),
@@ -1029,8 +1036,6 @@ class GitTreeView {
 
 		VSCODE_API.setState({
 			currentRepo: this.currentRepo,
-			worktreeChoices: this.worktreeChoices,
-			hostChoices: this.hostChoices,
 			currentRepoLoading: this.currentRepoLoading,
 			gitRepos: this.gitRepos,
 			gitBranches: this.gitBranches,
@@ -1149,14 +1154,15 @@ class GitTreeView {
 			return;
 		}
 
-		const expandedCommit = this.isCdvDocked() ? null : this.expandedCommit;
-		const expandedCommitElem = expandedCommit !== null ? document.getElementById('cdv') : null;
+		const expandedCommit = this.expandedCommit, isDocked = this.isCdvDocked();
+		const rowElem = expandedCommit !== null ? expandedCommit.commitElem : null;
+		const cdvElem = rowElem !== null && !isDocked ? document.getElementById('cdv') : null;
+		const cdvHeight = cdvElem !== null ? cdvElem.getBoundingClientRect().height : 0;
 
-		// Update the height of the expansion below the expanded commit, then render the rows around the rows in view, which it moves
-		this.config.graph.grid.expandY = expandedCommitElem !== null
-			? expandedCommitElem.getBoundingClientRect().height
-			: this.gitRepos[this.currentRepo].cdvHeight;
-		this.virtualTable.setExpansion(expandedCommit !== null && expandedCommitElem !== null ? expandedCommit.index : -1, this.config.graph.grid.expandY);
+		// The expanded commit's row shows all of its chips, so it can be taller than the others. With the inline Commit Details View below it, the
+		// table measures how far they move the later rows down. Then it renders the rows around the rows in view
+		this.tableChips.setExpandedRow(rowElem);
+		this.virtualTable.setExpansion(expandedCommit !== null && rowElem !== null && (isDocked || cdvElem !== null) ? expandedCommit.index : -1, cdvHeight);
 		this.virtualTable.render();
 		this.virtualTable.measure();
 		this.drawGraph();
@@ -1169,7 +1175,8 @@ class GitTreeView {
 		const grid = this.config.graph.grid, rows = this.virtualTable.getWindow();
 		grid.y = this.virtualTable.getRowHeight();
 		grid.offsetY = this.virtualTable.getHeaderHeight() + grid.y / 2;
-		this.graph.render(this.isCdvDocked() ? null : this.expandedCommit, rows.start, rows.end);
+		grid.expandY = this.virtualTable.getExpansionHeight();
+		this.graph.render(grid.expandY > 0 ? this.expandedCommit : null, rows.start, rows.end);
 	}
 
 	/**
@@ -1205,6 +1212,7 @@ class GitTreeView {
 		bodyElems[1].innerHTML = this.getColumnWidthRowsHtml(this.tableRowContext);
 		this.footerElem.innerHTML = this.moreCommitsAvailable ? '<div id="loadMoreCommitsBtn" class="roundedBtn">Load More Commits</div>' : '';
 		this.makeTableResizable();
+		this.tableChips.observeColumns();
 		this.findWidget.refresh();
 		this.renderedGitBranchHead = this.gitBranchHead;
 		this.renderedGitWorktrees = JSON.stringify(this.gitWorktrees);
@@ -1303,15 +1311,14 @@ class GitTreeView {
 		if (colVisibility.commit) {
 			addWidest((commit) => estimator.estimate(isUncommittedChanges(commit.hash) ? UNCOMMITTED : abbrevCommit(commit.hash)));
 		}
-		if (colVisibility.worktree) {
-			// Few rows have a worktree's label, so all of them are measured
+		if (colVisibility.worktree || colVisibility.host) {
+			// Few rows have a worktree's or a host's label, so all of them are measured. A rendered row then never widens its column, so hiding
+			// some of its chips (TableChips) can't narrow the column either
 			const lookup = context.worktreeLookup;
 			this.commits.forEach((commit, i) => {
-				if (isUncommittedChanges(commit.hash) || lookup.byDetachedHead.has(commit.hash) || lookup.byHostHead.has(commit.hash) || commit.heads.some((branch) => lookup.byBranch.has(branch))) candidates.add(i);
+				if ((colVisibility.worktree && (isUncommittedChanges(commit.hash) || lookup.byDetachedHead.has(commit.hash) || lookup.byHostHead.has(commit.hash) || commit.heads.some((branch) => lookup.byBranch.has(branch))))
+					|| (colVisibility.host && this.getHostsOfRow(commit, lookup).length > 0)) candidates.add(i);
 			});
-		}
-		if (colVisibility.host) {
-			addWidest((commit) => estimator.estimate(this.getHostsOfRow(commit, context.worktreeLookup).join(', ')));
 		}
 		if (this.config.referenceLabels.branchLabelsAlignedToGraph) {
 			// The branch labels are in the Graph column, after the graph: each label adds its icon, padding, border and margin to its text
@@ -1519,7 +1526,7 @@ class GitTreeView {
 				html += this.getWorktreeLabelHtml(worktree, 'The worktree ' + worktree.path + ' on ' + worktree.host + ' has ' + (worktree.branch !== null ? 'the branch "' + worktree.branch + '"' : 'this commit (detached HEAD)') + ' checked out.');
 			});
 		}
-		return '<td class="worktreeCol">' + html + '</td>';
+		return '<td class="worktreeCol"><span class="' + CLASS_CHIPS + '">' + html + '</span></td>';
 	}
 
 	/**
@@ -1535,17 +1542,17 @@ class GitTreeView {
 	}
 
 	/**
-	 * Get the Host column's cell of a row: the name of each remote host on the row (getHostsOfRow). This machine's worktrees and branches leave it blank.
+	 * Get the Host column's cell of a row: a chip for each remote host on the row (getHostsOfRow). This machine's worktrees and branches leave it blank.
 	 * @param commit The commit of the row.
 	 * @param lookup The worktrees, indexed by what they have checked out.
 	 * @returns The HTML.
 	 */
 	private getHostCellHtml(commit: GG.GitCommit, lookup: WorktreeLookup) {
 		const html = this.getHostsOfRow(commit, lookup).map((name) => {
-			const host = this.getRemoteHost(name);
-			return '<span class="hostName' + (isRemoteHostStale(host) ? ' ' + CLASS_STALE_HOST : '') + '" title="' + escapeHtml('The remote host ' + name + '.' + getRemoteHostStateSuffix(host)) + '">' + escapeHtml(name) + '</span>';
-		}).join(', ');
-		return '<td class="hostCol text">' + html + '</td>';
+			const host = this.getRemoteHost(name), hint = host === null ? 'unknown host' : host.state !== 'ok' ? getRemoteHostStateText(host) : '';
+			return '<span class="' + CLASS_HOST_CHIP + (isRemoteHostStale(host) ? ' ' + CLASS_STALE_HOST : '') + '"' + (hint !== '' ? ' data-hint="' + escapeHtml(hint) + '"' : '') + ' title="' + escapeHtml('The remote host ' + name + '.' + getRemoteHostStateSuffix(host)) + '">' + escapeHtml(name) + '</span>';
+		}).join('');
+		return '<td class="hostCol text"><span class="' + CLASS_CHIPS + '">' + html + '</span></td>';
 	}
 
 	/**
@@ -1583,8 +1590,7 @@ class GitTreeView {
 	 * @returns The hosts.
 	 */
 	private getShownRemoteHosts() {
-		const choice = this.hostChoice;
-		return this.getAvailableRemoteHosts().filter((host) => choice === null || choice === host.name);
+		return this.getAvailableRemoteHosts().filter((host) => this.isRemoteHostShown(host.name));
 	}
 
 	/**
@@ -2249,6 +2255,49 @@ class GitTreeView {
 		}
 	}
 
+	/**
+	 * Open a terminal from the top bar's terminal button. When the only worktree to offer is this machine's one worktree, it opens
+	 * there straight away. Otherwise a menu under the button lists this machine's worktrees, then each available remote host's.
+	 * @param button The terminal button.
+	 */
+	private openTerminalAction(button: HTMLElement) {
+		const openLocal = (path: string) => runAction({ command: 'openTerminal', repo: this.currentRepo, path: path }, 'Opening Terminal');
+		const openRemote = (host: string, path: string) => runAction({ command: 'openRemoteTerminal', repo: this.currentRepo, host: host, path: path }, 'Opening Terminal');
+		// A worktree whose folder is missing (prunable) can't hold a terminal, so it is left out, as in the Worktree dropdown
+		const localWorktrees = sortWorktreesForMenu(this.gitWorktrees.filter((worktree) => typeof worktree.host === 'undefined' && !worktree.prunable));
+		// The worktree being viewed is checked: a remote host's worktree when the Worktree dropdown chose one, otherwise the one Git commands
+		// run in (currentWorktree). When the repository's path isn't the one Git lists (a symbolic link), its worktree is found by isCurrent.
+		const hostWorktreeChoice = isHostWorktreeKey(this.worktreeChoice) ? this.worktreeChoice : null, currentWorktree = this.currentWorktree;
+		const viewedByPath = localWorktrees.some((worktree) => worktree.path === currentWorktree);
+		// A remote host's worktree can have the same path on its server, so only this machine's are compared
+		const isViewed = (worktree: GG.GitWorktree) => typeof worktree.host === 'undefined' && (viewedByPath ? worktree.path === currentWorktree : worktree.isCurrent);
+		const getAction = (worktree: GG.GitWorktree, onClick: () => void): ContextMenuAction => ({
+			title: escapeHtml(getWorktreeLabel(worktree)),
+			hint: worktree.branch !== null ? worktree.branch : 'detached',
+			visible: true,
+			checked: hostWorktreeChoice !== null ? getWorktreeKey(worktree) === hostWorktreeChoice : isViewed(worktree),
+			onClick: onClick
+		});
+		const groups: (ContextMenuAction | ContextMenuHeading)[][] = [localWorktrees.map((worktree) => getAction(worktree, () => openLocal(worktree.path)))];
+		// Every host that isn't hidden in Repository Settings, whatever the Host dropdown shows. A host whose entry in the config is invalid can't be reached.
+		this.getAvailableRemoteHosts().filter((host) => host.state !== 'configError').forEach((host) => {
+			const hostWorktrees = sortWorktreesForMenu(this.gitWorktrees.filter((worktree) => worktree.host === host.name && !worktree.prunable));
+			// The view only has the worktrees of the hosts the Host dropdown shows, after their first refresh. The host's main worktree, from the config, is always offered.
+			const actions = hostWorktrees.length > 0
+				? hostWorktrees.map((worktree) => getAction(worktree, () => openRemote(host.name, worktree.path)))
+				: [{ title: escapeHtml(getWorktreeLabel({ name: '', isMain: true, host: host.name })), visible: true, checked: false, onClick: () => openRemote(host.name, host.path) }];
+			// A host that isn't ok still opens terminals, because SSH may work now, and can ask for a password. Its heading says its state.
+			groups.push([{ heading: host.name, hint: host.state !== 'ok' ? getRemoteHostStateText(host) : undefined }, ...actions]);
+		});
+
+		if (groups.length === 1 && localWorktrees.length <= 1) {
+			openLocal(localWorktrees.length === 1 ? localWorktrees[0].path : this.currentWorktree);
+		} else {
+			// The repository target closes the menu when the worktrees change
+			contextMenu.show(groups, true, { type: TargetType.Repo }, button, this.viewElem);
+		}
+	}
+
 	private getWorktreeContextMenuActions(worktree: GG.GitWorktree, target: DialogTarget): ContextMenuActions {
 		const key = getWorktreeKey(worktree), host = worktree.host;
 		return [[
@@ -2863,6 +2912,8 @@ class GitTreeView {
 				editorFontFamily = eff;
 				this.repoDropdown.refresh();
 				this.branchDropdown.refresh();
+				this.hostDropdown.refresh();
+				this.worktreeDropdown.refresh();
 			}
 			if (fmc !== findMatchColour) {
 				findMatchColour = fmc;
@@ -2978,6 +3029,12 @@ class GitTreeView {
 					handledEvent(e);
 				} else if (this.branchDropdown.isOpen()) {
 					this.branchDropdown.close();
+					handledEvent(e);
+				} else if (this.hostDropdown.isOpen()) {
+					this.hostDropdown.close();
+					handledEvent(e);
+				} else if (this.worktreeDropdown.isOpen()) {
+					this.worktreeDropdown.close();
 					handledEvent(e);
 				} else if (this.settingsWidget.isVisible()) {
 					if (!this.settingsWidget.handleEscape()) this.settingsWidget.close();
@@ -3280,13 +3337,13 @@ class GitTreeView {
 		if (expandedCommit.compareWithElem !== null) {
 			expandedCommit.compareWithElem.classList.remove(CLASS_COMMIT_DETAILS_OPEN);
 		}
+		this.tableChips.setExpandedRow(null);
 		GitTreeView.closeCdvContextMenuIfOpen(expandedCommit);
 		this.expandedCommit = null;
 		if (saveAndRender) {
 			this.saveState();
-			if (!isDocked) {
-				this.renderGraph();
-			}
+			// With the docked view too, as the row's height changes when it no longer shows all of its chips
+			this.renderGraph();
 		}
 	}
 
@@ -3509,28 +3566,29 @@ class GitTreeView {
 
 		elem.innerHTML = isDocked ? html : '<td><div class="cdvHeightResize"></div></td><td colspan="' + (this.getNumColumns() - 1) + '">' + html + '</td>';
 		if (!expandedCommit.loading) this.setCdvDivider();
-		if (!isDocked) this.renderGraph();
+		this.renderGraph(); // With the docked view too, as the row is expanded to show all of its chips
 
 		if (!refresh) {
+			// The row can be taller than the others, as it shows all of its chips
+			const rowTop = this.controlsElem.clientHeight + expandedCommit.commitElem.offsetTop;
 			if (isDocked) {
-				let elemTop = this.controlsElem.clientHeight + expandedCommit.commitElem.offsetTop;
-				if (elemTop - 8 < this.viewElem.scrollTop) {
+				if (rowTop - 8 < this.viewElem.scrollTop) {
 					// Commit is above what is visible on screen
-					this.viewElem.scroll(0, elemTop - 8);
-				} else if (elemTop - this.viewElem.clientHeight + 32 > this.viewElem.scrollTop) {
+					this.viewElem.scroll(0, rowTop - 8);
+				} else if (rowTop + expandedCommit.commitElem.offsetHeight + 8 - this.viewElem.clientHeight > this.viewElem.scrollTop) {
 					// Commit is below what is visible on screen
-					this.viewElem.scroll(0, elemTop - this.viewElem.clientHeight + 32);
+					this.viewElem.scroll(0, rowTop + expandedCommit.commitElem.offsetHeight + 8 - this.viewElem.clientHeight);
 				}
 			} else {
 				let elemTop = this.controlsElem.clientHeight + elem.offsetTop, cdvHeight = this.gitRepos[this.currentRepo].cdvHeight;
 				if (this.config.commitDetailsView.autoCenter) {
 					// Center Commit Detail View setting is enabled
-					// elemTop - commit height [24px] + (commit details view height + commit height [24px]) / 2 - (view height) / 2
-					this.viewElem.scroll(0, elemTop - 12 + (cdvHeight - this.viewElem.clientHeight) / 2);
-				} else if (elemTop - 32 < this.viewElem.scrollTop) {
+					// rowTop + (commit row and details view height) / 2 - (view height) / 2
+					this.viewElem.scroll(0, rowTop + (elemTop - rowTop + cdvHeight - this.viewElem.clientHeight) / 2);
+				} else if (rowTop - 8 < this.viewElem.scrollTop) {
 					// Commit Detail View is opening above what is visible on screen
-					// elemTop - commit height [24px] - desired gap from top [8px] < view scroll offset
-					this.viewElem.scroll(0, elemTop - 32);
+					// rowTop - desired gap from top [8px] < view scroll offset
+					this.viewElem.scroll(0, rowTop - 8);
 				} else if (elemTop + cdvHeight - this.viewElem.clientHeight + 8 > this.viewElem.scrollTop) {
 					// Commit Detail View is opening below what is visible on screen
 					// elemTop + commit details view height + desired gap from bottom [8px] - view height > view scroll offset
@@ -4513,7 +4571,7 @@ window.addEventListener('load', () => {
  */
 function getWorktreeRefHtml(worktree: GG.GitWorktree, title: string, stale: boolean) {
 	const path = escapeHtml(worktree.path), isHost = typeof worktree.host !== 'undefined';
-	return '<span class="gitRef worktree' + (worktree.isCurrent ? ' current' : '') + (stale ? ' ' + CLASS_STALE_HOST : '') + '" data-name="' + path + '" data-path="' + path + '"' + (isHost ? ' data-host="' + escapeHtml(worktree.host!) + '"' : '') + ' title="' + escapeHtml(title + ' Ctrl/Cmd+Click to open it in a new window' + (isHost ? ', with Remote-SSH.' : '.')) + '">' + SVG_ICONS.worktree + '<span class="gitRefName" data-fullref="' + path + '">' + escapeHtml(getWorktreeLabel(worktree)) + '</span></span>';
+	return '<span class="gitRef worktree' + (worktree.isCurrent ? ' current' : '') + (stale ? ' ' + CLASS_STALE_HOST : '') + '" data-name="' + path + '" data-path="' + path + '"' + (isHost ? ' data-host="' + escapeHtml(worktree.host!) + '"' : '') + ' data-hint="' + escapeHtml(worktree.branch !== null ? worktree.branch : 'detached') + '" title="' + escapeHtml(title + ' Ctrl/Cmd+Click to open it in a new window' + (isHost ? ', with Remote-SSH.' : '.')) + '">' + SVG_ICONS.worktree + '<span class="gitRefName" data-fullref="' + path + '">' + escapeHtml(getWorktreeLabel(worktree)) + '</span></span>';
 }
 
 /**
@@ -4546,13 +4604,53 @@ function isHostWorktreeKey(key: string) {
 }
 
 /**
+ * Get the remote host of a Worktree dropdown choice. A host's name can't contain ':', so it ends at the first one after the prefix.
+ * @param key The choice.
+ * @returns The host's name, or NULL for All, or a worktree on this machine.
+ */
+function getHostOfWorktreeKey(key: string) {
+	return isHostWorktreeKey(key) ? key.substring(HOST_WORKTREE_KEY_PREFIX.length, key.indexOf(':', HOST_WORKTREE_KEY_PREFIX.length)) : null;
+}
+
+/**
+ * Resolve the Host dropdown's saved choice into the one the view applies, by the rules of getHostFilter (src/remoteHosts.ts): the names
+ * of hosts that aren't available are ignored, and a choice of only such names is All, so a stale choice never hides everything.
+ * @param choice The saved choice.
+ * @param available The names of the available remote hosts: the repository's, without those hidden in Repository Settings.
+ * @returns The choice the view applies.
+ */
+function resolveHostChoice(choice: GG.HostChoice, available: ReadonlyArray<string>): GG.HostChoice {
+	if (choice === null) return null;
+	const known = choice.filter((name) => name === LOCAL_HOSTS || available.includes(name));
+	return choice.length > 0 && known.length === 0 ? null : known;
+}
+
+/**
+ * Do two Host dropdown choices show the same sources?
+ * @param a One choice.
+ * @param b The other choice.
+ */
+function isSameHostChoice(a: GG.HostChoice, b: GG.HostChoice) {
+	return a === null || b === null ? a === b : a.length === b.length && a.every((name) => b.includes(name));
+}
+
+/**
  * Get the label of a worktree: Root for the main worktree, otherwise its folder name, prefixed with `<host>:` on a remote host.
  * @param worktree The worktree.
  * @returns The label.
  */
-function getWorktreeLabel(worktree: GG.GitWorktree) {
+function getWorktreeLabel(worktree: { readonly name: string, readonly isMain: boolean, readonly host?: string }) {
 	const name = worktree.isMain ? 'Root' : worktree.name;
 	return typeof worktree.host === 'string' ? worktree.host + ':' + name : name;
+}
+
+/**
+ * Sort worktrees for a menu: the main worktree (Root) first, then the others by name.
+ * @param worktrees The worktrees.
+ * @returns The sorted worktrees.
+ */
+function sortWorktreesForMenu(worktrees: ReadonlyArray<GG.GitWorktree>) {
+	return worktrees.slice().sort((a, b) => a.isMain !== b.isMain ? (a.isMain ? -1 : 1) : a.name.localeCompare(b.name));
 }
 
 /**

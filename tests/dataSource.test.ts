@@ -814,7 +814,7 @@ describe('DataSource', () => {
 			expect(spyOnSpawn).toHaveBeenCalledTimes(3);
 		});
 
-		it('Should show only the chosen host\'s rows and branches, and read none of this machine\'s worktrees (hostChoice === host)', async () => {
+		it('Should show only the chosen host\'s rows and branches, and read none of this machine\'s worktrees (hostChoice === [host])', async () => {
 			// Setup
 			mockGitSuccessOnce(logOutput);
 			mockHostRefs();
@@ -823,7 +823,7 @@ describe('DataSource', () => {
 			const otherWorktree: GitWorktree = { path: '/path/to/repo-wt', name: 'repo-wt', head: H2, branch: 'topic', isMain: false, isCurrent: false, locked: false, prunable: false };
 
 			// Run
-			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, otherWorktree, ...getHostWorktrees()], false, null, [], 'server');
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, otherWorktree, ...getHostWorktrees()], false, null, [], ['server']);
 
 			// Assert
 			expect(result.commits.map((commit) => ({ hash: commit.hash, host: commit.host, hostBranches: commit.hostBranches }))).toStrictEqual([
@@ -836,7 +836,7 @@ describe('DataSource', () => {
 			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
 		});
 
-		it('Should leave out every host when the Host dropdown chose Local (hostChoice === \'\')', async () => {
+		it('Should leave out every host when the Host dropdown chose Local (hostChoice === [\'\'])', async () => {
 			// Setup
 			mockGitSuccessOnce(logOutput);
 			mockHostRefs();
@@ -844,7 +844,7 @@ describe('DataSource', () => {
 			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
 
 			// Run
-			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, ...getHostWorktrees()], false, null, [], '');
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, ...getHostWorktrees()], false, null, [], ['']);
 
 			// Assert
 			expect(result.commits.map((commit) => ({ hash: commit.hash, hostBranches: commit.hostBranches }))).toStrictEqual([
@@ -861,11 +861,98 @@ describe('DataSource', () => {
 			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + H1 + '\nbranch refs/heads/master\n\n');
 
 			// Run
-			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, [], [], '');
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, [], [], ['']);
 
 			// Assert
 			expect(result.worktrees).toStrictEqual([localWorktree]);
 			expect(result.hosts).toStrictEqual([snapshots[0].host]);
+		});
+
+		it('Should show no worktree\'s rows, and no host\'s branches, when the Host dropdown shows no source (hostChoice === [])', async () => {
+			// Setup
+			mockGitSuccessOnce(logOutput);
+			mockHostRefs();
+			vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
+
+			// Run
+			const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, ...getHostWorktrees()], false, null, [], []);
+
+			// Assert
+			expect(result.commits.map((commit) => ({ hash: commit.hash, hostBranches: commit.hostBranches }))).toStrictEqual([
+				{ hash: H1, hostBranches: undefined },
+				{ hash: H2, hostBranches: undefined }
+			]);
+			expect(spyOnSpawn.mock.calls[0][1]).not.toContain('--glob=refs/git-tree/hosts/server');
+			// Only the log and the refs are read: no Git status of this machine's worktrees
+			expect(spyOnSpawn).toHaveBeenCalledTimes(2);
+		});
+
+		it('Should leave out every host\'s worktrees from the repository info when the Host dropdown shows no source (hostChoice === [])', async () => {
+			// Setup
+			mockGitSuccessOnce('* master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + H1 + '\nbranch refs/heads/master\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, [], [], []);
+
+			// Assert
+			expect(result.worktrees).toStrictEqual([localWorktree]);
+			expect(result.hosts).toStrictEqual([snapshots[0].host]);
+		});
+
+		const hostChoicesShowingEverything: ReadonlyArray<[string, ReadonlyArray<string>]> = [
+			['Local and the host', ['', 'server']],
+			['only a host the repository doesn\'t have, which is ignored', ['ghost']]
+		];
+		hostChoicesShowingEverything.forEach(([description, hostChoice]) => {
+			it('Should show this machine\'s rows, and the host\'s rows and branches, when the Host dropdown shows ' + description + ' (hostChoice === ' + JSON.stringify(hostChoice) + ')', async () => {
+				// Setup
+				mockGitSuccessOnce(logOutput);
+				mockHostRefs();
+				mockGitSuccessOnce('');
+				vscode.mockExtensionSettingReturnValue('repository.showUncommittedChanges', true);
+				date.setCurrentTime(1587559259);
+
+				// Run
+				const result = await dataSource.getCommits('/path/to/repo', null, 300, true, false, false, false, CommitOrdering.Date, ['origin'], [], [], [localWorktree, ...getHostWorktrees()], false, null, [], hostChoice);
+
+				// Assert
+				expect(result.commits.map((commit) => ({ hash: commit.hash, host: commit.host, hostBranches: commit.hostBranches }))).toStrictEqual([
+					{ hash: '*1', host: 'server', hostBranches: undefined },
+					{ hash: '*2', host: 'server', hostBranches: undefined },
+					{ hash: H1, host: undefined, hostBranches: [{ host: 'server', name: 'main' }] },
+					{ hash: H2, host: undefined, hostBranches: [{ host: 'server', name: 'topic/x' }] }
+				]);
+				// The log, the refs, and this machine's Git status
+				expect(spyOnSpawn).toHaveBeenCalledTimes(3);
+			});
+		});
+
+		it('Should ignore a host the repository doesn\'t have next to Local, and show only this machine (hostChoice === [\'\', \'ghost\'])', async () => {
+			// Setup
+			mockGitSuccessOnce('* master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + H1 + '\nbranch refs/heads/master\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, [], [], ['', 'ghost']);
+
+			// Assert
+			expect(result.worktrees).toStrictEqual([localWorktree]);
+		});
+
+		it('Should show every host\'s worktrees when the Host dropdown\'s only host isn\'t the repository\'s (hostChoice === [\'ghost\'])', async () => {
+			// Setup
+			mockGitSuccessOnce('* master\n');
+			mockGitSuccessOnce('origin\n');
+			mockGitSuccessOnce('worktree /path/to/repo\nHEAD ' + H1 + '\nbranch refs/heads/master\n\n');
+
+			// Run
+			const result = await dataSource.getRepoInfo('/path/to/repo', false, false, [], [], ['ghost']);
+
+			// Assert
+			expect(result.worktrees).toStrictEqual([localWorktree, ...getHostWorktrees()]);
 		});
 
 		it('Should start the log from the hosts\' refs after the remotes\' (showRemoteBranches === TRUE)', async () => {

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { WorktreeListEntry } from '../engine';
 import { GitWorktree } from '../types';
-import { parseWorktreeList } from '../worktreeList';
+import { getWorktreeFromEntry, parseWorktreeList } from '../worktreeList';
 
 /*
  * A host's status call: one script that `ssh <alias> sh -s -- <arguments>` runs on the server, and the parser of what
@@ -168,17 +168,7 @@ export function getServerWorktrees(host: string, entries: ReadonlyArray<Worktree
 		if (entry.path === null || entry.bare) continue;
 		const count = counts.get(entry.path);
 		worktrees.push({
-			worktree: {
-				path: entry.path,
-				name: path.posix.basename(entry.path),
-				head: entry.head === null || /^0+$/.test(entry.head) ? null : entry.head,
-				branch: entry.branch === null ? null : entry.branch.replace(/^refs\/heads\//, ''),
-				isMain: i === 0,
-				isCurrent: false,
-				locked: entry.locked,
-				prunable: entry.prunable,
-				host: host
-			},
+			worktree: Object.assign(getWorktreeFromEntry(entry, entry.path, path.posix.basename(entry.path), i === 0), { host: host }),
 			uncommittedChanges: typeof count === 'number' ? count : null
 		});
 	}

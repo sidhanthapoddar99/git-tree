@@ -1,4 +1,5 @@
 import { WorktreeListEntry } from './engine';
+import { GitWorktree } from './types';
 
 /**
  * Parse the output of `git worktree list --porcelain`.
@@ -31,4 +32,26 @@ export function parseWorktreeList(stdout: string) {
 		entries.push({ path: worktreePath, head: head, branch: branch, bare: bare, locked: locked, prunable: prunable });
 	}
 	return entries;
+}
+
+/**
+ * Get a worktree from its record in `git worktree list --porcelain`. This machine's worktrees, a remote host's and the
+ * Manage panel's all use it, so they read a record the same way.
+ * @param entry The record.
+ * @param worktreePath The worktree's path, as the caller shows it.
+ * @param name The worktree's name: its folder's name.
+ * @param isMain Is it the main worktree (the first record).
+ * @returns The worktree. It isn't marked as the current worktree: the caller does that.
+ */
+export function getWorktreeFromEntry(entry: WorktreeListEntry, worktreePath: string, name: string, isMain: boolean): GitWorktree {
+	return {
+		path: worktreePath,
+		name: name,
+		head: entry.head === null || /^0+$/.test(entry.head) ? null : entry.head,
+		branch: entry.branch === null ? null : entry.branch.replace(/^refs\/heads\//, ''),
+		isMain: isMain,
+		isCurrent: false,
+		locked: entry.locked,
+		prunable: entry.prunable
+	};
 }
