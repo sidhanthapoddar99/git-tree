@@ -1,40 +1,24 @@
-/* Settings Widget: Repository Settings, Remote Hosts, and Issues & Pull Requests
- * A panel of cards. It uses only the theme's colours (with the view's own neutral tokens where a theme may leave one
- * unset), so light, dark and high contrast themes all look native. */
+/* Settings Widget: Repository Settings, Hosts, and Issues & Pull Requests
+ * A panel of cards, in the place of the bottom bar's panels (.bottomBarPanel). It uses only the theme's colours (with
+ * the view's own neutral tokens where a theme may leave one unset), so light, dark and high contrast themes all look
+ * native. The Hosts page is a list instead, with no card. */
 
 #settingsWidget{
 	--settings-border:var(--vscode-widget-border, var(--git-tree-border));
 	--settings-mono:var(--vscode-editor-font-family, monospace);
-	display:block;
-	position:fixed;
-	top:-180px;
-	right:28px;
 	width:460px;
-	max-width:calc(100vw - 56px);
-	min-height:146px;
-	max-height:min(90vh, calc(100vh - var(--git-tree-bottom-bar-height) - 8px)); /* Clear of the bottom bar */
-	box-sizing:border-box;
-	padding:0;
-	z-index:31;
-	background-color:var(--vscode-editorWidget-background);
-	border:1px solid var(--vscode-widget-border, transparent);
-	border-top:none;
-	border-radius:0 0 6px 6px;
-	box-shadow:0 2px 8px var(--vscode-widget-shadow);
 	line-height:18px;
 	font-size:13px;
 	color:var(--vscode-foreground);
 	fill:currentColor;
 	-webkit-user-select:none;
 	user-select:none;
-	overflow-x:hidden;
-	overflow-y:auto;
 }
-#settingsWidget.active{
-	top:0;
+#settingsWidget[data-page="hosts"]{
+	width:580px;
 }
-#settingsWidget.transition{
-	transition:top .2s linear;
+#settingsWidget:not([data-page="hosts"]) #settingsRefresh{
+	display:none;
 }
 #settingsWidget svg{
 	fill:currentColor;
@@ -219,6 +203,31 @@ div.settingsHint, .settingsFieldError{
 }
 .remoteRow.hidden .remoteRowMain, .hostRow.hidden .hostRowHead > .hostName, .hostRow.hidden .hostRowTarget{
 	opacity:0.6;
+}
+
+
+/* Bars and Spinners */
+
+.settingsBar{
+	height:4px;
+	overflow:hidden;
+	background-color:var(--git-tree-surface, var(--vscode-input-background));
+	border-radius:2px;
+}
+.settingsBarFill{
+	height:100%;
+	min-width:1px;
+	background-color:var(--vscode-progressBar-background, var(--vscode-focusBorder));
+	border-radius:2px;
+}
+.settingsSpinner{
+	display:inline-flex;
+	vertical-align:middle;
+}
+.settingsSpinner svg{
+	width:10px !important;
+	height:14px !important;
+	animation:loadingIconAnimation 2s linear infinite;
 }
 
 
@@ -500,10 +509,27 @@ div.settingsHint, .settingsFieldError{
 }
 
 
-/* Remote Hosts */
+/* Hosts
+ * A row per host, between thin lines: its name and state, its target and facts, then its meters. The page has no card,
+ * so the rows sit on the panel itself. */
 
+#settingsHosts{
+	margin:-4px 0;
+}
 .hostRow{
-	padding:8px 8px 8px 12px;
+	padding:10px 4px;
+}
+.hostRow .hostRowHead{
+	flex-wrap:wrap; /* On a narrow panel, the buttons go under a long name */
+}
+.hostRow .settingsIconBtn{
+	width:22px;
+	height:22px;
+	opacity:0.7;
+}
+.hostRow .settingsIconBtn svg{
+	width:14px !important;
+	height:14px !important;
 }
 .hostRowHead{
 	display:flex;
@@ -551,7 +577,7 @@ div.settingsHint, .settingsFieldError{
 	font-size:12px;
 	color:var(--vscode-descriptionForeground);
 }
-.hostRowTarget, .hostRowMeta, .hostRowMessage{
+.hostRowTarget, .hostRowMeta, .hostRowMessage, .hostUsage{
 	margin-left:14px;
 }
 .hostRowTarget{
@@ -566,16 +592,10 @@ div.settingsHint, .settingsFieldError{
 	color:var(--vscode-foreground);
 }
 .hostRowMeta{
-	display:flex;
-	flex-wrap:wrap;
-	align-items:center;
-	gap:4px 6px;
-	margin-top:4px;
+	margin-top:2px;
 	font-size:12px;
+	line-height:16px;
 	color:var(--vscode-descriptionForeground);
-}
-.hostRowFacts{
-	white-space:nowrap;
 }
 .hostRowMessage{
 	margin-top:4px;
@@ -585,34 +605,85 @@ div.settingsHint, .settingsFieldError{
 	-webkit-user-select:text;
 	user-select:text;
 }
-.remoteHostsConfigFile{
+
+/* Hosts: the Meters
+ * A label, a thin bar and the numbers on one line, each column the same width in every meter so they line up. The
+ * meters share a line two by two when the panel is wide enough. */
+
+.hostUsage{
+	margin-top:8px;
+}
+.hostMeters{
+	display:grid;
+	grid-template-columns:repeat(auto-fit, minmax(230px, 1fr));
+	gap:4px 24px;
+}
+.hostMeter{
+	display:grid;
+	grid-template-columns:40px minmax(24px, 1fr) 120px;
+	align-items:center;
+	gap:8px;
+	min-width:0;
+	font-size:12px;
+	line-height:18px;
+}
+.hostMeterLabel, .hostMeterMissing, .hostMeterNone, .hostUsageError{
+	color:var(--vscode-descriptionForeground);
+}
+.hostMeterValue{
 	overflow:hidden;
 	text-overflow:ellipsis;
 	white-space:nowrap;
-	padding:6px 12px;
+	font-variant-numeric:tabular-nums;
+}
+.hostMeter.high .settingsBarFill{
+	background-color:var(--vscode-charts-orange, var(--vscode-charts-yellow));
+}
+.hostUsageError{
 	font-size:12px;
+	line-height:16px;
+	overflow-wrap:anywhere;
+}
+
+
+/* Hosts: the Footer */
+
+.hostsFooter{
+	display:flex;
+	flex-direction:column;
+	align-items:flex-start;
+	gap:2px;
+	padding:10px 4px 4px 4px;
+	font-size:12px;
+	line-height:18px;
 	color:var(--vscode-descriptionForeground);
 	border-top:1px solid var(--settings-border);
+}
+.hostsFooter .settingsLinkBtn{
+	display:inline-flex;
+	align-items:center;
+	gap:4px;
+}
+.hostsFooter .settingsLinkBtn svg{
+	width:12px !important;
+	height:12px !important;
+}
+.hostsConfigFile{
+	max-width:100%;
+	overflow:hidden;
+	text-overflow:ellipsis;
+	white-space:nowrap;
 	-webkit-user-select:text;
 	user-select:text;
 }
-.remoteHostsAgent{
-	display:flex;
-	align-items:center;
-	gap:12px;
-	padding:8px 12px;
-	font-size:12px;
-	line-height:16px;
-	color:var(--vscode-descriptionForeground);
-	border-top:1px solid var(--settings-border);
-}
 
 
-/* Remote Hosts: the Form */
+/* Hosts: the Form */
 
 .hostForm{
 	padding:10px 12px 12px 12px;
 	background-color:var(--git-tree-surface);
+	border-radius:4px;
 }
 .hostFormTitle{
 	margin-bottom:6px;

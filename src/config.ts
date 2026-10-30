@@ -20,6 +20,7 @@ import {
 	KeybindingConfig,
 	MuteCommitsConfig,
 	OnRepoLoadConfig,
+	PanelPosition,
 	RefLabelAlignment,
 	ReferenceLabelsConfig,
 	RepoDropdownOrder,
@@ -336,6 +337,13 @@ class Config {
 	 */
 	get openToTheRepoOfTheActiveTextEditorDocument() {
 		return !!this.config.get('openToTheRepoOfTheActiveTextEditorDocument', false);
+	}
+
+	/**
+	 * Get the value of the `git-tree.panelPosition` Extension Setting.
+	 */
+	get panelPosition(): PanelPosition {
+		return this.config.get<string>('panelPosition', 'center') === 'topRight' ? 'topRight' : 'center';
 	}
 
 	/**

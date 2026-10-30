@@ -20,6 +20,7 @@ import { RepoChangeEvent, RepoManager } from '../src/repoManager';
 import { CodeReview, CommitOrdering, GitCommitStash, GitConfigLocation, GitFileStatus, GitPushBranchMode, GitRemoteHostSettings, GitResetMode, GitTreeViewGlobalState, GitTreeViewWorkspaceState, ManagedHostGit, ManagedHostSizes, MergeActionOn, PullRequestConfig, PullRequestProvider, RebaseActionOn, RemoteHostEntry, RequestMessage, ResponseMessage, TagType } from '../src/types';
 import * as utils from '../src/utils';
 import { EventEmitter } from '../src/utils/event';
+import { HostStats } from '../src/hostStats';
 import { WorktreeStats, WorktreeStatsAnswer } from '../src/worktreeStats';
 
 import { waitForExpect } from './helpers/expectations';
@@ -4826,6 +4827,89 @@ describe('GitTreeView', () => {
 		});
 	});
 
+	describe('Hosts panel', () => {
+		let spyOnWatch: jest.SpyInstance;
+		let spyOnStop: jest.SpyInstance;
+		let spyOnSetVisible: jest.SpyInstance;
+		let onDidReceiveMessage: (msg: RequestMessage) => void;
+		let mockedWebviewPanel: ReturnType<typeof vscode.getMockedWebviewPanel>;
+
+		beforeEach(() => {
+			spyOnWatch = jest.spyOn(HostStats.prototype, 'watch').mockImplementation(() => { });
+			spyOnStop = jest.spyOn(HostStats.prototype, 'stop');
+			spyOnSetVisible = jest.spyOn(HostStats.prototype, 'setVisible');
+			GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+			mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+			onDidReceiveMessage = mockedWebviewPanel.mocks.panel.webview.onDidReceiveMessage;
+		});
+
+		afterEach(() => {
+			spyOnWatch.mockRestore();
+			spyOnStop.mockRestore();
+			spyOnSetVisible.mockRestore();
+		});
+
+		it('Should watch the hosts the panel shows', () => {
+			// Run
+			onDidReceiveMessage({ command: 'watchHostStats', repo: '/path/to/repo', hosts: [null, 'server'], refresh: true });
+
+			// Assert
+			expect(spyOnWatch).toHaveBeenCalledWith('/path/to/repo', [null, 'server'], true);
+			expect(mockedWebviewPanel.mocks.messages).toStrictEqual([]);
+		});
+
+		it('Should refuse a repository that isn\'t in Git Tree, without reading its hosts', () => {
+			// Run
+			onDidReceiveMessage({ command: 'watchHostStats', repo: '/path/to/unknown', hosts: [null, 'server'], refresh: false });
+
+			// Assert
+			expect(spyOnWatch).not.toHaveBeenCalled();
+			expect(spyOnStop).toHaveBeenCalled();
+			expect(mockedWebviewPanel.mocks.messages).toStrictEqual([
+				{ command: 'hostStats', repo: '/path/to/unknown', host: null, usage: null, error: 'The repository /path/to/unknown isn\'t in Git Tree.' },
+				{ command: 'hostStats', repo: '/path/to/unknown', host: 'server', usage: null, error: 'The repository /path/to/unknown isn\'t in Git Tree.' }
+			]);
+		});
+
+		it('Should send each host\'s answer to the view', () => {
+			// Run
+			GitTreeView.currentPanel!['hostStats']['send']({ repo: '/path/to/repo', host: 'server', usage: null, error: 'Git Tree couldn\'t connect to "server".' });
+
+			// Assert
+			expect(mockedWebviewPanel.mocks.messages).toStrictEqual([{ command: 'hostStats', repo: '/path/to/repo', host: 'server', usage: null, error: 'Git Tree couldn\'t connect to "server".' }]);
+		});
+
+		it('Should pause while the view is hidden, and stop when the page is rebuilt or the view is closed', () => {
+			// Run
+			mockedWebviewPanel.mocks.panel.setVisibility(false);
+
+			// Assert
+			expect(spyOnSetVisible).toHaveBeenLastCalledWith(false);
+
+			// Run
+			spyOnStop.mockClear();
+			vscode.mockExtensionSettingReturnValue('panelPosition', 'topRight');
+			mockedWebviewPanel.mocks.panel.setVisibility(true);
+
+			// Assert: the setting changed while the view was hidden, so the page was rebuilt with it
+			expect(spyOnStop).toHaveBeenCalled();
+			expect(spyOnSetVisible).toHaveBeenLastCalledWith(true);
+			expect(mockedWebviewPanel.panel.webview.html).toContain('"panelPosition":"topRight"');
+
+			// Run
+			spyOnStop.mockClear();
+			GitTreeView.currentPanel!.dispose();
+
+			// Assert
+			expect(spyOnStop).toHaveBeenCalled();
+		});
+
+		it('Should give the view the panel position, centred by default', () => {
+			// Assert
+			expect(mockedWebviewPanel.panel.webview.html).toContain('"panelPosition":"center"');
+		});
+	});
+
 	describe('sendMessage', () => {
 		beforeEach(() => {
 			GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
@@ -5020,9 +5104,9 @@ describe('GitTreeView', () => {
 			const bottomBar = html.substring(html.indexOf('<div id="bottomBar"'), html.indexOf('<div id="scrollShadow">'));
 			expect(bottomBar.split('<div class="bottomBarGroup">').slice(1).map((group) => group.match(/ id="\w+"/g))).toStrictEqual([
 				[' id="refreshBtn"', ' id="fetchBtn"', ' id="findBtn"', ' id="terminalBtn"'],
-				[' id="manageBtn"', ' id="remoteHostsBtn"', ' id="issuesBtn"', ' id="settingsBtn"']
+				[' id="manageBtn"', ' id="hostsBtn"', ' id="issuesBtn"', ' id="settingsBtn"']
 			]);
-			expect(bottomBar.match(/ data-panel="\w+"/g)).toStrictEqual([' data-panel="manage"', ' data-panel="remoteHosts"', ' data-panel="issues"', ' data-panel="repository"']);
+			expect(bottomBar.match(/ data-panel="\w+"/g)).toStrictEqual([' data-panel="manage"', ' data-panel="hosts"', ' data-panel="issues"', ' data-panel="repository"']);
 			// The bar is outside the scrolling view, so the view's commits and footer end above it
 			expect(html.indexOf('<div id="bottomBar"')).toBeGreaterThan(html.indexOf('<div id="footer"></div>\n\t\t\t</div>'));
 		});

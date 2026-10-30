@@ -1,5 +1,5 @@
 /*
- * The instruction for coding agents that keep `.worktrees/git-tree.yaml` correct. The Remote Hosts panel's Copy button
+ * The instruction for coding agents that keep `.worktrees/git-tree.yaml` correct. The Hosts panel's Copy button
  * copies it, and docs/remote-hosts-for-agents.md holds the same block, which a test checks.
  */
 

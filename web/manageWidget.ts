@@ -38,6 +38,7 @@ class ManageWidget {
 
 		this.widgetElem = document.createElement('div');
 		this.widgetElem.id = 'manageWidget';
+		this.widgetElem.className = 'bottomBarPanel';
 		this.widgetElem.setAttribute('role', 'region');
 		this.widgetElem.setAttribute('aria-label', 'Manage Worktrees');
 		this.widgetElem.innerHTML = '<div class="settingsHeader"><div class="settingsHeaderTitles"><h2>Manage Worktrees</h2><div id="manageRepoName"></div></div>' +
@@ -73,7 +74,7 @@ class ManageWidget {
 	}
 
 	/**
-	 * Close the Manage panel, sliding it up out of view. Answers that arrive later are ignored.
+	 * Close the Manage panel. Answers that arrive later are ignored.
 	 */
 	public close() {
 		if (this.currentRepo === null) return;
@@ -137,7 +138,7 @@ class ManageWidget {
 	/* Loading and Actions */
 
 	/**
-	 * Load hosts again: this machine, then each remote host that isn't hidden in the Remote Hosts panel. A host keeps what
+	 * Load hosts again: this machine, then each remote host that isn't hidden in the Hosts panel. A host keeps what
 	 * it showed until its answers arrive.
 	 * @param only The one host to load, or NULL for every host. Every host is loaded when the view's hosts changed.
 	 */
@@ -195,7 +196,7 @@ class ManageWidget {
 	 */
 	private getHostHtml(host: ManageHost, index: number) {
 		const git = host.git, sizes = host.sizes;
-		const spinner = '<span class="manageSpinner" title="Loading' + ELLIPSIS + '">' + SVG_ICONS.loading + '</span>';
+		const spinner = settingsSpinnerHtml();
 
 		// The sizes of each row, and their total, which the bars are a share of
 		const sizeOf = (path: string) => {
@@ -230,7 +231,7 @@ class ManageWidget {
 		if (sizes !== null && sizes.disk !== null) {
 			const disk = sizes.disk;
 			html += '<div class="manageDisk"><div class="manageDiskText"><span>' + formatKilobytes(disk.used) + ' used of ' + formatKilobytes(disk.total) + '</span><span>' + formatKilobytes(disk.free) + ' free</span></div>' +
-				manageBarHtml(disk.total > 0 ? disk.used / disk.total : 0, 'The disk that holds the repository: ' + formatKilobytes(disk.used) + ' used, ' + formatKilobytes(disk.free) + ' free') + '</div>';
+				settingsBarHtml(disk.total > 0 ? disk.used / disk.total : 0, 'The disk that holds the repository: ' + formatKilobytes(disk.used) + ' used, ' + formatKilobytes(disk.free) + ' free') + '</div>';
 		}
 
 		// The rows
@@ -245,7 +246,7 @@ class ManageWidget {
 			const sizeHtml = (size: number | null, missing: boolean) => '<div class="manageRowSize">' + (host.loadingSizes && sizes === null
 				? spinner
 				: size !== null
-					? '<span class="manageRowSizeText">' + formatKilobytes(size) + '</span>' + manageBarHtml(total > 0 ? size / total : 0, formatKilobytes(size) + (total > 0 ? ' of ' + formatKilobytes(total) : ''))
+					? '<span class="manageRowSizeText">' + formatKilobytes(size) + '</span>' + settingsBarHtml(total > 0 ? size / total : 0, formatKilobytes(size) + (total > 0 ? ' of ' + formatKilobytes(total) : ''))
 					: '<span class="manageMuted" title="' + (missing ? 'The folder is missing' : 'The size couldn\'t be measured') + '">&mdash;</span>') + '</div>';
 
 			body += git.worktrees.map((managed, worktreeIndex) => {
@@ -312,30 +313,4 @@ function getManageRelationHtml(managed: GG.ManagedWorktree, git: GG.ManagedHostG
 		default:
 			return '<span class="manageMuted" title="' + escapeHtml(git.mainBranchError || 'Git couldn\'t compare it with ' + (git.mainBranch || 'the main branch')) + '">&mdash;</span>';
 	}
-}
-
-/**
- * Get the HTML of a slim bar.
- * @param share How full it is, from 0 to 1.
- * @param title Its tooltip (HTML, an attribute value).
- * @returns The HTML.
- */
-function manageBarHtml(share: number, title: string) {
-	const percent = Math.round(Math.min(Math.max(share, 0), 1) * 1000) / 10;
-	return '<div class="manageBar" role="img" aria-label="' + title + '" title="' + title + '"><div class="manageBarFill" style="width:' + percent + '%"></div></div>';
-}
-
-/**
- * Format a size in kilobytes as KB, MB or GB, with one decimal below 10.
- * @param kilobytes The size, in kilobytes (1024 bytes).
- * @returns The size.
- */
-function formatKilobytes(kilobytes: number) {
-	const units = ['KB', 'MB', 'GB', 'TB'];
-	let value = kilobytes, unit = 0;
-	while (value >= 1024 && unit < units.length - 1) {
-		value /= 1024;
-		unit++;
-	}
-	return (unit > 0 && value < 10 ? (Math.round(value * 10) / 10).toFixed(1) : String(Math.round(value))) + ' ' + units[unit];
 }

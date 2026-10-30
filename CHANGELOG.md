@@ -4,6 +4,18 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The Hosts panel shows how busy each host is.** Under Local and each remote host it shows CPU, RAM, the disk that holds the repository, and each NVIDIA GPU, as thin bars with their numbers. The numbers update every 10 seconds while the panel is open and the view is visible, and the panel's Refresh button reads them at once. A value Git Tree can't read shows a dash, with why in its tooltip. A hidden host, or one SSH can't reach, isn't read. On Windows, Local says its usage isn't available.
+- **The `git-tree.panelPosition` setting** chooses where the bottom bar's panels open: `center` (the default), in a box in the middle of the view over a dimmed view, which a click outside or Escape closes, or `topRight`, at the top right as before. It applies to every window and every Git Tree tab.
+
+### Changed
+
+- **The Remote Hosts panel is now Hosts.** It lists Local first, then each remote host, as rows between thin lines instead of cards. Each remote host's actions are small icon buttons on its row, and *Add a remote host* sits under the list. A tab restored with Remote Hosts open opens Hosts.
+- **The bottom bar is as tall as the top bar**, with toolbar-sized icons.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added
@@ -335,6 +347,7 @@ The first version of Git Tree.
 
 - Telemetry. Git Tree sends no usage data.
 
+[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.9.0...HEAD
 [Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.9.0...HEAD
 [0.9.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.7.0...v0.8.0

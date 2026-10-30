@@ -1,6 +1,6 @@
 /* Settings HTML
- * The parts every card of the settings panels, and of the Manage panel, is built from: the card, its rows, buttons, switches and notices. Each
- * function takes HTML, so the caller escapes every value it puts in (with escapeHtml). */
+ * The parts every card of the settings panels, and of the Manage panel, is built from: the card, its rows, buttons, switches, notices, bars
+ * and sizes. Each function takes HTML, so the caller escapes every value it puts in (with escapeHtml). */
 
 /**
  * Get the HTML of a card's header and body.
@@ -91,6 +91,66 @@ function settingsSwitchHtml(id: string, label: string, description: string | nul
 function settingsNoticeHtml(kind: 'error' | 'success' | 'progress' | 'info', html: string) {
 	const icon = kind === 'error' ? SVG_ICONS.failed : kind === 'success' ? SVG_ICONS.passed : kind === 'progress' ? SVG_ICONS.loading : SVG_ICONS.info;
 	return '<div class="settingsNotice ' + kind + '"' + (kind === 'error' ? ' role="alert"' : ' role="status"') + '>' + icon + '<div class="settingsNoticeText">' + html + '</div></div>';
+}
+
+/**
+ * Get the HTML of a small spinning icon, for a value that is loading.
+ * @returns The HTML.
+ */
+function settingsSpinnerHtml() {
+	return '<span class="settingsSpinner" title="Loading' + ELLIPSIS + '">' + SVG_ICONS.loading + '</span>';
+}
+
+/**
+ * Get the HTML of a slim bar.
+ * @param share How full it is, from 0 to 1.
+ * @param title Its tooltip (HTML, an attribute value).
+ * @returns The HTML.
+ */
+function settingsBarHtml(share: number, title: string) {
+	const percent = Math.round(Math.min(Math.max(share, 0), 1) * 1000) / 10;
+	return '<div class="settingsBar" role="img" aria-label="' + title + '" title="' + title + '"><div class="settingsBarFill" style="width:' + percent + '%"></div></div>';
+}
+
+
+/* Sizes */
+
+const SIZE_UNITS = ['KB', 'MB', 'GB', 'TB'];
+
+/**
+ * Get the unit a size is shown in: the largest unit it has at least one of.
+ * @param kilobytes The size, in kilobytes (1024 bytes).
+ * @returns The unit's index in SIZE_UNITS.
+ */
+function getSizeUnit(kilobytes: number) {
+	let unit = 0;
+	while (kilobytes >= Math.pow(1024, unit + 1) && unit < SIZE_UNITS.length - 1) unit++;
+	return unit;
+}
+
+/**
+ * Format a size in kilobytes as KB, MB, GB or TB, with one decimal below 10.
+ * @param kilobytes The size, in kilobytes (1024 bytes).
+ * @returns The size.
+ */
+function formatKilobytes(kilobytes: number) {
+	const unit = getSizeUnit(kilobytes), value = kilobytes / Math.pow(1024, unit);
+	return (unit > 0 && value < 10 ? (Math.round(value * 10) / 10).toFixed(1) : String(Math.round(value))) + ' ' + SIZE_UNITS[unit];
+}
+
+/**
+ * Format a part of a size, and the size, in the size's unit, with one decimal below 100: `12.3 / 31.2 GB`.
+ * @param used The part, in kilobytes (1024 bytes).
+ * @param total The size, in kilobytes.
+ * @returns The part and the size.
+ */
+function formatKilobytesOfTotal(used: number, total: number) {
+	const unit = getSizeUnit(total), scale = Math.pow(1024, unit);
+	const format = (kilobytes: number) => {
+		const value = kilobytes / scale;
+		return unit > 0 && value < 100 ? String(Math.round(value * 10) / 10) : String(Math.round(value));
+	};
+	return format(used) + ' / ' + format(total) + ' ' + SIZE_UNITS[unit];
 }
 
 

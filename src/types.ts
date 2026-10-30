@@ -187,7 +187,7 @@ export interface GitRemoteHost {
 	readonly lastRefresh: number | null; // When the last good refresh finished (milliseconds since 1970). NULL => none yet.
 }
 
-/** A remote host's entry in `.worktrees/git-tree.yaml`, as the Remote Hosts panel edits it. */
+/** A remote host's entry in `.worktrees/git-tree.yaml`, as the Hosts panel edits it. */
 export interface RemoteHostEntry {
 	readonly name: string;
 	readonly ssh: string; // A Host alias from the SSH configuration
@@ -196,7 +196,7 @@ export interface RemoteHostEntry {
 	readonly forwardAgent: boolean; // TRUE => Git commands that Git Tree runs on the server (clone, fetch, pull, push) get the local SSH agent (ssh -A), so they can reach GitHub as the user
 }
 
-/** A remote host as the Remote Hosts panel shows it: its entry, and its state from the last refresh. */
+/** A remote host as the Hosts panel shows it: its entry, and its state from the last refresh. */
 export interface GitRemoteHostSettings extends RemoteHostEntry {
 	readonly state: GitRemoteHostState;
 	readonly message: string | null;
@@ -211,7 +211,7 @@ export interface SshAlias {
 	readonly user: string | null; // `User`, NULL => not set
 }
 
-/** A folder on a server, as the folder browser of the Remote Hosts panel lists it. */
+/** A folder on a server, as the folder browser of the Hosts panel lists it. */
 export interface RemoteFolderEntry {
 	readonly name: string;
 	readonly kind: 'folder' | 'repository' | 'worktree'; // A repository's main worktree, a linked worktree, or any other folder
@@ -354,6 +354,7 @@ export interface GitTreeViewConfig {
 	readonly mute: MuteCommitsConfig;
 	readonly onlyFollowFirstParent: boolean;
 	readonly onRepoLoad: OnRepoLoadConfig;
+	readonly panelPosition: PanelPosition;
 	readonly referenceLabels: ReferenceLabelsConfig;
 	readonly repoDropdownOrder: RepoDropdownOrder;
 	readonly showRemoteBranches: boolean;
@@ -639,6 +640,13 @@ export const enum RepoCommitOrdering {
 	AuthorDate = 'author-date',
 	Topological = 'topo'
 }
+
+/**
+ * Where the panels that the bottom bar opens show:
+ * - `center`: in a box in the middle of the view, over a dimmed view.
+ * - `topRight`: at the top right of the view, next to the graph.
+ */
+export type PanelPosition = 'center' | 'topRight';
 
 export const enum RepoDropdownOrder {
 	FullPath,
@@ -1631,6 +1639,49 @@ export interface ResponseFastForwardWorktree extends ResponseWithErrorInfo {
 	readonly path: string;
 }
 
+/* The Hosts panel: how much of each host's disk, memory, processors and graphics cards is in use */
+
+/** A host's memory, in kilobytes. */
+export interface HostMemory {
+	readonly total: number;
+	readonly used: number;
+}
+
+/** A host's processors, together: how busy they were over a short sample. */
+export interface HostCpu {
+	readonly busy: number; // Percent, from 0 to 100
+	readonly cores: number;
+}
+
+/** A graphics card, as nvidia-smi reports it. */
+export interface HostGpu {
+	readonly busy: number | null; // Percent. NULL => nvidia-smi didn't report it.
+	readonly memoryUsed: number | null; // MiB. NULL => nvidia-smi didn't report it.
+	readonly memoryTotal: number | null; // MiB. NULL => nvidia-smi didn't report it.
+}
+
+/** What the Hosts panel shows of a host's use. A value that couldn't be read is NULL, never a guess. */
+export interface HostUsage {
+	readonly disk: DiskSpace | null; // The disk that holds the repository
+	readonly memory: HostMemory | null;
+	readonly cpu: HostCpu | null;
+	readonly gpus: ReadonlyArray<HostGpu> | null; // Empty => the host has no nvidia-smi. NULL => nvidia-smi failed.
+}
+
+export interface RequestWatchHostStats extends RepoRequest {
+	// The extension reads each host at once, then every 10 seconds while the view is visible, and answers with a
+	// ResponseHostStats for each read. Each request replaces the one before.
+	readonly command: 'watchHostStats';
+	readonly hosts: ReadonlyArray<string | null>; // NULL => this machine, otherwise a remote host's name. Empty => stop reading.
+	readonly refresh: boolean; // Read every host now, not only the hosts that are new to the list
+}
+export interface ResponseHostStats extends ResponseWithErrorInfo {
+	readonly command: 'hostStats';
+	readonly repo: string;
+	readonly host: string | null;
+	readonly usage: HostUsage | null; // NULL => error says why
+}
+
 export type RequestMessage =
 	RequestAddRemote
 	| RequestBrowseRemoteHost
@@ -1710,7 +1761,8 @@ export type RequestMessage =
 	| RequestViewFileAtRevision
 	| RequestViewScm
 	| RequestLoadWorktreeStats
-	| RequestFastForwardWorktree;
+	| RequestFastForwardWorktree
+	| RequestWatchHostStats;
 
 export type ResponseMessage =
 	ResponseAddRemote
@@ -1788,7 +1840,8 @@ export type ResponseMessage =
 	| ResponseViewFileAtRevision
 	| ResponseViewScm
 	| ResponseLoadWorktreeStats
-	| ResponseFastForwardWorktree;
+	| ResponseFastForwardWorktree
+	| ResponseHostStats;
 
 
 /** Helper Types */

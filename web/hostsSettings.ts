@@ -1,11 +1,13 @@
-/* The Remote Hosts panel
- * The Remote Hosts card: a row for each host in .worktrees/git-tree.yaml, and the form that adds or edits a host, with a
- * browser of the server's folders. Each action sends its own message, and its response comes back through
- * RemoteHostsSettings.processResponse. */
+/* The Hosts panel
+ * A row for this machine (Local), then one for each remote host in .worktrees/git-tree.yaml, each with how much of its
+ * processors, memory, disk and graphics cards is in use, and the form that adds or edits a remote host, with a browser
+ * of the server's folders. Each action sends its own message, and its response comes back through
+ * HostsSettings.processResponse. While the panel is open, the extension reads the usage of the hosts it watches
+ * (watchHostStats), and answers with a hostStats response for each read. */
 
-type RemoteHostsResponse = GG.ResponseBrowseRemoteHost | GG.ResponseCheckRemoteHost | GG.ResponseCreateRemoteHostRepository | GG.ResponseLoadRemoteHosts | GG.ResponseRemoveRemoteHost | GG.ResponseRunRemoteHostGit | GG.ResponseSaveRemoteHost;
+type HostsResponse = GG.ResponseBrowseRemoteHost | GG.ResponseCheckRemoteHost | GG.ResponseCreateRemoteHostRepository | GG.ResponseHostStats | GG.ResponseLoadRemoteHosts | GG.ResponseRemoveRemoteHost | GG.ResponseRunRemoteHostGit | GG.ResponseSaveRemoteHost;
 
-/** What the card and the graph's worktree menu say about a Git command run on a server. */
+/** What the panel and the graph's worktree menu say about a Git command run on a server. */
 const REMOTE_HOST_GIT_ACTIONS: { readonly [action in GG.RemoteHostGitAction]: { readonly title: string, readonly running: string, readonly done: string, readonly failed: string } } = {
 	fetch: { title: 'Fetch on Server', running: 'Fetching on the server', done: 'Fetched on the server.', failed: 'Unable to Fetch on Server' },
 	pull: { title: 'Pull on Server', running: 'Pulling on the server', done: 'Pulled on the server.', failed: 'Unable to Pull on Server' },
@@ -23,6 +25,9 @@ const REMOTE_HOST_STATES: { readonly [state in GG.GitRemoteHostState]: { readonl
 	differentRepository: { label: 'Different repository', tone: 'bad' },
 	configError: { label: 'Config error', tone: 'bad' }
 };
+
+/** The states of a remote host whose usage isn't read: SSH can't reach it, or its entry can't be used. Its row says why. */
+const REMOTE_HOST_STATES_WITHOUT_USAGE: ReadonlyArray<GG.GitRemoteHostState> = ['unreachable', 'needsAuthentication', 'configError'];
 
 const REMOTE_HOST_NAME_REGEX = /^[A-Za-z0-9_-]+$/;
 
@@ -102,14 +107,15 @@ interface RemoteHostNotice {
 }
 
 /**
- * Implements the Remote Hosts card of the Settings Widget.
+ * Implements the Hosts panel, a page of the Settings Widget.
  */
-class RemoteHostsSettings {
+class HostsSettings {
 	private readonly view: GitTreeView;
 
 	private repo: string | null = null;
 	private hosts: GG.ResponseLoadRemoteHosts | null = null;
-	private loading: boolean = false;
+	private usage = new Map<string | null, HostUsageState>(); // The usage of each host the extension reads, by name. NULL => this machine.
+	private watching: ReadonlyArray<string | null> = []; // The hosts the extension was last asked to read
 	private form: RemoteHostForm | null = null;
 	private notice: RemoteHostNotice | null = null; // About the last add, edit or remove
 	private rowNotices: { [name: string]: RemoteHostNotice } = {};
@@ -121,30 +127,35 @@ class RemoteHostsSettings {
 	private elem: HTMLElement | null = null;
 
 	/**
-	 * Construct a new RemoteHostsSettings instance.
-	 * @param view The Git Tree View that the card is for.
+	 * Construct a new HostsSettings instance.
+	 * @param view The Git Tree View that the panel is for.
 	 */
 	constructor(view: GitTreeView) {
 		this.view = view;
 	}
 
 	/**
-	 * Start showing the remote hosts of a repository, and load them.
+	 * Start showing the hosts of a repository: read this machine's usage, and load the remote hosts.
 	 * @param repo The repository.
 	 */
 	public open(repo: string) {
 		this.close();
 		this.repo = repo;
+		this.watchUsage(false);
 		this.request();
 	}
 
 	/**
-	 * Stop showing the remote hosts, forgetting the form and what each row said.
+	 * Stop showing the hosts, and reading their usage, forgetting the form and what each row said.
 	 */
 	public close() {
+		if (this.repo !== null && this.watching.length > 0) {
+			sendMessage({ command: 'watchHostStats', repo: this.repo, hosts: [], refresh: false });
+		}
 		this.repo = null;
 		this.hosts = null;
-		this.loading = false;
+		this.usage = new Map();
+		this.watching = [];
 		this.form = null;
 		this.notice = null;
 		this.rowNotices = {};
@@ -159,9 +170,16 @@ class RemoteHostsSettings {
 	 */
 	public request() {
 		if (this.repo === null) return;
-		this.loading = true;
 		sendMessage({ command: 'loadRemoteHosts', repo: this.repo });
 		this.render();
+	}
+
+	/**
+	 * Load the remote hosts again, and read every host's usage now, as the panel's Refresh button asks.
+	 */
+	public refresh() {
+		this.watchUsage(true);
+		this.request();
 	}
 
 	/**
@@ -172,22 +190,25 @@ class RemoteHostsSettings {
 		if (this.form === null) return false;
 		if (!this.form.submitting) {
 			this.form = null;
-			this.focusAfterRender = '#remoteHostsAdd';
+			this.focusAfterRender = '#hostsAdd';
 			this.render();
 		}
 		return true;
 	}
 
 	/**
-	 * Process a response to one of the card's requests.
+	 * Process a response to one of the panel's requests.
 	 * @param msg The response.
-	 * @returns TRUE => the card handled it, FALSE => the card didn't send it (so the view reports it).
+	 * @returns TRUE => the panel handled it, FALSE => the panel didn't send it (so the view reports it).
 	 */
-	public processResponse(msg: RemoteHostsResponse) {
+	public processResponse(msg: HostsResponse) {
 		if (this.repo === null) return false;
 		switch (msg.command) {
 			case 'loadRemoteHosts':
 				this.processLoad(msg);
+				return true;
+			case 'hostStats':
+				this.processUsage(msg);
 				return true;
 			case 'browseRemoteHost':
 				this.processBrowse(msg);
@@ -210,8 +231,8 @@ class RemoteHostsSettings {
 	/* Render */
 
 	/**
-	 * Render the card.
-	 * @param elem The card's element, when the Settings Widget has just rendered a new one.
+	 * Render the panel's hosts.
+	 * @param elem The hosts' element, when the Settings Widget has just rendered a new one.
 	 */
 	public render(elem: HTMLElement | null = this.elem) {
 		if (elem !== this.elem && elem !== null) this.listen(elem);
@@ -242,38 +263,39 @@ class RemoteHostsSettings {
 	private getHtml() {
 		const hosts = this.hosts, form = this.form;
 		const canAdd = hosts !== null && hosts.error === null && hosts.configFile !== null && form === null;
-		const actions = settingsIconButtonHtml('data-action="reload" data-focus="reload"', 'Reload Remote Hosts', SVG_ICONS.refresh, this.loading) +
-			settingsButtonHtml('id="remoteHostsAdd" data-action="add"', 'Add Host', SVG_ICONS.plus, false, !canAdd);
 
-		let body = this.notice !== null ? settingsNoticeHtml(this.notice.kind, escapeHtml(this.notice.text)) : '';
+		let html = this.notice !== null ? settingsNoticeHtml(this.notice.kind, escapeHtml(this.notice.text)) : '';
+		html += '<div class="hostRow local"><div class="hostRowHead"><span class="hostStateDot good" aria-hidden="true"></span><span class="hostName">Local</span><span class="hostStateLabel">This machine</span></div>' +
+			this.getUsageHtml(null) + '</div>';
 		if (hosts === null) {
-			body += settingsNoticeHtml('progress', 'Loading the remote hosts' + ELLIPSIS);
+			html += settingsNoticeHtml('progress', 'Loading the remote hosts' + ELLIPSIS);
 		} else if (hosts.error !== null) {
-			body += settingsNoticeHtml('error', 'Unable to load the remote hosts: ' + escapeHtml(hosts.error));
+			html += settingsNoticeHtml('error', 'Unable to load the remote hosts: ' + escapeHtml(hosts.error));
 		} else {
 			if (hosts.configError !== null) {
-				body += settingsNoticeHtml('error', '<b>The config file can\'t be used.</b> ' + escapeHtml(hosts.configError));
+				html += settingsNoticeHtml('error', '<b>The config file can\'t be used.</b> ' + escapeHtml(hosts.configError));
 			}
 			if (form !== null && form.previousName === null) {
-				body += this.getFormHtml(form, hosts);
+				html += this.getFormHtml(form, hosts);
 			}
 			const hideHosts = this.getHideHosts();
 			hosts.hosts.forEach((host, i) => {
-				body += form !== null && form.previousName === host.name ? this.getFormHtml(form, hosts) : this.getHostRowHtml(host, i, hideHosts.includes(host.name));
+				html += form !== null && form.previousName === host.name ? this.getFormHtml(form, hosts) : this.getHostRowHtml(host, i, hideHosts.includes(host.name));
 			});
 			if (hosts.hosts.length === 0 && form === null && hosts.configError === null) {
-				body += '<div class="settingsEmpty">' + (hosts.configFile === null
+				html += '<div class="settingsEmpty">' + (hosts.configFile === null
 					? 'This repository has no main worktree (it\'s bare), so it can\'t have remote hosts.'
 					: 'No remote hosts yet. Add an SSH server to show its worktrees in the graph.') + '</div>';
 			}
-			if (hosts.configFile !== null) {
-				body += '<div class="remoteHostsConfigFile" title="' + escapeHtml(hosts.configFile) + '">Saved in <code>' + escapeHtml(hosts.configFile) + '</code></div>';
-			}
 		}
-		body += '<div class="remoteHostsAgent"><span>Using a coding agent? Copy the instruction that tells it how to set up remote hosts for Git Tree.</span>' +
-			settingsButtonHtml('id="remoteHostsCopyInstruction" data-action="copyInstruction"', 'Copy', SVG_ICONS.copy, false, hosts === null || hosts.agentInstruction === '') + '</div>';
 
-		return settingsCardContentHtml('Remote Hosts', 'SSH servers whose worktrees the graph shows, with their state from the last refresh.', actions, body);
+		// Adding a host, where the hosts are saved, and the instruction for coding agents, quietly under the hosts
+		html += '<div class="hostsFooter"><button type="button" class="settingsLinkBtn" id="hostsAdd" data-action="add"' + (canAdd ? '' : ' disabled') + '>' + SVG_ICONS.plus + '<span>Add a remote host</span></button>';
+		if (hosts !== null && hosts.error === null && hosts.configFile !== null) {
+			html += '<div class="hostsConfigFile" title="' + escapeHtml(hosts.configFile) + '">Saved in <code>' + escapeHtml(hosts.configFile) + '</code></div>';
+		}
+		return html + '<div class="hostsAgent">Using a coding agent? <button type="button" class="settingsLinkBtn" id="hostsCopyInstruction" data-action="copyInstruction"' + (hosts === null || hosts.agentInstruction === '' ? ' disabled' : '') +
+			' title="Copy the instruction that tells a coding agent how to set up remote hosts for Git Tree"><span>Copy its setup instruction</span></button></div></div>';
 	}
 
 	private getHostRowHtml(host: GG.GitRemoteHostSettings, index: number, hidden: boolean) {
@@ -289,25 +311,48 @@ class RemoteHostsSettings {
 			settingsIconButtonHtml(attrs('edit'), 'Edit Host' + ELLIPSIS, SVG_ICONS.pencil, busy || formOpen) +
 			settingsIconButtonHtml(attrs('remove'), 'Remove Host' + ELLIPSIS, SVG_ICONS.close, busy || formOpen);
 
+		// What the graph shows of the host, and its last refresh, as one quiet line
 		const refreshed = host.lastRefresh !== null ? formatShortDate(Math.floor(host.lastRefresh / 1000)) : null;
-		const meta = (host.worktrees
-			? '<span class="settingsBadge" title="The graph shows the server\'s linked worktrees too.">Worktrees</span>'
-			: '<span class="settingsBadge outline" title="The graph shows only the server\'s main worktree.">Main worktree only</span>') +
-			(host.forwardAgent ? '<span class="settingsBadge" title="Clone, fetch, pull and push on the server get your SSH agent while they run.">Forward agent</span>' : '') +
-			(hidden ? '<span class="settingsBadge outline" title="Its worktrees and branches are left out of the graph.">Hidden</span>' : '') +
-			'<span class="hostRowFacts">' + (refreshed !== null || host.worktreeCount > 0 ? host.worktreeCount + ' worktree' + (host.worktreeCount !== 1 ? 's' : '') + ' · ' : '') +
-			(refreshed !== null ? '<span title="' + escapeHtml(refreshed.title) + '">Refreshed ' + escapeHtml(refreshed.formatted) + '</span>' : 'Not refreshed yet') + '</span>';
+		const facts = [(refreshed !== null || host.worktreeCount > 0 ? host.worktreeCount + ' worktree' + (host.worktreeCount !== 1 ? 's' : '') + ' · ' : '') +
+			(refreshed !== null ? '<span title="' + escapeHtml(refreshed.title) + '">Refreshed ' + escapeHtml(refreshed.formatted) + '</span>' : 'Not refreshed yet')];
+		facts.push(host.worktrees
+			? '<span title="The graph shows the server\'s linked worktrees too.">All worktrees</span>'
+			: '<span title="The graph shows only the server\'s main worktree.">Main worktree only</span>');
+		if (host.forwardAgent) facts.push('<span title="Clone, fetch, pull and push on the server get your SSH agent while they run.">Forward agent</span>');
+		if (hidden) facts.push('<span class="hostRowHidden" title="Its worktrees and branches are left out of the graph, and its usage isn\'t read.">Hidden</span>');
 
 		return '<div class="hostRow' + (hidden ? ' hidden' : '') + '" data-index="' + index + '">' +
 			'<div class="hostRowHead"><span class="hostStateDot ' + state.tone + '" aria-hidden="true"></span><span class="hostName" title="' + name + '">' + name + '</span>' +
 			'<span class="hostStateLabel" title="' + escapeHtml(state.label + (host.message !== null ? ': ' + host.message : '')) + '">' + state.label + '</span>' +
 			'<span class="settingsRowActions">' + actions + '</span></div>' +
 			'<div class="hostRowTarget" title="' + escapeHtml(host.ssh + ':' + host.path) + '"><span class="hostAlias">' + escapeHtml(host.ssh) + '</span>:' + escapeHtml(host.path) + '</div>' +
-			'<div class="hostRowMeta">' + meta + '</div>' +
+			'<div class="hostRowMeta">' + facts.join(' · ') + '</div>' +
 			(host.state !== 'ok' && (host.message !== null || host.state === 'needsConsent') ? '<div class="hostRowMessage ' + state.tone + '">' + (host.message !== null ? escapeHtml(host.message) : '') +
 				(host.state === 'needsConsent' ? ' <button type="button" class="settingsLinkBtn" data-action="allowFetch" data-focus="allowFetch:' + name + '">Allow Fetching' + ELLIPSIS + '</button>' : '') + '</div>' : '') +
 			(typeof notice !== 'undefined' ? settingsNoticeHtml(notice.kind, escapeHtml(notice.text)) : '') +
+			this.getUsageHtml(host.name) +
 			'</div>';
+	}
+
+	/**
+	 * Get the HTML of a host's usage, in an element that each answer for the host fills again.
+	 * @param host The remote host's name, or NULL for this machine.
+	 * @returns The HTML, or '' if the host's usage isn't read.
+	 */
+	private getUsageHtml(host: string | null) {
+		const state = this.usage.get(host);
+		return typeof state !== 'undefined' ? '<div class="hostUsage" data-usage="' + escapeHtml(host !== null ? host : '') + '">' + hostUsageHtml(state) + '</div>' : '';
+	}
+
+	/**
+	 * Show a host's new usage. Only its element is filled again, so a form that is being typed in isn't rendered again.
+	 * @param host The remote host's name, or NULL for this machine.
+	 */
+	private renderUsage(host: string | null) {
+		const state = this.usage.get(host), key = host !== null ? host : '';
+		if (this.elem === null || typeof state === 'undefined') return;
+		const elem = Array.from(this.elem.querySelectorAll<HTMLElement>('.hostUsage')).find((usageElem) => usageElem.dataset.usage === key);
+		if (typeof elem !== 'undefined') elem.innerHTML = hostUsageHtml(state);
 	}
 
 	private getFormHtml(form: RemoteHostForm, hosts: GG.ResponseLoadRemoteHosts) {
@@ -345,7 +390,7 @@ class RemoteHostsSettings {
 	private getStepSummaryHtml(form: RemoteHostForm, hosts: GG.ResponseLoadRemoteHosts, step: RemoteHostFormStep) {
 		if (step === 1) {
 			const alias = hosts.sshAliases.find((alias) => alias.alias === form.alias);
-			const hint = typeof alias !== 'undefined' ? RemoteHostsSettings.getAliasHint(alias) : '';
+			const hint = typeof alias !== 'undefined' ? HostsSettings.getAliasHint(alias) : '';
 			return '<code>' + escapeHtml(form.alias) + '</code>' + (hint !== '' ? ' <span class="settingsHint">' + escapeHtml(hint) + '</span>' : '');
 		} else if (step === 2) {
 			return form.mode === 'create' ? 'Create a new repository' : 'Add an existing repository';
@@ -355,12 +400,12 @@ class RemoteHostsSettings {
 	}
 
 	private getAliasStepHtml(form: RemoteHostForm, hosts: GG.ResponseLoadRemoteHosts) {
-		const typed = form.alias.trim(), lowerTyped = typed.toLowerCase(), error = RemoteHostsSettings.getAliasError(typed);
+		const typed = form.alias.trim(), lowerTyped = typed.toLowerCase(), error = HostsSettings.getAliasError(typed);
 		const matches = hosts.sshAliases.filter((alias) => lowerTyped === '' || alias.alias.toLowerCase().includes(lowerTyped) || (alias.hostName !== null && alias.hostName.toLowerCase().includes(lowerTyped)));
 		let html = '<label class="settingsField"><span class="settingsFieldLabel">Alias</span><input type="text" id="hostFormAlias" class="settingsInput mono" value="' + escapeHtml(form.alias) + '" placeholder="A Host from your SSH config" autocomplete="off" spellcheck="false"></label>';
 		if (hosts.sshAliases.length > 0) {
 			html += '<div class="hostPickList" id="hostAliasList" aria-label="SSH aliases">' + (matches.length > 0
-				? matches.map((alias) => '<button type="button" class="hostPickItem' + (alias.alias === typed ? ' selected' : '') + '" data-action="pickAlias" data-alias="' + escapeHtml(alias.alias) + '" data-focus="alias:' + escapeHtml(alias.alias) + '"><span class="hostPickName">' + escapeHtml(alias.alias) + '</span><span class="hostPickHint">' + escapeHtml(RemoteHostsSettings.getAliasHint(alias)) + '</span></button>').join('')
+				? matches.map((alias) => '<button type="button" class="hostPickItem' + (alias.alias === typed ? ' selected' : '') + '" data-action="pickAlias" data-alias="' + escapeHtml(alias.alias) + '" data-focus="alias:' + escapeHtml(alias.alias) + '"><span class="hostPickName">' + escapeHtml(alias.alias) + '</span><span class="hostPickHint">' + escapeHtml(HostsSettings.getAliasHint(alias)) + '</span></button>').join('')
 				: '<div class="settingsEmpty">No alias in your SSH config matches.</div>') + '</div>';
 		}
 		if (error !== null) {
@@ -416,7 +461,7 @@ class RemoteHostsSettings {
 				'<div class="hostFormStepActions">' + settingsButtonHtml('id="hostBrowseUseFolder" data-action="useFolder"', 'Use This Folder', null, false, !listed) +
 				settingsButtonHtml('id="hostFormFolderNext" data-action="folderNext"', 'Next', null, true, form.selectedPath === null) + '</div>';
 		} else {
-			const nameError = RemoteHostsSettings.getFolderNameError(form.newFolderName), name = form.newFolderName.trim();
+			const nameError = HostsSettings.getFolderNameError(form.newFolderName), name = form.newFolderName.trim();
 			const exists = listed && browser!.entries.some((entry) => entry.name === name);
 			html += '<label class="settingsField"><span class="settingsFieldLabel">New folder name</span><input type="text" id="hostFormNewFolder" class="settingsInput mono" value="' + escapeHtml(form.newFolderName) + '" autocomplete="off" spellcheck="false"></label>' +
 				(nameError !== null && name !== ''
@@ -574,19 +619,16 @@ class RemoteHostsSettings {
 		}
 		const form = this.form;
 		switch (action) {
-			case 'reload':
-				this.request();
-				return;
 			case 'add':
 				this.openForm(null);
 				return;
 			case 'copyInstruction':
 				if (this.hosts !== null && this.hosts.agentInstruction !== '') {
 					sendMessage({ command: 'copyToClipboard', type: 'Agent Instruction', data: this.hosts.agentInstruction });
-					target.querySelector('span')!.textContent = 'Copied';
+					const span = target.querySelector('span')!, label = span.textContent;
+					span.textContent = 'Copied';
 					setTimeout(() => {
-						const span = target.querySelector('span');
-						if (span !== null) span.textContent = 'Copy';
+						span.textContent = label;
 					}, 1500);
 				}
 				return;
@@ -666,6 +708,7 @@ class RemoteHostsSettings {
 				if (hideHosts.length === this.getHideHosts().length) hideHosts.push(host.name);
 				this.view.saveRepoStateValue(repo, 'hideHosts', hideHosts);
 				this.view.refresh(true);
+				this.watchUsage(false);
 				this.render();
 				break;
 			}
@@ -720,7 +763,7 @@ class RemoteHostsSettings {
 
 	private aliasNext(form: RemoteHostForm) {
 		const alias = form.alias.trim();
-		if (alias === '' || RemoteHostsSettings.getAliasError(alias) !== null) return;
+		if (alias === '' || HostsSettings.getAliasError(alias) !== null) return;
 		form.alias = alias;
 		if (form.browser !== null && form.browser.ssh !== alias) {
 			form.browser = null;
@@ -796,7 +839,7 @@ class RemoteHostsSettings {
 	private folderNext(form: RemoteHostForm) {
 		if (form.mode === 'create') {
 			const browser = form.browser;
-			if (browser === null || browser.loading || browser.error !== null || browser.path === null || RemoteHostsSettings.getFolderNameError(form.newFolderName) !== null) return;
+			if (browser === null || browser.loading || browser.error !== null || browser.path === null || HostsSettings.getFolderNameError(form.newFolderName) !== null) return;
 			form.newFolderName = form.newFolderName.trim();
 			form.selectedPath = joinRemotePath(browser.path, form.newFolderName);
 		} else if (form.selectedPath === null) {
@@ -831,7 +874,6 @@ class RemoteHostsSettings {
 
 	private processLoad(msg: GG.ResponseLoadRemoteHosts) {
 		if (msg.repo !== this.repo) return;
-		this.loading = false;
 		this.hosts = msg;
 		if (msg.error === null && msg.configError === null) {
 			// Forget hidden hosts that are no longer in the config, as hidden remotes are forgotten
@@ -842,7 +884,17 @@ class RemoteHostsSettings {
 				if (!names.includes(name)) delete this.rowNotices[name];
 			});
 		}
+		this.watchUsage(false);
 		this.render();
+	}
+
+	private processUsage(msg: GG.ResponseHostStats) {
+		const state = msg.repo === this.repo ? this.usage.get(msg.host) : undefined;
+		if (typeof state === 'undefined') return;
+		state.usage = msg.usage;
+		state.error = msg.error;
+		state.loading = false;
+		this.renderUsage(msg.host);
 	}
 
 	private processBrowse(msg: GG.ResponseBrowseRemoteHost) {
@@ -901,7 +953,7 @@ class RemoteHostsSettings {
 		}
 		this.notice = { kind: 'success', text: form === null ? 'Saved the host.' : created ? 'Created the repository on ' + form.alias + ', and added the host ' + form.name + '.' : form.previousName !== null ? 'Saved the host ' + form.name + '.' : 'Added the host ' + form.name + '.' };
 		this.form = null;
-		this.focusAfterRender = '#remoteHostsAdd';
+		this.focusAfterRender = '#hostsAdd';
 		this.request();
 		this.view.refresh(false);
 	}
@@ -916,7 +968,7 @@ class RemoteHostsSettings {
 		} else {
 			delete this.rowNotices[name];
 			this.notice = { kind: 'success', text: 'Removed the host ' + name + '.' };
-			this.focusAfterRender = '#remoteHostsAdd';
+			this.focusAfterRender = '#hostsAdd';
 			this.request();
 			this.view.refresh(false);
 		}
@@ -933,6 +985,33 @@ class RemoteHostsSettings {
 			this.view.refresh(false);
 		}
 		return true;
+	}
+
+
+	/* Usage */
+
+	/**
+	 * Ask the extension to read the usage of this machine, and of each remote host that isn't hidden and that SSH can
+	 * reach. It asks again only when the hosts change, or to read them all now.
+	 * @param refresh Read every host now.
+	 */
+	private watchUsage(refresh: boolean) {
+		if (this.repo === null) return;
+		const hosts = this.hosts, hideHosts = this.getHideHosts();
+		const names = [<string | null>null].concat(hosts !== null && hosts.error === null && hosts.configError === null
+			? hosts.hosts.filter((host) => !hideHosts.includes(host.name) && !REMOTE_HOST_STATES_WITHOUT_USAGE.includes(host.state)).map((host) => host.name)
+			: []);
+		// A host that is no longer read loses its numbers, rather than showing old ones
+		Array.from(this.usage.keys()).forEach((name) => {
+			if (!names.includes(name)) this.usage.delete(name);
+		});
+		names.forEach((name) => {
+			if (!this.usage.has(name)) this.usage.set(name, { usage: null, error: null, loading: true });
+		});
+		if (refresh || !arraysStrictlyEqual(names, this.watching)) {
+			this.watching = names;
+			sendMessage({ command: 'watchHostStats', repo: this.repo, hosts: names, refresh: refresh });
+		}
 	}
 
 

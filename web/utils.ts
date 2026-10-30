@@ -119,6 +119,7 @@ const CLASS_ENABLED = 'enabled';
 const CLASS_FETCH_SUPPORTED = 'fetchSupported';
 const CLASS_FOCUSSED = 'focussed';
 const CLASS_LOADING = 'loading';
+const CLASS_PANELS_CENTERED = 'panelsCentered';
 const CLASS_PENDING_REVIEW = 'pendingReview';
 const CLASS_REFRESHING = 'refreshing';
 const CLASS_REF_HEAD = 'head';

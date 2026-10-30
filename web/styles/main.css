@@ -30,7 +30,7 @@ body.vscode-dark{
 /* Body */
 
 body{
-	--git-tree-bottom-bar-height:22px;
+	--git-tree-bottom-bar-height:41px; /* As tall as the top bar (#controls): 32px, its padding and its border */
 	display:block;
 	position:fixed;
 	top:0;
@@ -1020,7 +1020,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 
 
 /* Bottom Bar
- * A narrow bar along the bottom, as tall as Visual Studio Code's status bar: the view's actions on the left, and the
+ * A bar along the bottom, as tall as the top bar, with toolbar-sized icons: the view's actions on the left, and the
  * buttons of its panels on the right. The button of the open panel is pressed. It never wraps. */
 
 #bottomBar{
@@ -1033,7 +1033,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 	bottom:0;
 	height:var(--git-tree-bottom-bar-height);
 	box-sizing:border-box;
-	padding:0 4px;
+	padding:0 8px;
 	overflow:hidden;
 	background-color:var(--vscode-editor-background);
 	border-top:1px solid var(--git-tree-border);
@@ -1044,7 +1044,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 .bottomBarGroup{
 	display:flex;
 	align-items:center;
-	gap:2px;
+	gap:4px;
 	flex-shrink:0;
 }
 .bottomBarBtn{
@@ -1052,10 +1052,10 @@ body.tagLabelsRightAligned .gitRef.tag{
 	align-items:center;
 	justify-content:center;
 	box-sizing:border-box;
-	width:22px;
-	height:18px;
+	width:28px;
+	height:28px;
 	border:1px solid transparent;
-	border-radius:3px;
+	border-radius:5px;
 	cursor:pointer;
 }
 .bottomBarBtn:hover{
@@ -1067,8 +1067,8 @@ body.tagLabelsRightAligned .gitRef.tag{
 	color:var(--vscode-inputOption-activeForeground, var(--vscode-foreground));
 }
 .bottomBarBtn svg{
-	width:14px !important;
-	height:14px !important;
+	width:16px !important;
+	height:16px !important;
 	fill:currentColor;
 	opacity:0.85;
 }
@@ -1089,6 +1089,89 @@ body.tagLabelsRightAligned .gitRef.tag{
 }
 #refreshBtn.refreshing svg{
 	animation:loadingIconAnimation 2s linear infinite;
+}
+
+
+/* Bottom Bar Panels
+ * The panels the bottom bar opens (Manage Worktrees, and the pages of the Settings Widget) share one place and one
+ * frame, and each sets only its width. The `git-tree.panelPosition` setting puts them at the top right of the view,
+ * sliding down from its top edge, or in a box in its middle over a dimmed view (body.panelsCentered). A centred panel
+ * fits between the top of the view and the bottom bar, and scrolls inside. */
+
+.bottomBarPanel{
+	display:block;
+	position:fixed;
+	top:-100vh;
+	right:28px;
+	max-width:calc(100vw - 56px);
+	min-height:146px;
+	max-height:min(90vh, calc(100vh - var(--git-tree-bottom-bar-height) - 8px)); /* Clear of the bottom bar */
+	box-sizing:border-box;
+	padding:0;
+	z-index:31;
+	background-color:var(--vscode-editorWidget-background);
+	border:1px solid var(--vscode-widget-border, transparent);
+	border-top:none;
+	border-radius:0 0 6px 6px;
+	box-shadow:0 2px 8px var(--vscode-widget-shadow);
+	overflow-x:hidden;
+	overflow-y:auto;
+}
+.bottomBarPanel.active{
+	top:0;
+}
+.bottomBarPanel.transition{
+	transition:top .2s linear;
+}
+
+body.panelsCentered .bottomBarPanel, body.panelsCentered .bottomBarPanel.active{
+	top:12px;
+	bottom:calc(var(--git-tree-bottom-bar-height) + 12px);
+	left:12px;
+	right:12px;
+	height:fit-content;
+	margin:auto;
+	max-width:calc(100vw - 24px);
+	min-height:0;
+	max-height:min(760px, calc(100vh - var(--git-tree-bottom-bar-height) - 24px));
+	border-top:1px solid var(--vscode-widget-border, transparent);
+	border-radius:6px;
+	box-shadow:0 4px 24px var(--vscode-widget-shadow);
+}
+body.panelsCentered .bottomBarPanel{
+	visibility:hidden;
+	opacity:0;
+	transform:scale(0.98);
+}
+body.panelsCentered .bottomBarPanel.active{
+	visibility:visible;
+	opacity:1;
+	transform:none;
+}
+body.panelsCentered .bottomBarPanel.transition{
+	transition:opacity .12s ease-out, transform .12s ease-out, visibility .12s;
+}
+
+#panelBackdrop{
+	display:none;
+	position:fixed;
+	top:0;
+	left:0;
+	right:0;
+	bottom:var(--git-tree-bottom-bar-height); /* The bottom bar stays usable, so its buttons still switch panels */
+	z-index:30;
+	background-color:rgba(0,0,0,0.4);
+	animation:panelBackdropFadeIn .12s ease-out;
+}
+body.vscode-light #panelBackdrop, body.vscode-high-contrast-light #panelBackdrop{
+	background-color:rgba(0,0,0,0.2);
+}
+body.panelsCentered #panelBackdrop.active{
+	display:block;
+}
+@keyframes panelBackdropFadeIn{
+	from{ opacity:0; }
+	to{ opacity:1; }
 }
 
 

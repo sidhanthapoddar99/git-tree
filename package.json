@@ -992,6 +992,20 @@
 						"default": false,
 						"description": "Open the Git Tree View to the repository containing the active Text Editor document."
 					},
+					"git-tree.panelPosition": {
+						"type": "string",
+						"enum": [
+							"center",
+							"topRight"
+						],
+						"enumDescriptions": [
+							"Show each panel in a box in the middle of the view, over a dimmed view. Clicking outside the box or pressing Escape closes it.",
+							"Show each panel at the top right of the view, next to the graph, which stays usable. Pressing Escape closes it."
+						],
+						"default": "center",
+						"scope": "application",
+						"description": "Where the panels that the bottom bar opens show: Manage Worktrees, Hosts, Issues & Pull Requests, and Repository Settings. It applies to every window and every Git Tree tab."
+					},
 					"git-tree.referenceLabels.alignment": {
 						"type": "string",
 						"enum": [

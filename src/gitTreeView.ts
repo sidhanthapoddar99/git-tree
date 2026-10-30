@@ -5,6 +5,7 @@ import { createLoadCommitsResponse } from './compactCommits';
 import { getConfig } from './config';
 import { DataSource, GitConfigKey } from './dataSource';
 import { ExtensionState } from './extensionState';
+import { HostStats } from './hostStats';
 import { Logger } from './logger';
 import { RepoFileWatcher } from './repoFileWatcher';
 import { resolveServerWorktreePath } from './remoteHosts';
@@ -43,6 +44,7 @@ export class GitTreeView extends Disposable {
 	private readonly repoManager: RepoManager;
 	private readonly logger: Logger;
 	private readonly worktreeStats: WorktreeStats;
+	private readonly hostStats: HostStats; // Reads the usage of the hosts the Hosts panel shows, while it's open
 	private isGraphViewLoaded: boolean = false;
 	private isPanelVisible: boolean = true;
 	private currentRepo: string | null = null; // The repository the file watcher follows. It is reset to null while the view is hidden.
@@ -148,6 +150,7 @@ export class GitTreeView extends Disposable {
 		this.repoManager = repoManager;
 		this.logger = logger;
 		this.worktreeStats = new WorktreeStats(dataSource);
+		this.hostStats = new HostStats(dataSource, (answer) => this.sendMessage({ command: 'hostStats', ...answer }));
 		this.loadViewTo = loadViewTo;
 		this.shownRepo = loadViewTo !== null ? loadViewTo.repo : null;
 
@@ -181,6 +184,7 @@ export class GitTreeView extends Disposable {
 					GitTreeView.views.splice(index, 1);
 				}
 				this.repoFileWatcher.stop();
+				this.hostStats.stop();
 			}),
 
 			// Dispose this Git Tree View when the Webview Panel is disposed
@@ -203,6 +207,8 @@ export class GitTreeView extends Disposable {
 						this.currentRepo = null;
 						this.repoFileWatcher.stop();
 					}
+					// The Hosts panel's hosts aren't read while the view is hidden. After show, so a page it rebuilt isn't read for.
+					this.hostStats.setVisible(this.panel.visible);
 					this.isPanelVisible = this.panel.visible;
 				}
 			}),
@@ -878,6 +884,17 @@ export class GitTreeView extends Disposable {
 					error: this.getUnknownRepoError(msg.repo) || await this.worktreeStats.fastForward(msg.repo, msg.host, msg.path)
 				});
 				break;
+			case 'watchHostStats': {
+				// The hosts answer later, each on its own, so nothing here is awaited
+				const repo = msg.repo, unknownRepoError = this.getUnknownRepoError(repo);
+				if (unknownRepoError !== null) {
+					this.hostStats.stop();
+					msg.hosts.forEach((host) => this.sendMessage({ command: 'hostStats', repo: repo, host: host, usage: null, error: unknownRepoError }));
+				} else {
+					this.hostStats.watch(repo, msg.hosts, msg.refresh);
+				}
+				break;
+			}
 		}
 
 		this.repoFileWatcher.unmute();
@@ -965,6 +982,8 @@ export class GitTreeView extends Disposable {
 	 * Update the HTML document loaded in the Webview.
 	 */
 	private update() {
+		// The new page has no panel open yet, so the hosts its Hosts panel watched are read again only if it reopens
+		this.hostStats.stop();
 		this.panel.webview.html = this.getHtmlForWebview();
 	}
 
@@ -1035,6 +1054,7 @@ export class GitTreeView extends Disposable {
 			mute: config.muteCommits,
 			onlyFollowFirstParent: config.onlyFollowFirstParent,
 			onRepoLoad: config.onRepoLoad,
+			panelPosition: config.panelPosition,
 			referenceLabels: config.referenceLabels,
 			repoDropdownOrder: config.repoDropdownOrder,
 			showRemoteBranches: config.showRemoteBranches,
@@ -1098,7 +1118,7 @@ export class GitTreeView extends Disposable {
 				</div>
 				<div class="bottomBarGroup">
 					<div id="manageBtn" class="bottomBarBtn" data-panel="manage" title="Manage Worktrees"></div>
-					<div id="remoteHostsBtn" class="bottomBarBtn" data-panel="remoteHosts"></div>
+					<div id="hostsBtn" class="bottomBarBtn" data-panel="hosts"></div>
 					<div id="issuesBtn" class="bottomBarBtn" data-panel="issues"></div>
 					<div id="settingsBtn" class="bottomBarBtn" data-panel="repository"></div>
 				</div>

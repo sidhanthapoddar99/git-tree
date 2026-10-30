@@ -1,19 +1,22 @@
 /** A page of the Settings Widget. Each is a panel of its own, with its own button in the bottom bar. */
-type SettingsPage = 'repository' | 'remoteHosts' | 'issues';
+type SettingsPage = 'repository' | 'hosts' | 'issues';
 
-/** A card of the Settings Widget. */
-type SettingsCard = 'general' | 'userDetails' | 'remotes' | 'remoteHosts' | 'issueLinking' | 'pullRequests' | 'gitTree';
+/** A card of the Settings Widget. The hosts are a list rather than a card, as the Hosts page has nothing else. */
+type SettingsCard = 'general' | 'userDetails' | 'remotes' | 'hosts' | 'issueLinking' | 'pullRequests' | 'gitTree';
 
 /** Each page's title, its button's icon, and its cards in the order they show. A page that shows the repository's Git config loads it when it opens. */
 const SETTINGS_PAGES: { readonly [page in SettingsPage]: { readonly title: string, readonly icon: string, readonly cards: ReadonlyArray<SettingsCard>, readonly loadsConfig: boolean } } = {
 	repository: { title: 'Repository Settings', icon: SVG_ICONS.gear, cards: ['general', 'userDetails', 'remotes', 'gitTree'], loadsConfig: true },
-	remoteHosts: { title: 'Remote Hosts', icon: SVG_ICONS.server, cards: ['remoteHosts'], loadsConfig: false },
+	hosts: { title: 'Hosts', icon: SVG_ICONS.server, cards: ['hosts'], loadsConfig: false },
 	issues: { title: 'Issues & Pull Requests', icon: SVG_ICONS.pullRequest, cards: ['issueLinking', 'pullRequests'], loadsConfig: true }
 };
 
+/** The names of pages before they were renamed, which state saved by an earlier version may hold. */
+const RENAMED_SETTINGS_PAGES: { readonly [name: string]: SettingsPage } = { remoteHosts: 'hosts' };
+
 interface SettingsWidgetState {
 	readonly currentRepo: string | null;
-	readonly page?: SettingsPage; // Missing in state saved before the settings were split into pages, which showed Repository Settings
+	readonly page?: SettingsPage | 'remoteHosts'; // Missing in state saved before the settings were split into pages, which showed Repository Settings. `remoteHosts` before Hosts was renamed.
 	readonly scrollTop: number;
 }
 
@@ -22,7 +25,7 @@ interface SettingsWidgetState {
  */
 class SettingsWidget {
 	private readonly view: GitTreeView;
-	private readonly remoteHosts: RemoteHostsSettings;
+	private readonly hosts: HostsSettings;
 
 	private currentRepo: string | null = null;
 	private page: SettingsPage = 'repository';
@@ -42,13 +45,14 @@ class SettingsWidget {
 	 */
 	constructor(view: GitTreeView) {
 		this.view = view;
-		this.remoteHosts = new RemoteHostsSettings(view);
+		this.hosts = new HostsSettings(view);
 
 		this.widgetElem = document.createElement('div');
 		this.widgetElem.id = 'settingsWidget';
 		this.widgetElem.setAttribute('role', 'region');
+		this.widgetElem.className = 'bottomBarPanel';
 		this.widgetElem.innerHTML = '<div class="settingsHeader"><div class="settingsHeaderTitles"><h2 id="settingsTitle"></h2><div id="settingsRepoName"></div></div>' +
-			settingsIconButtonHtml('id="settingsClose"', '', SVG_ICONS.close) + '</div><div id="settingsContent"></div><div id="settingsLoading"></div>';
+			settingsIconButtonHtml('id="settingsRefresh"', 'Refresh', SVG_ICONS.refresh) + settingsIconButtonHtml('id="settingsClose"', '', SVG_ICONS.close) + '</div><div id="settingsContent"></div><div id="settingsLoading"></div>';
 		document.body.appendChild(this.widgetElem);
 
 		observeElemScroll('settingsWidget', this.scrollTop, (scrollTop) => {
@@ -62,6 +66,8 @@ class SettingsWidget {
 		this.contentsElem = document.getElementById('settingsContent')!;
 		this.loadingElem = document.getElementById('settingsLoading')!;
 		document.getElementById('settingsClose')!.addEventListener('click', () => this.close());
+		// Only the Hosts page has a Refresh button: it reads the hosts' states and usage again
+		document.getElementById('settingsRefresh')!.addEventListener('click', () => this.hosts.refresh());
 	}
 
 	/**
@@ -82,14 +88,15 @@ class SettingsWidget {
 		const title = SETTINGS_PAGES[page].title, closeElem = document.getElementById('settingsClose')!;
 		document.getElementById('settingsTitle')!.textContent = title;
 		this.widgetElem.setAttribute('aria-label', title);
+		this.widgetElem.dataset.page = page;
 		closeElem.title = 'Close ' + title;
 		closeElem.setAttribute('aria-label', closeElem.title);
 		alterClass(this.widgetElem, CLASS_TRANSITION, isInitialLoad);
 		this.widgetElem.classList.add(CLASS_ACTIVE);
 		this.view.saveState();
 		this.view.renderPanelButtons();
-		if (this.hasCard('remoteHosts')) {
-			this.remoteHosts.open(currentRepo);
+		if (this.hasCard('hosts')) {
+			this.hosts.open(currentRepo);
 		}
 		this.refresh();
 		if (isInitialLoad && SETTINGS_PAGES[page].loadsConfig) {
@@ -109,7 +116,7 @@ class SettingsWidget {
 	}
 
 	/**
-	 * Close the Settings Widget, sliding it up out of view.
+	 * Close the Settings Widget.
 	 */
 	public close() {
 		if (this.currentRepo === null) return;
@@ -117,7 +124,7 @@ class SettingsWidget {
 		this.repo = null;
 		this.config = null;
 		this.loading = false;
-		this.remoteHosts.close();
+		this.hosts.close();
 		this.widgetElem.classList.add(CLASS_TRANSITION);
 		this.widgetElem.classList.remove(CLASS_ACTIVE);
 		this.widgetElem.classList.remove(CLASS_LOADING);
@@ -128,27 +135,27 @@ class SettingsWidget {
 	}
 
 	/**
-	 * Use the Escape key inside the Settings Widget: it cancels the Remote Hosts form when it's open.
+	 * Use the Escape key inside the Settings Widget: it cancels the Hosts panel's form when it's open.
 	 * @returns TRUE => the key was used, FALSE => the Settings Widget should close.
 	 */
 	public handleEscape() {
-		return this.remoteHosts.handleEscape();
+		return this.hosts.handleEscape();
 	}
 
 	/**
 	 * Load the remote hosts again, because the view refreshed, so the state of each stays current.
 	 */
-	public requestRemoteHosts() {
-		if (this.currentRepo !== null) this.remoteHosts.request();
+	public requestHosts() {
+		if (this.currentRepo !== null) this.hosts.request();
 	}
 
 	/**
-	 * Pass a response for the Remote Hosts card to it.
+	 * Pass a response for the Hosts panel to it.
 	 * @param msg The response.
-	 * @returns TRUE => the card handled it, FALSE => the card didn't send it.
+	 * @returns TRUE => the panel handled it, FALSE => the panel didn't send it.
 	 */
-	public processRemoteHostsResponse(msg: RemoteHostsResponse) {
-		return this.remoteHosts.processResponse(msg);
+	public processHostsResponse(msg: HostsResponse) {
+		return this.hosts.processResponse(msg);
 	}
 
 
@@ -171,7 +178,8 @@ class SettingsWidget {
 	 */
 	public restoreState(state: SettingsWidgetState) {
 		if (state.currentRepo === null) return;
-		const page = typeof state.page === 'string' && Object.prototype.hasOwnProperty.call(SETTINGS_PAGES, state.page) ? state.page : 'repository';
+		const name = typeof state.page === 'string' && Object.prototype.hasOwnProperty.call(RENAMED_SETTINGS_PAGES, state.page) ? RENAMED_SETTINGS_PAGES[state.page] : state.page;
+		const page = typeof name === 'string' && Object.prototype.hasOwnProperty.call(SETTINGS_PAGES, name) ? <SettingsPage>name : 'repository';
 		this.show(state.currentRepo, page, false, state.scrollTop);
 	}
 
@@ -274,8 +282,8 @@ class SettingsWidget {
 				}
 			}
 
-			if (this.hasCard('remoteHosts')) {
-				html += '<section class="settingsCard" id="settingsRemoteHosts"></section>';
+			if (this.hasCard('hosts')) {
+				html += '<div id="settingsHosts"></div>';
 			}
 
 			if (this.hasCard('issueLinking')) {
@@ -319,7 +327,7 @@ class SettingsWidget {
 
 			const focus = captureSettingsFocus(this.contentsElem);
 			this.contentsElem.innerHTML = html;
-			this.remoteHosts.render(document.getElementById('settingsRemoteHosts'));
+			this.hosts.render(document.getElementById('settingsHosts'));
 			if (!this.contentsElem.contains(document.activeElement)) restoreSettingsFocus(this.contentsElem, focus);
 
 			if (this.hasCard('general')) {

@@ -2354,6 +2354,51 @@ describe('Config', () => {
 
 	describe('openToTheRepoOfTheActiveTextEditorDocument', testBooleanExtensionSetting('openToTheRepoOfTheActiveTextEditorDocument', 'openToTheRepoOfTheActiveTextEditorDocument', false));
 
+	describe('panelPosition', () => {
+		it('Should return "topRight" when the configuration value is "topRight"', () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('panelPosition', 'topRight');
+
+			// Run
+			const value = config.panelPosition;
+
+			// Assert
+			expect(workspaceConfiguration.get).toBeCalledWith('panelPosition', 'center');
+			expect(value).toBe('topRight');
+		});
+
+		it('Should return "center" when the configuration value is "center"', () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('panelPosition', 'center');
+
+			// Run
+			const value = config.panelPosition;
+
+			// Assert
+			expect(value).toBe('center');
+		});
+
+		it('Should return the default value ("center") when the configuration value is invalid', () => {
+			// Setup
+			vscode.mockExtensionSettingReturnValue('panelPosition', 'bottomLeft');
+
+			// Run
+			const value = config.panelPosition;
+
+			// Assert
+			expect(value).toBe('center');
+		});
+
+		it('Should return the default value ("center") when the configuration value is not set', () => {
+			// Run
+			const value = config.panelPosition;
+
+			// Assert
+			expect(workspaceConfiguration.get).toBeCalledWith('panelPosition', 'center');
+			expect(value).toBe('center');
+		});
+	});
+
 	describe('referenceLabels', () => {
 		describe('combineLocalAndRemoteBranchLabels', () => {
 			it('Should return TRUE when the configuration value is TRUE', () => {
