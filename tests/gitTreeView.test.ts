@@ -234,6 +234,75 @@ describe('GitTreeView', () => {
 			});
 		});
 
+		describe('Restored tabs', () => {
+			/**
+			 * Make the Webview Panel that Visual Studio Code restores, and revive it.
+			 * @param state The state its webview saved.
+			 * @returns The mocked Webview Panel.
+			 */
+			const reviveTab = (state: unknown) => {
+				const panel = vscode.window.createWebviewPanel('git-tree', 'Git Tree', vscode.ViewColumn.Three);
+				vscode.window.createWebviewPanel.mockClear();
+				GitTreeView.revive(panel, state, '/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger);
+				return vscode.getMockedWebviewPanel(0);
+			};
+
+			it('Should take over the restored panel, instead of opening another', () => {
+				// Run
+				const mockedWebviewPanel = reviveTab({ currentRepo: '/path/to/repo' });
+
+				// Assert
+				expect(vscode.window.createWebviewPanel).not.toHaveBeenCalled();
+				expect(mockedWebviewPanel.panel.webview.options).toStrictEqual({
+					enableScripts: true,
+					localResourceRoots: [vscode.Uri.file(path.join('/path/to/extension', 'media'))]
+				});
+				expect(mockedWebviewPanel.panel.webview.html).toContain('"loadViewTo":null');
+				expect(GitTreeView.currentPanel!['panel']).toBe(mockedWebviewPanel.panel);
+				expect(GitTreeView.currentPanel!['retainContextWhenHidden']).toBe(false);
+			});
+
+			it('Should keep the restored panel\'s retainContextWhenHidden', () => {
+				// Setup
+				const panel = vscode.window.createWebviewPanel('git-tree', 'Git Tree', vscode.ViewColumn.Three);
+				Object.assign(panel, { options: { retainContextWhenHidden: true } });
+
+				// Run
+				GitTreeView.revive(panel, undefined, '/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger);
+
+				// Assert
+				expect(GitTreeView.currentPanel!['retainContextWhenHidden']).toBe(true);
+			});
+
+			it('Should reveal the restored tab for the repository it showed', () => {
+				// Setup
+				const mockedWebviewPanel = reviveTab({ currentRepo: '/path/to/repo' });
+
+				// Run
+				GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo' });
+
+				// Assert
+				expect(vscode.window.createWebviewPanel).not.toHaveBeenCalled();
+				expect(mockedWebviewPanel.panel.reveal).toHaveBeenCalledTimes(1);
+			});
+
+			it('Should treat a restored tab without a saved repository as showing none', () => {
+				// Setup
+				reviveTab({ currentRepo: 5 });
+
+				// Assert
+				expect(GitTreeView.currentPanel!['shownRepo']).toBe(null);
+			});
+
+			it('Should treat a restored tab without saved state as showing none', () => {
+				// Setup
+				reviveTab(undefined);
+
+				// Assert
+				expect(GitTreeView.currentPanel!['shownRepo']).toBe(null);
+			});
+		});
+
 		it('Should construct a new WebviewPanel, providing loadViewTo', () => {
 			// Run
 			GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, { repo: '/path/to/repo' });

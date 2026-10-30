@@ -42,7 +42,8 @@
 		"workspace"
 	],
 	"activationEvents": [
-		"onStartupFinished"
+		"onStartupFinished",
+		"onWebviewPanel:git-tree"
 	],
 	"main": "./out/extension.js",
 	"contributes": {

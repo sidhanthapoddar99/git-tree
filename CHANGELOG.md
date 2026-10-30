@@ -4,6 +4,16 @@ All notable changes to Git Tree are recorded in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Git Tree uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Git Tree tabs come back when Visual Studio Code restarts.** Each tab reopens in its editor group and position, split layouts included, and shows the repository it showed. Before, VS Code closed every Git Tree tab on restart.
+
+### Changed
+
+- **Each tab keeps its own Worktree and Host choice.** Two tabs of one repository can show different worktrees, and keep them across a restart. A new tab starts with the last choice made in that repository.
+
 ## [0.8.0] - 2026-10-30
 
 ### Added
@@ -319,7 +329,7 @@ The first version of Git Tree.
 
 - Telemetry. Git Tree sends no usage data.
 
-[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.8.0...HEAD
 [0.8.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/sidhanthapoddar99/git-tree/compare/v0.6.1...v0.6.2

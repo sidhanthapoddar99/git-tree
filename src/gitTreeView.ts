@@ -15,6 +15,9 @@ import { UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createP
 import { Disposable, toDisposable } from './utils/disposable';
 import { WorktreeStats, WorktreeStatsAnswer } from './worktreeStats';
 
+/** The view type of Git Tree View tabs. Visual Studio Code restores a tab of this type through the serializer the extension registers for it. */
+export const GIT_TREE_VIEW_TYPE = 'git-tree';
+
 const REMOTE_HOSTS_UNAVAILABLE = 'Remote hosts aren\'t available.';
 
 /**
@@ -92,6 +95,25 @@ export class GitTreeView extends Disposable {
 	}
 
 	/**
+	 * Take over a Git Tree View tab that Visual Studio Code restored when it started. The tab keeps its place in the window, and its webview
+	 * restores what it showed from the state it saved (getState), including its own Worktree and Host choices.
+	 * @param panel The restored Webview Panel.
+	 * @param state The state the webview saved, or undefined if it saved none.
+	 * @param extensionPath The absolute file path of the directory containing the extension.
+	 * @param dataSource The Git Tree DataSource instance.
+	 * @param extensionState The Git Tree ExtensionState instance.
+	 * @param avatarManger The Git Tree AvatarManager instance.
+	 * @param repoManager The Git Tree RepoManager instance.
+	 * @param logger The Git Tree Logger instance.
+	 */
+	public static revive(panel: vscode.WebviewPanel, state: unknown, extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger) {
+		const view = new GitTreeView(extensionPath, dataSource, extensionState, avatarManager, repoManager, logger, null, undefined, panel);
+		// Until the webview asks for its repository, the saved one says which repository the tab shows
+		view.shownRepo = getSavedRepo(state);
+		GitTreeView.views.push(view);
+	}
+
+	/**
 	 * Find the open Git Tree View to show.
 	 * @param loadViewTo What to load the view to.
 	 * @returns The view showing the requested repository. If no repository is requested, or no view has shown one yet, the most recently active view. Otherwise undefined.
@@ -115,8 +137,9 @@ export class GitTreeView extends Disposable {
 	 * @param logger The Git Tree Logger instance.
 	 * @param loadViewTo What to load the view to.
 	 * @param column The column the view should be loaded in.
+	 * @param panel The Webview Panel Visual Studio Code restored, if the view takes over a restored tab instead of opening a new one.
 	 */
-	private constructor(extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger, loadViewTo: LoadGitTreeViewTo, column: vscode.ViewColumn | undefined) {
+	private constructor(extensionPath: string, dataSource: DataSource, extensionState: ExtensionState, avatarManager: AvatarManager, repoManager: RepoManager, logger: Logger, loadViewTo: LoadGitTreeViewTo, column: vscode.ViewColumn | undefined, panel?: vscode.WebviewPanel) {
 		super();
 		this.extensionPath = extensionPath;
 		this.avatarManager = avatarManager;
@@ -129,12 +152,19 @@ export class GitTreeView extends Disposable {
 		this.shownRepo = loadViewTo !== null ? loadViewTo.repo : null;
 
 		const config = getConfig();
-		this.retainContextWhenHidden = config.retainContextWhenHidden;
-		this.panel = vscode.window.createWebviewPanel('git-tree', 'Git Tree', column || vscode.ViewColumn.One, {
+		const webviewOptions: vscode.WebviewOptions = {
 			enableScripts: true,
-			localResourceRoots: [vscode.Uri.file(path.join(extensionPath, 'media'))],
-			retainContextWhenHidden: this.retainContextWhenHidden
-		});
+			localResourceRoots: [vscode.Uri.file(path.join(extensionPath, 'media'))]
+		};
+		if (panel) {
+			// A restored panel keeps the options it was created with, so retainContextWhenHidden is what it had then
+			this.retainContextWhenHidden = !!panel.options.retainContextWhenHidden;
+			panel.webview.options = webviewOptions;
+			this.panel = panel;
+		} else {
+			this.retainContextWhenHidden = config.retainContextWhenHidden;
+			this.panel = vscode.window.createWebviewPanel(GIT_TREE_VIEW_TYPE, 'Git Tree', column || vscode.ViewColumn.One, Object.assign({ retainContextWhenHidden: this.retainContextWhenHidden }, webviewOptions));
+		}
 		this.panel.iconPath = config.tabIconColourTheme === TabIconColourTheme.Colour
 			? this.getResourcesUri('webview-icon.svg')
 			: {
@@ -1167,4 +1197,14 @@ export function standardiseCspSource(cspSource: string) {
  */
 function getUnknownRepoMessage(repo: string) {
 	return 'The repository ' + repo + ' isn\'t in Git Tree.';
+}
+
+/**
+ * Get the repository a Git Tree View tab showed, from the state its webview saved.
+ * @param state The state the webview saved, or undefined if it saved none.
+ * @returns The repository's path, or NULL if the state doesn't name one.
+ */
+function getSavedRepo(state: unknown) {
+	const repo = typeof state === 'object' && state !== null ? (<{ currentRepo?: unknown }>state).currentRepo : undefined;
+	return typeof repo === 'string' ? repo : null;
 }

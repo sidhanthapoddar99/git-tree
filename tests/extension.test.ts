@@ -14,7 +14,9 @@ jest.mock('../src/statusBarItem');
 import { ConfigurationChangeEvent } from 'vscode';
 import { DataSource } from '../src/dataSource';
 import { Engine, loadEngine } from '../src/engine';
+import { ExtensionState } from '../src/extensionState';
 import { activate } from '../src/extension';
+import { GitTreeView } from '../src/gitTreeView';
 import { Logger } from '../src/logger';
 import { RepoManager } from '../src/repoManager';
 import * as utils from '../src/utils';
@@ -115,6 +117,26 @@ describe('activate', () => {
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
 		expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(ENGINE_ERROR_MSG);
 		expect(logger.logError).toHaveBeenCalledWith(ENGINE_ERROR_MSG);
+	});
+
+	describe('Restoring Git Tree View tabs', () => {
+		it('Should register a serializer that revives each restored tab', async () => {
+			// Setup
+			spyOnFindGit.mockResolvedValueOnce({ path: '/path/to/git', version: '2.31.0' });
+			const spyOnRevive = jest.spyOn(GitTreeView, 'revive').mockReturnValue(undefined);
+			const { logger, repoManager } = await activateGitTree();
+			const panel = vscode.window.createWebviewPanel('git-tree', 'Git Tree', vscode.ViewColumn.One);
+			const state = { currentRepo: '/path/to/repo' };
+
+			// Run
+			const [viewType, serializer] = vscode.window.registerWebviewPanelSerializer.mock.calls[0];
+			await serializer.deserializeWebviewPanel(panel, state);
+
+			// Assert
+			expect(viewType).toBe('git-tree');
+			expect(spyOnRevive).toHaveBeenCalledWith(panel, state, vscode.mocks.extensionContext.extensionPath, expect.any(DataSource), expect.any(ExtensionState), expect.anything(), repoManager, logger);
+			spyOnRevive.mockRestore();
+		});
 	});
 
 	describe('git.path changes', () => {

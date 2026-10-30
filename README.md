@@ -116,7 +116,7 @@ The main worktree is called **Root** everywhere: in the dropdown, in the Worktre
 
 Git actions, such as checkout, commit details and opening files, run in the worktree you pick. Branches you pick in the Branches dropdown are shown as well. The dropdown appears when a repository has more than one worktree.
 
-Git Tree remembers the choice for each repository, also after VS Code restarts. If the worktree you picked has been removed, the dropdown goes back to **All**.
+Each tab remembers its own choice, also after VS Code restarts, so two tabs of one repository can show different worktrees. A new tab starts with the last choice made in that repository. If the worktree you picked has been removed, the dropdown goes back to **All**.
 
 ### Create, open and remove worktrees
 
@@ -196,7 +196,7 @@ The **Host** dropdown in the top bar picks which machines the graph shows. Tick 
 
 Click **All** to tick every row, or to clear them all when they're all ticked. Hover over a row and click **only** to show just that row. The closed dropdown reads *All*, the names you ticked (such as *Local, build-box*), a count such as *3 hosts*, or *None*. Git Tree reads only the hosts you ticked.
 
-Git Tree remembers the choice for each repository, also after VS Code restarts. A host you ticked that's later removed, or hidden in Repository Settings, is ignored. If none of the ticked hosts is left, the dropdown shows everything.
+Each tab remembers its own choice, also after VS Code restarts, as the Worktree dropdown does. A host you ticked that's later removed, or hidden in Repository Settings, is ignored. If none of the ticked hosts is left, the dropdown shows everything.
 
 The Worktree dropdown then lists only the worktrees from the sources the Host dropdown shows. If its choice is no longer listed, it goes back to **All**. The Host dropdown appears when a repository has a remote host. A host hidden in Repository Settings isn't listed. With `git-tree.remoteHosts.refreshInterval` turned on, the interval reads every host that a saved Host choice of the repository shows.
 
@@ -230,7 +230,7 @@ When a row has more branch, tag, stash, worktree or host labels than its cell ha
 
 ### Tabs
 
-Each Git Tree tab shows one repository, and its title names the repository and the worktree. Opening a repository switches to the tab that already shows it, or opens a new one. Run *Git Tree: View Git Tree in New Tab...*, or click **+** in a Git Tree tab's title bar, to open another tab.
+Each Git Tree tab shows one repository, and its title names the repository and the worktree. Opening a repository switches to the tab that already shows it, or opens a new one. Run *Git Tree: View Git Tree in New Tab...*, or click **+** in a Git Tree tab's title bar, to open another tab. When VS Code restarts, it brings back every Git Tree tab in its place, split groups included, each showing the repository, worktree and host it showed.
 
 ### More
 

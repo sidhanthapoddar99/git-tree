@@ -6,6 +6,7 @@ import { DataSource } from './dataSource';
 import { DiffDocProvider } from './diffDocProvider';
 import { loadEngine } from './engine';
 import { ExtensionState } from './extensionState';
+import { GIT_TREE_VIEW_TYPE, GitTreeView } from './gitTreeView';
 import { Logger } from './logger';
 import { RemoteHosts } from './remoteHosts';
 import { RepoManager } from './repoManager';
@@ -57,6 +58,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		vscode.workspace.registerTextDocumentContentProvider(DiffDocProvider.scheme, diffDocProvider),
+		// Bring back the Git Tree View tabs that were open when Visual Studio Code closed, in the places they had
+		vscode.window.registerWebviewPanelSerializer(GIT_TREE_VIEW_TYPE, {
+			deserializeWebviewPanel: async (panel, state) => GitTreeView.revive(panel, state, context.extensionPath, dataSource, extensionState, avatarManager, repoManager, logger)
+		}),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration('git-tree')) {
 				configurationEmitter.emit(event);

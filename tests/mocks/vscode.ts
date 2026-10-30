@@ -169,6 +169,7 @@ export const window = {
 	createStatusBarItem: jest.fn(() => mocks.statusBarItem),
 	createWebviewPanel: jest.fn(createWebviewPanel),
 	createTerminal: jest.fn(() => mocks.terminal),
+	registerWebviewPanelSerializer: jest.fn((_viewType: string, _serializer: vscode.WebviewPanelSerializer) => ({ dispose: jest.fn() })),
 	showErrorMessage: jest.fn(),
 	showInformationMessage: jest.fn(),
 	showOpenDialog: jest.fn(),

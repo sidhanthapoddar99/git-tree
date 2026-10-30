@@ -85,6 +85,10 @@ class GitTreeView {
 
 	constructor(viewElem: HTMLElement, prevState: WebViewState | null) {
 		this.gitRepos = initialState.repos;
+		if (prevState && typeof prevState.gitRepos === 'object' && prevState.gitRepos !== null) {
+			// The tab gets back its own choices, when Visual Studio Code restores it or its webview is rebuilt
+			keepViewChoices(this.gitRepos, prevState.gitRepos);
+		}
 		this.config = initialState.config;
 		this.maxCommits = this.config.initialLoadCommits;
 		this.viewElem = viewElem;
@@ -220,6 +224,7 @@ class GitTreeView {
 	/* Loading Data */
 
 	public loadRepos(repos: GG.GitRepoSet, lastActiveRepo: string | null, loadViewTo: GG.LoadGitTreeViewTo) {
+		keepViewChoices(repos, this.gitRepos);
 		this.gitRepos = repos;
 		this.saveState();
 
@@ -278,7 +283,7 @@ class GitTreeView {
 
 	/**
 	 * The Worktree dropdown's choice in the current repository: ALL_WORKTREES, or the key of a worktree (getWorktreeKey). It is All until another
-	 * is chosen. The repository's state keeps it, so it is remembered when Visual Studio Code restarts.
+	 * is chosen. Each tab keeps its own choice (keepViewChoices), and the repository's state keeps the last one made, for a new tab to start with.
 	 */
 	private get worktreeChoice() {
 		const choice = this.gitRepos[this.currentRepo].worktreeChoice;
@@ -5011,6 +5016,22 @@ function getOnRepoLoadShowSpecificBranches(repoValue: string[] | null) {
 		: repoValue;
 }
 
+
+/**
+ * Keep a tab's own Worktree and Host choices in the repositories' states it is given. Each tab keeps its own choices, so tabs showing one
+ * repository can show different worktrees, and a restored tab shows what it showed. The repository's saved choices are only where a new tab starts.
+ * @param repos The repositories' states the tab is given, whose choices are replaced.
+ * @param tabRepos The repositories' states the tab had, holding its own choices.
+ */
+function keepViewChoices(repos: GG.GitRepoSet, tabRepos: GG.DeepReadonly<GG.GitRepoSet>) {
+	Object.keys(repos).forEach((repo) => {
+		const tabRepo = tabRepos[repo];
+		if (typeof tabRepo === 'undefined' || tabRepo === repos[repo]) return;
+		// State saved before 0.7.0 has no choices
+		if (typeof tabRepo.worktreeChoice !== 'undefined') repos[repo].worktreeChoice = tabRepo.worktreeChoice;
+		if (typeof tabRepo.hostChoice !== 'undefined') repos[repo].hostChoice = tabRepo.hostChoice;
+	});
+}
 
 /* Miscellaneous Helper Methods */
 
