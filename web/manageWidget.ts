@@ -68,6 +68,7 @@ class ManageWidget {
 		const repoNameElem = document.getElementById('manageRepoName')!;
 		repoNameElem.textContent = repoState !== null && repoState.name !== null ? repoState.name : getRepoName(currentRepo);
 		repoNameElem.title = currentRepo;
+		this.view.renderPanelButtons();
 		this.load(null);
 	}
 
@@ -81,6 +82,7 @@ class ManageWidget {
 		this.widgetElem.classList.add(CLASS_TRANSITION);
 		this.widgetElem.classList.remove(CLASS_ACTIVE);
 		this.contentsElem.innerHTML = '';
+		this.view.renderPanelButtons();
 	}
 
 	/**
@@ -135,7 +137,7 @@ class ManageWidget {
 	/* Loading and Actions */
 
 	/**
-	 * Load hosts again: this machine, then each remote host that isn't hidden in Repository Settings. A host keeps what
+	 * Load hosts again: this machine, then each remote host that isn't hidden in the Remote Hosts panel. A host keeps what
 	 * it showed until its answers arrive.
 	 * @param only The one host to load, or NULL for every host. Every host is loaded when the view's hosts changed.
 	 */

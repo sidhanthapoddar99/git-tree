@@ -30,6 +30,7 @@ body.vscode-dark{
 /* Body */
 
 body{
+	--git-tree-bottom-bar-height:22px;
 	display:block;
 	position:fixed;
 	top:0;
@@ -52,7 +53,7 @@ body #view{
 	top:0;
 	left:0;
 	right:0;
-	bottom:0;
+	bottom:var(--git-tree-bottom-bar-height); /* The view ends at the bottom bar, and above the docked Commit Details View */
 	background-color:var(--vscode-editor-background);
 	overflow-x:hidden;
 	overflow-y:auto;
@@ -393,7 +394,7 @@ code{
 	position:fixed;
 	left:0;
 	right:0;
-	bottom:0;
+	bottom:var(--git-tree-bottom-bar-height);
 	background-color:var(--git-tree-surface);
 	font-size:13px;
 	line-height:18px;
@@ -955,7 +956,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 	right:0;
 	top:0;
 	height:32px;
-	padding:4px 162px 4px 0;
+	padding:4px 8px;
 	border-bottom:1px solid var(--git-tree-border);
 	line-height:32px;
 	font-weight:700;
@@ -1002,95 +1003,12 @@ body.tagLabelsRightAligned .gitRef.tag{
 	}
 }
 @media (max-width:480px){
+	#controls{
+		padding:4px 2px;
+	}
 	#repoControl, #branchControl, #hostControl, #worktreeControl{
 		margin:0 4px;
 	}
-}
-
-#findBtn, #terminalBtn, #settingsBtn, #fetchBtn, #manageBtn, #refreshBtn{
-	position:absolute;
-	top:50%;
-	width:20px;
-	height:20px;
-	margin-top:-10px;
-	cursor:pointer;
-	-webkit-user-select:none;
-	user-select:none;
-}
-#findBtn{
-	right:130px;
-}
-#terminalBtn{
-	right:100px;
-}
-#settingsBtn{
-	right:70px;
-}
-#fetchBtn{
-	display:none;
-	right:70px;
-}
-#manageBtn{
-	right:40px;
-}
-#refreshBtn{
-	right:10px;
-}
-#refreshBtn.refreshing{
-	cursor:default;
-}
-#findBtn svg, #terminalBtn svg, #settingsBtn svg, #fetchBtn svg, #manageBtn svg, #refreshBtn svg{
-	position:absolute;
-	fill:var(--vscode-editor-foreground);
-	opacity:0.8;
-	stroke:var(--vscode-editor-foreground);
-	stroke-opacity:0.5;
-	stroke-width:0;
-}
-#findBtn svg, #terminalBtn svg{
-	stroke-width:0.5px;
-}
-#findBtn:hover svg, #terminalBtn:hover svg, #settingsBtn:hover svg, #fetchBtn:hover svg, #manageBtn:hover svg, #refreshBtn:hover svg{
-	opacity:1;
-	stroke-width:0.5px;
-}
-#findBtn:hover svg, #terminalBtn:hover svg{
-	stroke-width:1px;
-}
-#findBtn svg, #terminalBtn svg, #settingsBtn svg, #fetchBtn svg, #manageBtn svg{
-	left:1px;
-	top:1px;
-	width:18px !important;
-	height:18px !important;
-}
-#refreshBtn svg{
-	left:2px;
-	top:2px;
-	width:16px !important;
-	height:16px !important;
-}
-#refreshBtn.refreshing svg{
-	left:3.25px;
-	top:2px;
-	width:13.5px !important;
-	height:18px !important;
-	animation:loadingIconAnimation 2s linear infinite;
-}
-
-#controls.fetchSupported{
-	padding-right:192px;
-}
-#controls.fetchSupported #findBtn{
-	right:160px;
-}
-#controls.fetchSupported #terminalBtn{
-	right:130px;
-}
-#controls.fetchSupported #settingsBtn{
-	right:100px;
-}
-#controls.fetchSupported #fetchBtn{
-	display:block;
 }
 
 #controls input:focus{
@@ -1098,6 +1016,79 @@ body.tagLabelsRightAligned .gitRef.tag{
 }
 #controls label{
 	cursor:pointer;
+}
+
+
+/* Bottom Bar
+ * A narrow bar along the bottom, as tall as Visual Studio Code's status bar: the view's actions on the left, and the
+ * buttons of its panels on the right. The button of the open panel is pressed. It never wraps. */
+
+#bottomBar{
+	display:flex;
+	justify-content:space-between;
+	align-items:center;
+	position:fixed;
+	left:0;
+	right:0;
+	bottom:0;
+	height:var(--git-tree-bottom-bar-height);
+	box-sizing:border-box;
+	padding:0 4px;
+	overflow:hidden;
+	background-color:var(--vscode-editor-background);
+	border-top:1px solid var(--git-tree-border);
+	color:var(--vscode-icon-foreground, var(--vscode-foreground));
+	-webkit-user-select:none;
+	user-select:none;
+}
+.bottomBarGroup{
+	display:flex;
+	align-items:center;
+	gap:2px;
+	flex-shrink:0;
+}
+.bottomBarBtn{
+	display:flex;
+	align-items:center;
+	justify-content:center;
+	box-sizing:border-box;
+	width:22px;
+	height:18px;
+	border:1px solid transparent;
+	border-radius:3px;
+	cursor:pointer;
+}
+.bottomBarBtn:hover{
+	background-color:var(--vscode-toolbar-hoverBackground, var(--git-tree-surface-hover));
+}
+.bottomBarBtn.active{
+	background-color:var(--vscode-inputOption-activeBackground, var(--git-tree-surface-hover));
+	border-color:var(--vscode-inputOption-activeBorder, transparent);
+	color:var(--vscode-inputOption-activeForeground, var(--vscode-foreground));
+}
+.bottomBarBtn svg{
+	width:14px !important;
+	height:14px !important;
+	fill:currentColor;
+	opacity:0.85;
+}
+.bottomBarBtn:hover svg, .bottomBarBtn.active svg{
+	opacity:1;
+}
+#fetchBtn{
+	display:none;
+}
+#bottomBar.fetchSupported #fetchBtn{
+	display:flex;
+}
+#refreshBtn.refreshing{
+	cursor:default;
+}
+#refreshBtn.refreshing:hover{
+	background-color:transparent;
+}
+#refreshBtn.refreshing svg{
+	animation:loadingIconAnimation 2s linear infinite;
 }
 
 

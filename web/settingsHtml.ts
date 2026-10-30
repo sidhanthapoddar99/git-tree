@@ -1,5 +1,5 @@
-/* Repository Settings HTML
- * The parts every card of Repository Settings is built from: the card, its rows, buttons, switches and notices. Each
+/* Settings HTML
+ * The parts every card of the settings panels, and of the Manage panel, is built from: the card, its rows, buttons, switches and notices. Each
  * function takes HTML, so the caller escapes every value it puts in (with escapeHtml). */
 
 /**

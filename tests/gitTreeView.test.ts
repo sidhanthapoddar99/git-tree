@@ -5008,6 +5008,24 @@ describe('GitTreeView', () => {
 			expect(mockedWebviewPanel.panel.webview.html).toContain('<script nonce="1a2b3c4d5e6f1a2b3c4d5e6f1a2b3c4d" src="vscode-webview-resource://file///path/to/extension/media/out.min.js"></script>');
 			expect(spyOnIsAvatarStorageAvailable).toHaveBeenCalledWith();
 		});
+
+		it('Should put the dropdowns in the top bar, and the buttons in the bottom bar', () => {
+			// Run
+			GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+
+			// Assert
+			const html = vscode.getMockedWebviewPanel(0).panel.webview.html;
+			const controls = html.substring(html.indexOf('<div id="controls">'), html.indexOf('<div id="content">'));
+			expect(controls.match(/ id="\w+"/g)).toStrictEqual([' id="controls"', ' id="repoControl"', ' id="repoDropdown"', ' id="branchControl"', ' id="branchDropdown"', ' id="hostControl"', ' id="hostDropdown"', ' id="worktreeControl"', ' id="worktreeDropdown"']);
+			const bottomBar = html.substring(html.indexOf('<div id="bottomBar"'), html.indexOf('<div id="scrollShadow">'));
+			expect(bottomBar.split('<div class="bottomBarGroup">').slice(1).map((group) => group.match(/ id="\w+"/g))).toStrictEqual([
+				[' id="refreshBtn"', ' id="fetchBtn"', ' id="findBtn"', ' id="terminalBtn"'],
+				[' id="manageBtn"', ' id="remoteHostsBtn"', ' id="issuesBtn"', ' id="settingsBtn"']
+			]);
+			expect(bottomBar.match(/ data-panel="\w+"/g)).toStrictEqual([' data-panel="manage"', ' data-panel="remoteHosts"', ' data-panel="issues"', ' data-panel="repository"']);
+			// The bar is outside the scrolling view, so the view's commits and footer end above it
+			expect(html.indexOf('<div id="bottomBar"')).toBeGreaterThan(html.indexOf('<div id="footer"></div>\n\t\t\t</div>'));
+		});
 	});
 });
 

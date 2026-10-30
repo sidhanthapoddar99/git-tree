@@ -1,6 +1,6 @@
 # Remote hosts: an instruction for coding agents
 
-Git Tree shows the worktrees on SSH servers in its graph, from the list in `.worktrees/git-tree.yaml`. Copy the block below into your agent's instructions, for example `CLAUDE.md` or `AGENTS.md`, so the agent keeps that list correct when it sets up work on another machine. The *Copy* button in the Remote Hosts section of Repository Settings copies the same block.
+Git Tree shows the worktrees on SSH servers in its graph, from the list in `.worktrees/git-tree.yaml`. Copy the block below into your agent's instructions, for example `CLAUDE.md` or `AGENTS.md`, so the agent keeps that list correct when it sets up work on another machine. The *Copy* button in the Remote Hosts panel copies the same block.
 
 ````markdown
 ## Git Tree remote hosts

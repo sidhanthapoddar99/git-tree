@@ -1082,18 +1082,26 @@ export class GitTreeView extends Disposable {
 					<span id="branchControl"><span class="unselectable controlText">Branches: </span><div id="branchDropdown" class="dropdown"></div></span>
 					<span id="hostControl"><span class="unselectable controlText">Host: </span><div id="hostDropdown" class="dropdown"></div></span>
 					<span id="worktreeControl"><span class="unselectable controlText">Worktree: </span><div id="worktreeDropdown" class="dropdown"></div></span>
-					<div id="findBtn" title="Find"></div>
-					<div id="terminalBtn" title="Open a Terminal"></div>
-					<div id="settingsBtn" title="Repository Settings"></div>
-					<div id="fetchBtn"></div>
-					<div id="manageBtn" title="Manage Worktrees"></div>
-					<div id="refreshBtn"></div>
 				</div>
 				<div id="content">
 					<div id="commitGraph"></div>
 					<div id="commitTable"></div>
 				</div>
 				<div id="footer"></div>
+			</div>
+			<div id="bottomBar" role="toolbar" aria-label="Git Tree">
+				<div class="bottomBarGroup">
+					<div id="refreshBtn" class="bottomBarBtn"></div>
+					<div id="fetchBtn" class="bottomBarBtn"></div>
+					<div id="findBtn" class="bottomBarBtn" title="Find"></div>
+					<div id="terminalBtn" class="bottomBarBtn" title="Open a Terminal"></div>
+				</div>
+				<div class="bottomBarGroup">
+					<div id="manageBtn" class="bottomBarBtn" data-panel="manage" title="Manage Worktrees"></div>
+					<div id="remoteHostsBtn" class="bottomBarBtn" data-panel="remoteHosts"></div>
+					<div id="issuesBtn" class="bottomBarBtn" data-panel="issues"></div>
+					<div id="settingsBtn" class="bottomBarBtn" data-panel="repository"></div>
+				</div>
 			</div>
 			<div id="scrollShadow"></div>
 			<script nonce="${nonce}">var initialState = ${JSON.stringify(initialState)}, globalState = ${JSON.stringify(globalState)}, workspaceState = ${JSON.stringify(workspaceState)};</script>

@@ -1,16 +1,31 @@
+/** A page of the Settings Widget. Each is a panel of its own, with its own button in the bottom bar. */
+type SettingsPage = 'repository' | 'remoteHosts' | 'issues';
+
+/** A card of the Settings Widget. */
+type SettingsCard = 'general' | 'userDetails' | 'remotes' | 'remoteHosts' | 'issueLinking' | 'pullRequests' | 'gitTree';
+
+/** Each page's title, its button's icon, and its cards in the order they show. A page that shows the repository's Git config loads it when it opens. */
+const SETTINGS_PAGES: { readonly [page in SettingsPage]: { readonly title: string, readonly icon: string, readonly cards: ReadonlyArray<SettingsCard>, readonly loadsConfig: boolean } } = {
+	repository: { title: 'Repository Settings', icon: SVG_ICONS.gear, cards: ['general', 'userDetails', 'remotes', 'gitTree'], loadsConfig: true },
+	remoteHosts: { title: 'Remote Hosts', icon: SVG_ICONS.server, cards: ['remoteHosts'], loadsConfig: false },
+	issues: { title: 'Issues & Pull Requests', icon: SVG_ICONS.pullRequest, cards: ['issueLinking', 'pullRequests'], loadsConfig: true }
+};
+
 interface SettingsWidgetState {
 	readonly currentRepo: string | null;
+	readonly page?: SettingsPage; // Missing in state saved before the settings were split into pages, which showed Repository Settings
 	readonly scrollTop: number;
 }
 
 /**
- * Implements the Git Tree View's Settings Widget: a card for each group of settings, with its actions in the card's header.
+ * Implements the Git Tree View's Settings Widget: a card for each group of settings, with its actions in the card's header. It shows one page of cards at a time.
  */
 class SettingsWidget {
 	private readonly view: GitTreeView;
 	private readonly remoteHosts: RemoteHostsSettings;
 
 	private currentRepo: string | null = null;
+	private page: SettingsPage = 'repository';
 	private repo: Readonly<GG.GitRepoState> | null = null;
 	private config: Readonly<GG.GitRepoConfig> | null = null;
 	private loading: boolean = false;
@@ -32,9 +47,8 @@ class SettingsWidget {
 		this.widgetElem = document.createElement('div');
 		this.widgetElem.id = 'settingsWidget';
 		this.widgetElem.setAttribute('role', 'region');
-		this.widgetElem.setAttribute('aria-label', 'Repository Settings');
-		this.widgetElem.innerHTML = '<div class="settingsHeader"><div class="settingsHeaderTitles"><h2>Repository Settings</h2><div id="settingsRepoName"></div></div>' +
-			settingsIconButtonHtml('id="settingsClose"', 'Close Repository Settings', SVG_ICONS.close) + '</div><div id="settingsContent"></div><div id="settingsLoading"></div>';
+		this.widgetElem.innerHTML = '<div class="settingsHeader"><div class="settingsHeaderTitles"><h2 id="settingsTitle"></h2><div id="settingsRepoName"></div></div>' +
+			settingsIconButtonHtml('id="settingsClose"', '', SVG_ICONS.close) + '</div><div id="settingsContent"></div><div id="settingsLoading"></div>';
 		document.body.appendChild(this.widgetElem);
 
 		observeElemScroll('settingsWidget', this.scrollTop, (scrollTop) => {
@@ -51,21 +65,34 @@ class SettingsWidget {
 	}
 
 	/**
-	 * Show the Settings Widget.
+	 * Show a page of the Settings Widget. Another page that is open closes first.
 	 * @param currentRepo The repository that is currently loaded in the view.
+	 * @param page The page to show.
 	 * @param isInitialLoad Is this the initial load of the Setting Widget, or is it being shown when restoring a previous state.
 	 * @param scrollTop The scrollTop the Settings Widget should initially be set to.
 	 */
-	public show(currentRepo: string, isInitialLoad: boolean = true, scrollTop: number = 0) {
-		if (this.currentRepo !== null) return;
+	public show(currentRepo: string, page: SettingsPage, isInitialLoad: boolean = true, scrollTop: number = 0) {
+		if (this.currentRepo !== null) {
+			if (this.page === page) return;
+			this.close();
+		}
 		this.currentRepo = currentRepo;
+		this.page = page;
 		this.scrollTop = scrollTop;
+		const title = SETTINGS_PAGES[page].title, closeElem = document.getElementById('settingsClose')!;
+		document.getElementById('settingsTitle')!.textContent = title;
+		this.widgetElem.setAttribute('aria-label', title);
+		closeElem.title = 'Close ' + title;
+		closeElem.setAttribute('aria-label', closeElem.title);
 		alterClass(this.widgetElem, CLASS_TRANSITION, isInitialLoad);
 		this.widgetElem.classList.add(CLASS_ACTIVE);
 		this.view.saveState();
-		this.remoteHosts.open(currentRepo);
+		this.view.renderPanelButtons();
+		if (this.hasCard('remoteHosts')) {
+			this.remoteHosts.open(currentRepo);
+		}
 		this.refresh();
-		if (isInitialLoad) {
+		if (isInitialLoad && SETTINGS_PAGES[page].loadsConfig) {
 			this.view.requestLoadConfig();
 		}
 	}
@@ -77,7 +104,7 @@ class SettingsWidget {
 		if (this.currentRepo === null) return;
 		this.repo = this.view.getRepoState(this.currentRepo);
 		this.config = this.view.getRepoConfig();
-		this.loading = this.view.isConfigLoading();
+		this.loading = SETTINGS_PAGES[this.page].loadsConfig && this.view.isConfigLoading();
 		this.render();
 	}
 
@@ -97,6 +124,7 @@ class SettingsWidget {
 		this.contentsElem.innerHTML = '';
 		this.loadingElem.innerHTML = '';
 		this.view.saveState();
+		this.view.renderPanelButtons();
 	}
 
 	/**
@@ -132,6 +160,7 @@ class SettingsWidget {
 	public getState(): SettingsWidgetState {
 		return {
 			currentRepo: this.currentRepo,
+			page: this.page,
 			scrollTop: this.scrollTop
 		};
 	}
@@ -142,7 +171,8 @@ class SettingsWidget {
 	 */
 	public restoreState(state: SettingsWidgetState) {
 		if (state.currentRepo === null) return;
-		this.show(state.currentRepo, false, state.scrollTop);
+		const page = typeof state.page === 'string' && Object.prototype.hasOwnProperty.call(SETTINGS_PAGES, state.page) ? state.page : 'repository';
+		this.show(state.currentRepo, page, false, state.scrollTop);
 	}
 
 	/**
@@ -151,6 +181,14 @@ class SettingsWidget {
 	 */
 	public isVisible() {
 		return this.currentRepo !== null;
+	}
+
+	/**
+	 * Get the page the Settings Widget shows.
+	 * @returns The page, or NULL if the Settings Widget is closed.
+	 */
+	public getOpenPage() {
+		return this.currentRepo !== null ? this.page : null;
 	}
 
 
@@ -184,18 +222,21 @@ class SettingsWidget {
 			const scope = (local: boolean) => ' <span class="settingsHint">' + (local ? 'local' : 'global') + '</span>';
 			const editAndRemove = (id: string, removeId: string, name: string) => settingsIconButtonHtml('id="' + id + '"', 'Edit ' + name + ELLIPSIS, SVG_ICONS.pencil) + settingsIconButtonHtml('id="' + removeId + '"', 'Remove ' + name + ELLIPSIS, SVG_ICONS.close);
 
-			let html = settingsCardHtml('settingsGeneral', 'General', 'How this repository is named, and what the graph loads.', '',
-				settingsRowHtml('Name', escapedRepoName + (this.repo.name === null ? ' <span class="settingsHint">from the folder</span>' : ''), escapedRepoName + (this.repo.name === null ? ' (Default Name from the File System)' : ''),
-					settingsIconButtonHtml('id="editRepoName"', 'Edit Name' + ELLIPSIS, SVG_ICONS.pencil) + (this.repo.name !== null ? settingsIconButtonHtml('id="deleteRepoName"', 'Delete Name' + ELLIPSIS, SVG_ICONS.close) : '')) +
-				settingsRowHtml('Initial Branches', initialBranchesStr + scope(initialBranchesLocallyConfigured), initialBranchesStr + ' (' + (initialBranchesLocallyConfigured ? 'Local' : 'Global') + ')',
-					settingsIconButtonHtml('id="editInitialBranches"', 'Edit Initial Branches' + ELLIPSIS, SVG_ICONS.pencil) + (initialBranchesLocallyConfigured ? settingsIconButtonHtml('id="clearInitialBranches"', 'Clear Initial Branches' + ELLIPSIS, SVG_ICONS.close) : '')) +
-				'<div class="settingsSwitches">' +
-				settingsSwitchHtml('settingsShowRemoteBranchesCheckbox', 'Show Remote Branches', null, getShowRemoteBranches(this.repo.showRemoteBranchesV2)) +
-				settingsSwitchHtml('settingsShowStashesCheckbox', 'Show Stashes', null, getShowStashes(this.repo.showStashes)) +
-				settingsSwitchHtml('settingsShowTagsCheckbox', 'Show Tags', null, getShowTags(this.repo.showTags)) +
-				settingsSwitchHtml('settingsIncludeCommitsMentionedByReflogsCheckbox', 'Include commits only mentioned by reflogs', 'Only applies when showing all branches.', getIncludeCommitsMentionedByReflogs(this.repo.includeCommitsMentionedByReflogs)) +
-				settingsSwitchHtml('settingsOnlyFollowFirstParentCheckbox', 'Only follow the first parent of commits', 'Instead of following all parents of commits, only follow the first parent when discovering the commits to load.', getOnlyFollowFirstParent(this.repo.onlyFollowFirstParent)) +
-				'</div>');
+			let html = '';
+			if (this.hasCard('general')) {
+				html += settingsCardHtml('settingsGeneral', 'General', 'How this repository is named, and what the graph loads.', '',
+					settingsRowHtml('Name', escapedRepoName + (this.repo.name === null ? ' <span class="settingsHint">from the folder</span>' : ''), escapedRepoName + (this.repo.name === null ? ' (Default Name from the File System)' : ''),
+						settingsIconButtonHtml('id="editRepoName"', 'Edit Name' + ELLIPSIS, SVG_ICONS.pencil) + (this.repo.name !== null ? settingsIconButtonHtml('id="deleteRepoName"', 'Delete Name' + ELLIPSIS, SVG_ICONS.close) : '')) +
+					settingsRowHtml('Initial Branches', initialBranchesStr + scope(initialBranchesLocallyConfigured), initialBranchesStr + ' (' + (initialBranchesLocallyConfigured ? 'Local' : 'Global') + ')',
+						settingsIconButtonHtml('id="editInitialBranches"', 'Edit Initial Branches' + ELLIPSIS, SVG_ICONS.pencil) + (initialBranchesLocallyConfigured ? settingsIconButtonHtml('id="clearInitialBranches"', 'Clear Initial Branches' + ELLIPSIS, SVG_ICONS.close) : '')) +
+					'<div class="settingsSwitches">' +
+					settingsSwitchHtml('settingsShowRemoteBranchesCheckbox', 'Show Remote Branches', null, getShowRemoteBranches(this.repo.showRemoteBranchesV2)) +
+					settingsSwitchHtml('settingsShowStashesCheckbox', 'Show Stashes', null, getShowStashes(this.repo.showStashes)) +
+					settingsSwitchHtml('settingsShowTagsCheckbox', 'Show Tags', null, getShowTags(this.repo.showTags)) +
+					settingsSwitchHtml('settingsIncludeCommitsMentionedByReflogsCheckbox', 'Include commits only mentioned by reflogs', 'Only applies when showing all branches.', getIncludeCommitsMentionedByReflogs(this.repo.includeCommitsMentionedByReflogs)) +
+					settingsSwitchHtml('settingsOnlyFollowFirstParentCheckbox', 'Only follow the first parent of commits', 'Instead of following all parents of commits, only follow the first parent when discovering the commits to load.', getOnlyFollowFirstParent(this.repo.onlyFollowFirstParent)) +
+					'</div>');
+			}
 
 			let userNameSet = false, userEmailSet = false;
 			if (this.config !== null) {
@@ -209,38 +250,46 @@ class SettingsWidget {
 					userBody = settingsRowHtml('User Name', escapedUserName + (userNameSet ? scope(userName.local !== null) : ''), escapedUserName + (userNameSet ? ' (' + (userName.local !== null ? 'Local' : 'Global') + ')' : ''), '') +
 						settingsRowHtml('User Email', escapedUserEmail + (userEmailSet ? scope(userEmail.local !== null) : ''), escapedUserEmail + (userEmailSet ? ' (' + (userEmail.local !== null ? 'Local' : 'Global') + ')' : ''), '');
 				}
-				html += settingsCardHtml('settingsUserDetails', 'User Details', 'The name and email Git records as the author and committer of commits.',
-					userNameSet || userEmailSet ? editAndRemove('editUserDetails', 'removeUserDetails', 'User Details') : settingsButtonHtml('id="editUserDetails"', 'Add', SVG_ICONS.plus), userBody);
+				if (this.hasCard('userDetails')) {
+					html += settingsCardHtml('settingsUserDetails', 'User Details', 'The name and email Git records as the author and committer of commits.',
+						userNameSet || userEmailSet ? editAndRemove('editUserDetails', 'removeUserDetails', 'User Details') : settingsButtonHtml('id="editUserDetails"', 'Add', SVG_ICONS.plus), userBody);
+				}
 
-				const hideRemotes = this.repo.hideRemotes;
-				const remotesHtml = this.config.remotes.map((remote, i) => {
-					const hidden = hideRemotes.includes(remote.name);
-					const fetchUrl = escapeHtml(remote.url || 'Not Set'), pushUrl = escapeHtml(remote.pushUrl || remote.url || 'Not Set');
-					return '<div class="settingsRow remoteRow' + (hidden ? ' hidden' : '') + '">' +
-						settingsIconButtonHtml('data-index="' + i + '" data-focus="hideRemote:' + i + '"', hidden ? 'Show the Branches of This Remote' : 'Hide the Branches of This Remote', hidden ? SVG_ICONS.eyeClosed : SVG_ICONS.eyeOpen, false, 'hideRemoteBtn') +
-						'<div class="remoteRowMain"><div class="remoteRowName">' + escapeHtml(remote.name) + (hidden ? ' <span class="settingsBadge outline">Hidden</span>' : '') + '</div>' +
-						'<div class="remoteRowUrl" title="Fetch URL: ' + fetchUrl + '"><span class="remoteRowUrlKind">Fetch</span>' + fetchUrl + '</div>' +
-						'<div class="remoteRowUrl" title="Push URL: ' + pushUrl + '"><span class="remoteRowUrlKind">Push</span>' + pushUrl + '</div></div>' +
-						'<span class="settingsRowActions remoteBtns" data-index="' + i + '">' +
-						settingsIconButtonHtml('', 'Fetch from Remote' + ELLIPSIS, SVG_ICONS.download, false, 'fetchRemote') + settingsIconButtonHtml('', 'Prune Remote' + ELLIPSIS, SVG_ICONS.branch, false, 'pruneRemote') +
-						settingsIconButtonHtml('', 'Edit Remote' + ELLIPSIS, SVG_ICONS.pencil, false, 'editRemote') + settingsIconButtonHtml('', 'Delete Remote' + ELLIPSIS, SVG_ICONS.close, false, 'deleteRemote') + '</span></div>';
-				}).join('');
-				html += settingsCardHtml('settingsRemotes', 'Remote Configuration', 'The remotes this repository fetches from and pushes to. A hidden remote\'s branches stay out of the graph.',
-					settingsButtonHtml('id="settingsAddRemote"', 'Add Remote', SVG_ICONS.plus), remotesHtml !== '' ? remotesHtml : '<div class="settingsEmpty">There are no remotes configured for this repository.</div>');
+				if (this.hasCard('remotes')) {
+					const hideRemotes = this.repo.hideRemotes;
+					const remotesHtml = this.config.remotes.map((remote, i) => {
+						const hidden = hideRemotes.includes(remote.name);
+						const fetchUrl = escapeHtml(remote.url || 'Not Set'), pushUrl = escapeHtml(remote.pushUrl || remote.url || 'Not Set');
+						return '<div class="settingsRow remoteRow' + (hidden ? ' hidden' : '') + '">' +
+							settingsIconButtonHtml('data-index="' + i + '" data-focus="hideRemote:' + i + '"', hidden ? 'Show the Branches of This Remote' : 'Hide the Branches of This Remote', hidden ? SVG_ICONS.eyeClosed : SVG_ICONS.eyeOpen, false, 'hideRemoteBtn') +
+							'<div class="remoteRowMain"><div class="remoteRowName">' + escapeHtml(remote.name) + (hidden ? ' <span class="settingsBadge outline">Hidden</span>' : '') + '</div>' +
+							'<div class="remoteRowUrl" title="Fetch URL: ' + fetchUrl + '"><span class="remoteRowUrlKind">Fetch</span>' + fetchUrl + '</div>' +
+							'<div class="remoteRowUrl" title="Push URL: ' + pushUrl + '"><span class="remoteRowUrlKind">Push</span>' + pushUrl + '</div></div>' +
+							'<span class="settingsRowActions remoteBtns" data-index="' + i + '">' +
+							settingsIconButtonHtml('', 'Fetch from Remote' + ELLIPSIS, SVG_ICONS.download, false, 'fetchRemote') + settingsIconButtonHtml('', 'Prune Remote' + ELLIPSIS, SVG_ICONS.branch, false, 'pruneRemote') +
+							settingsIconButtonHtml('', 'Edit Remote' + ELLIPSIS, SVG_ICONS.pencil, false, 'editRemote') + settingsIconButtonHtml('', 'Delete Remote' + ELLIPSIS, SVG_ICONS.close, false, 'deleteRemote') + '</span></div>';
+					}).join('');
+					html += settingsCardHtml('settingsRemotes', 'Remote Configuration', 'The remotes this repository fetches from and pushes to. A hidden remote\'s branches stay out of the graph.',
+						settingsButtonHtml('id="settingsAddRemote"', 'Add Remote', SVG_ICONS.plus), remotesHtml !== '' ? remotesHtml : '<div class="settingsEmpty">There are no remotes configured for this repository.</div>');
+				}
 			}
 
-			html += '<section class="settingsCard" id="settingsRemoteHosts"></section>';
-
-			const issueLinkingConfig = this.repo.issueLinkingConfig || globalState.issueLinkingConfig;
-			let issueBody = '';
-			if (issueLinkingConfig !== null) {
-				const escapedIssue = escapeHtml(issueLinkingConfig.issue), escapedUrl = escapeHtml(issueLinkingConfig.url);
-				issueBody = settingsRowHtml('Issue Regex', escapedIssue, escapedIssue, '') + settingsRowHtml('Issue URL', escapedUrl, escapedUrl, '');
+			if (this.hasCard('remoteHosts')) {
+				html += '<section class="settingsCard" id="settingsRemoteHosts"></section>';
 			}
-			html += settingsCardHtml('settingsIssueLinking', 'Issue Linking', 'Turns issue numbers in commit and tag messages into links to your issue tracker. A branch named with an issue number links to it from its context menu.',
-				issueLinkingConfig !== null ? editAndRemove('editIssueLinking', 'removeIssueLinking', 'Issue Linking') : settingsButtonHtml('id="editIssueLinking"', 'Add', SVG_ICONS.plus), issueBody);
 
-			if (this.config !== null) {
+			if (this.hasCard('issueLinking')) {
+				const issueLinkingConfig = this.repo.issueLinkingConfig || globalState.issueLinkingConfig;
+				let issueBody = '';
+				if (issueLinkingConfig !== null) {
+					const escapedIssue = escapeHtml(issueLinkingConfig.issue), escapedUrl = escapeHtml(issueLinkingConfig.url);
+					issueBody = settingsRowHtml('Issue Regex', escapedIssue, escapedIssue, '') + settingsRowHtml('Issue URL', escapedUrl, escapedUrl, '');
+				}
+				html += settingsCardHtml('settingsIssueLinking', 'Issue Linking', 'Turns issue numbers in commit and tag messages into links to your issue tracker. A branch named with an issue number links to it from its context menu.',
+					issueLinkingConfig !== null ? editAndRemove('editIssueLinking', 'removeIssueLinking', 'Issue Linking') : settingsButtonHtml('id="editIssueLinking"', 'Add', SVG_ICONS.plus), issueBody);
+			}
+
+			if (this.config !== null && this.hasCard('pullRequests')) {
 				const pullRequestConfig = this.repo.pullRequestConfig;
 				let pullRequestBody = '';
 				if (pullRequestConfig !== null) {
@@ -262,81 +311,85 @@ class SettingsWidget {
 					pullRequestConfig !== null ? editAndRemove('editPullRequestIntegration', 'removePullRequestIntegration', 'Pull Request Creation') : settingsButtonHtml('id="editPullRequestIntegration"', 'Configure', SVG_ICONS.gear), pullRequestBody);
 			}
 
-			html += settingsCardHtml('settingsGitTree', 'Git Tree Configuration', 'The extension\'s settings, and a file that shares this repository\'s Git Tree settings with others.', '',
-				'<div class="settingsCardButtons">' + settingsButtonHtml('id="openExtensionSettings"', 'Open Git Tree Extension Settings', SVG_ICONS.gear) +
-				settingsButtonHtml('id="exportRepositoryConfig"', 'Export Repository Configuration', SVG_ICONS.package) + '</div>');
+			if (this.hasCard('gitTree')) {
+				html += settingsCardHtml('settingsGitTree', 'Git Tree Configuration', 'The extension\'s settings, and a file that shares this repository\'s Git Tree settings with others.', '',
+					'<div class="settingsCardButtons">' + settingsButtonHtml('id="openExtensionSettings"', 'Open Git Tree Extension Settings', SVG_ICONS.gear) +
+					settingsButtonHtml('id="exportRepositoryConfig"', 'Export Repository Configuration', SVG_ICONS.package) + '</div>');
+			}
 
 			const focus = captureSettingsFocus(this.contentsElem);
 			this.contentsElem.innerHTML = html;
 			this.remoteHosts.render(document.getElementById('settingsRemoteHosts'));
 			if (!this.contentsElem.contains(document.activeElement)) restoreSettingsFocus(this.contentsElem, focus);
 
-			document.getElementById('editRepoName')!.addEventListener('click', () => {
-				if (this.currentRepo === null || this.repo === null) return;
-				dialog.showForm('Specify a Name for this Repository:', [
-					{ type: DialogInputType.Text, name: 'Name', default: this.repo.name || '', placeholder: getRepoName(this.currentRepo) }
-				], 'Save Name', (values) => {
-					if (this.currentRepo === null) return;
-					this.view.saveRepoStateValue(this.currentRepo, 'name', <string>values[0] || null);
-					this.view.renderRepoDropdownOptions();
-					this.render();
-				}, null);
-			});
-
-			if (this.repo.name !== null) {
-				document.getElementById('deleteRepoName')!.addEventListener('click', () => {
-					if (this.currentRepo === null || this.repo === null || this.repo.name === null) return;
-					dialog.showConfirmation('Are you sure you want to delete the manually configured name <b><i>' + escapeHtml(this.repo.name) + '</i></b> for this repository, and use the default name from the File System <b><i>' + escapeHtml(getRepoName(this.currentRepo)) + '</i></b>?', 'Yes, delete', () => {
+			if (this.hasCard('general')) {
+				document.getElementById('editRepoName')!.addEventListener('click', () => {
+					if (this.currentRepo === null || this.repo === null) return;
+					dialog.showForm('Specify a Name for this Repository:', [
+						{ type: DialogInputType.Text, name: 'Name', default: this.repo.name || '', placeholder: getRepoName(this.currentRepo) }
+					], 'Save Name', (values) => {
 						if (this.currentRepo === null) return;
-						this.view.saveRepoStateValue(this.currentRepo, 'name', null);
+						this.view.saveRepoStateValue(this.currentRepo, 'name', <string>values[0] || null);
 						this.view.renderRepoDropdownOptions();
 						this.render();
 					}, null);
 				});
-			}
 
-			document.getElementById('editInitialBranches')!.addEventListener('click', () => {
-				if (this.repo === null) return;
-				const showCheckedOutBranch = getOnRepoLoadShowCheckedOutBranch(this.repo.onRepoLoadShowCheckedOutBranch);
-				const showSpecificBranches = getOnRepoLoadShowSpecificBranches(this.repo.onRepoLoadShowSpecificBranches);
-				dialog.showForm('<b>Configure Initial Branches</b><p style="margin:6px 0;">Configure the branches that are initially shown when this repository is loaded in the Git Tree View.</p><p style="font-size:12px; margin:6px 0 0 0;">Note: When "Checked Out Branch" is Disabled, and no "Specific Branches" are selected, all branches will be shown.</p>', [
-					{ type: DialogInputType.Checkbox, name: 'Checked Out Branch', value: showCheckedOutBranch },
-					{ type: DialogInputType.Select, name: 'Specific Branches', options: this.view.getBranchOptions(), defaults: showSpecificBranches, multiple: true }
-				], 'Save Configuration', (values) => {
-					if (this.currentRepo === null) return;
-					if (showCheckedOutBranch !== values[0] || !arraysStrictlyEqualIgnoringOrder(showSpecificBranches, <string[]>values[1])) {
-						this.view.saveRepoStateValue(this.currentRepo, 'onRepoLoadShowCheckedOutBranch', values[0] ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
-						this.view.saveRepoStateValue(this.currentRepo, 'onRepoLoadShowSpecificBranches', <string[]>values[1]);
-						this.render();
-					}
-				}, null, 'Cancel', null, false);
-			});
+				if (this.repo.name !== null) {
+					document.getElementById('deleteRepoName')!.addEventListener('click', () => {
+						if (this.currentRepo === null || this.repo === null || this.repo.name === null) return;
+						dialog.showConfirmation('Are you sure you want to delete the manually configured name <b><i>' + escapeHtml(this.repo.name) + '</i></b> for this repository, and use the default name from the File System <b><i>' + escapeHtml(getRepoName(this.currentRepo)) + '</i></b>?', 'Yes, delete', () => {
+							if (this.currentRepo === null) return;
+							this.view.saveRepoStateValue(this.currentRepo, 'name', null);
+							this.view.renderRepoDropdownOptions();
+							this.render();
+						}, null);
+					});
+				}
 
-			if (initialBranchesLocallyConfigured) {
-				document.getElementById('clearInitialBranches')!.addEventListener('click', () => {
-					dialog.showConfirmation('Are you sure you want to clear the branches that are initially shown when this repository is loaded in the Git Tree View?', 'Yes, clear', () => {
+				document.getElementById('editInitialBranches')!.addEventListener('click', () => {
+					if (this.repo === null) return;
+					const showCheckedOutBranch = getOnRepoLoadShowCheckedOutBranch(this.repo.onRepoLoadShowCheckedOutBranch);
+					const showSpecificBranches = getOnRepoLoadShowSpecificBranches(this.repo.onRepoLoadShowSpecificBranches);
+					dialog.showForm('<b>Configure Initial Branches</b><p style="margin:6px 0;">Configure the branches that are initially shown when this repository is loaded in the Git Tree View.</p><p style="font-size:12px; margin:6px 0 0 0;">Note: When "Checked Out Branch" is Disabled, and no "Specific Branches" are selected, all branches will be shown.</p>', [
+						{ type: DialogInputType.Checkbox, name: 'Checked Out Branch', value: showCheckedOutBranch },
+						{ type: DialogInputType.Select, name: 'Specific Branches', options: this.view.getBranchOptions(), defaults: showSpecificBranches, multiple: true }
+					], 'Save Configuration', (values) => {
 						if (this.currentRepo === null) return;
-						this.view.saveRepoStateValue(this.currentRepo, 'onRepoLoadShowCheckedOutBranch', GG.BooleanOverride.Default);
-						this.view.saveRepoStateValue(this.currentRepo, 'onRepoLoadShowSpecificBranches', null);
-						this.render();
-					}, null);
+						if (showCheckedOutBranch !== values[0] || !arraysStrictlyEqualIgnoringOrder(showSpecificBranches, <string[]>values[1])) {
+							this.view.saveRepoStateValue(this.currentRepo, 'onRepoLoadShowCheckedOutBranch', values[0] ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
+							this.view.saveRepoStateValue(this.currentRepo, 'onRepoLoadShowSpecificBranches', <string[]>values[1]);
+							this.render();
+						}
+					}, null, 'Cancel', null, false);
+				});
+
+				if (initialBranchesLocallyConfigured) {
+					document.getElementById('clearInitialBranches')!.addEventListener('click', () => {
+						dialog.showConfirmation('Are you sure you want to clear the branches that are initially shown when this repository is loaded in the Git Tree View?', 'Yes, clear', () => {
+							if (this.currentRepo === null) return;
+							this.view.saveRepoStateValue(this.currentRepo, 'onRepoLoadShowCheckedOutBranch', GG.BooleanOverride.Default);
+							this.view.saveRepoStateValue(this.currentRepo, 'onRepoLoadShowSpecificBranches', null);
+							this.render();
+						}, null);
+					});
+				}
+
+				// Each switch saves its setting, and the view reloads to show it
+				const switches: ReadonlyArray<readonly [string, 'showRemoteBranchesV2' | 'showStashes' | 'showTags' | 'includeCommitsMentionedByReflogs' | 'onlyFollowFirstParent']> = [
+					['settingsShowRemoteBranchesCheckbox', 'showRemoteBranchesV2'], ['settingsShowStashesCheckbox', 'showStashes'], ['settingsShowTagsCheckbox', 'showTags'],
+					['settingsIncludeCommitsMentionedByReflogsCheckbox', 'includeCommitsMentionedByReflogs'], ['settingsOnlyFollowFirstParentCheckbox', 'onlyFollowFirstParent']
+				];
+				switches.forEach(([id, key]) => {
+					document.getElementById(id)!.addEventListener('change', (e) => {
+						if (this.currentRepo === null) return;
+						this.view.saveRepoStateValue(this.currentRepo, key, (<HTMLInputElement>e.target).checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
+						this.view.refresh(true);
+					});
 				});
 			}
 
-			// Each switch saves its setting, and the view reloads to show it
-			const switches: ReadonlyArray<readonly [string, 'showRemoteBranchesV2' | 'showStashes' | 'showTags' | 'includeCommitsMentionedByReflogs' | 'onlyFollowFirstParent']> = [
-				['settingsShowRemoteBranchesCheckbox', 'showRemoteBranchesV2'], ['settingsShowStashesCheckbox', 'showStashes'], ['settingsShowTagsCheckbox', 'showTags'],
-				['settingsIncludeCommitsMentionedByReflogsCheckbox', 'includeCommitsMentionedByReflogs'], ['settingsOnlyFollowFirstParentCheckbox', 'onlyFollowFirstParent']
-			];
-			switches.forEach(([id, key]) => {
-				document.getElementById(id)!.addEventListener('change', (e) => {
-					if (this.currentRepo === null) return;
-					this.view.saveRepoStateValue(this.currentRepo, key, (<HTMLInputElement>e.target).checked ? GG.BooleanOverride.Enabled : GG.BooleanOverride.Disabled);
-					this.view.refresh(true);
-				});
-			});
-
-			if (this.config !== null) {
+			if (this.config !== null && this.hasCard('userDetails')) {
 				document.getElementById('editUserDetails')!.addEventListener('click', () => {
 					if (this.config === null) return;
 					const userName = this.config.user.name, userEmail = this.config.user.email;
@@ -376,7 +429,9 @@ class SettingsWidget {
 						}, null);
 					});
 				}
+			}
 
+			if (this.config !== null && this.hasCard('remotes')) {
 				const pushUrlPlaceholder = 'Leave blank to use the Fetch URL';
 				document.getElementById('settingsAddRemote')!.addEventListener('click', () => {
 					dialog.showForm('Add a new remote to this repository:', [
@@ -448,27 +503,29 @@ class SettingsWidget {
 				});
 			}
 
-			document.getElementById('editIssueLinking')!.addEventListener('click', () => {
-				if (this.repo === null) return;
-				const issueLinkingConfig = this.repo.issueLinkingConfig || globalState.issueLinkingConfig;
-				if (issueLinkingConfig !== null) {
-					this.showIssueLinkingDialog(issueLinkingConfig.issue, issueLinkingConfig.url, this.repo.issueLinkingConfig === null && globalState.issueLinkingConfig !== null, true);
-				} else {
-					this.showIssueLinkingDialog(null, null, false, false);
-				}
-			});
-
-			if (this.repo.issueLinkingConfig !== null || globalState.issueLinkingConfig !== null) {
-				document.getElementById('removeIssueLinking')!.addEventListener('click', () => {
+			if (this.hasCard('issueLinking')) {
+				document.getElementById('editIssueLinking')!.addEventListener('click', () => {
 					if (this.repo === null) return;
-					const locallyConfigured = this.repo.issueLinkingConfig !== null;
-					dialog.showConfirmation('Are you sure you want to remove ' + (locallyConfigured ? (globalState.issueLinkingConfig !== null ? 'the <b>locally configured</b> ' : '') + 'Issue Linking from this repository' : 'the <b>globally configured</b> Issue Linking in Git Tree') + '?', 'Yes, remove', () => {
-						this.setIssueLinkingConfig(null, !locallyConfigured);
-					}, null);
+					const issueLinkingConfig = this.repo.issueLinkingConfig || globalState.issueLinkingConfig;
+					if (issueLinkingConfig !== null) {
+						this.showIssueLinkingDialog(issueLinkingConfig.issue, issueLinkingConfig.url, this.repo.issueLinkingConfig === null && globalState.issueLinkingConfig !== null, true);
+					} else {
+						this.showIssueLinkingDialog(null, null, false, false);
+					}
 				});
+
+				if (this.repo.issueLinkingConfig !== null || globalState.issueLinkingConfig !== null) {
+					document.getElementById('removeIssueLinking')!.addEventListener('click', () => {
+						if (this.repo === null) return;
+						const locallyConfigured = this.repo.issueLinkingConfig !== null;
+						dialog.showConfirmation('Are you sure you want to remove ' + (locallyConfigured ? (globalState.issueLinkingConfig !== null ? 'the <b>locally configured</b> ' : '') + 'Issue Linking from this repository' : 'the <b>globally configured</b> Issue Linking in Git Tree') + '?', 'Yes, remove', () => {
+							this.setIssueLinkingConfig(null, !locallyConfigured);
+						}, null);
+					});
+				}
 			}
 
-			if (this.config !== null) {
+			if (this.config !== null && this.hasCard('pullRequests')) {
 				document.getElementById('editPullRequestIntegration')!.addEventListener('click', () => {
 					if (this.repo === null || this.config === null) return;
 
@@ -514,16 +571,18 @@ class SettingsWidget {
 				}
 			}
 
-			document.getElementById('openExtensionSettings')!.addEventListener('click', () => {
-				sendMessage({ command: 'openExtensionSettings' });
-			});
+			if (this.hasCard('gitTree')) {
+				document.getElementById('openExtensionSettings')!.addEventListener('click', () => {
+					sendMessage({ command: 'openExtensionSettings' });
+				});
 
-			document.getElementById('exportRepositoryConfig')!.addEventListener('click', () => {
-				dialog.showConfirmation('Exporting the Git Tree Repository Configuration will generate a file that can be committed in this repository. It allows others working in this repository to use the same configuration.', 'Yes, export', () => {
-					if (this.currentRepo === null) return;
-					runAction({ command: 'exportRepoConfig', repo: this.currentRepo }, 'Exporting Repository Configuration');
-				}, null);
-			});
+				document.getElementById('exportRepositoryConfig')!.addEventListener('click', () => {
+					dialog.showConfirmation('Exporting the Git Tree Repository Configuration will generate a file that can be committed in this repository. It allows others working in this repository to use the same configuration.', 'Yes, export', () => {
+						if (this.currentRepo === null) return;
+						runAction({ command: 'exportRepoConfig', repo: this.currentRepo }, 'Exporting Repository Configuration');
+					}, null);
+				});
+			}
 		}
 
 		alterClass(this.widgetElem, CLASS_LOADING, this.loading);
@@ -534,6 +593,15 @@ class SettingsWidget {
 
 
 	/* Private Helper Methods */
+
+	/**
+	 * Does the open page show a card.
+	 * @param card The card.
+	 * @returns TRUE => The page shows the card, FALSE => It doesn't.
+	 */
+	private hasCard(card: SettingsCard) {
+		return SETTINGS_PAGES[this.page].cards.includes(card);
+	}
 
 	/**
 	 * Save the issue linking configuration for this repository, and refresh the view so these changes are taken into affect.

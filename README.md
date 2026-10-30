@@ -78,7 +78,7 @@ Git writes the commit-graph file during `git gc`, so many long-lived repositorie
 | Choose where new worktrees go | — | ✅ Relative, `~`, absolute or `{repo}` paths |
 | Open a worktree in a new window | — | ✅ Ctrl/Cmd+click |
 | Copy a file's path in another worktree | — | ✅ |
-| Worktrees on SSH servers | — | ✅ In the graph, added from Repository Settings |
+| Worktrees on SSH servers | — | ✅ In the graph, added from the Remote Hosts panel |
 | Several repositories side by side | One view for all repositories | ✅ One tab per repository |
 | Graph colours on light themes | The dark-theme palette | ✅ A darker palette for light themes |
 | Install, update and uninstall events | Sent to the author's server | ✅ None sent |
@@ -129,7 +129,7 @@ Right-click to work with worktrees:
 
 **Ctrl+click** (**Cmd+click** on macOS) or double-click a worktree label to open that worktree in a new VS Code window.
 
-Click the **terminal** button in the top bar to open a terminal. With one worktree, it opens there. Otherwise a menu asks which worktree: Root and this machine's other worktrees first, each with its branch, and then each remote host's worktrees, which open over SSH. The worktree you're viewing is ticked. A host whose last refresh failed stays in the menu, with its state next to its name, because the terminal tries SSH again and can ask for a password.
+Click the **terminal** button in the bottom bar to open a terminal. With one worktree, it opens there. Otherwise a menu asks which worktree: Root and this machine's other worktrees first, each with its branch, and then each remote host's worktrees, which open over SSH. The worktree you're viewing is ticked. A host whose last refresh failed stays in the menu, with its state next to its name, because the terminal tries SSH again and can ask for a password.
 
 ![A commit's context menu, with Create Worktree, Checkout, Cherry Pick, Merge and Rebase](docs/images/commit-menu.webp)
 
@@ -153,7 +153,7 @@ A file has a different absolute path in each worktree. In Commit Details, Open F
 
 Git Tree can show the worktrees on your SSH servers in the same graph as your local ones. Each server worktree gets a label in the Worktree column, such as `build-box:main`, its own *Uncommitted Changes* row, and a place in the Worktree filter. The server's branches are drawn like remote branches, under the host's name. The server needs only `git`; Git Tree installs nothing there.
 
-Add a host in **Repository Settings → Remote Hosts**:
+Add a host in the **Remote Hosts** panel. Its button is in the bottom bar, on the right:
 
 1. Pick an SSH alias. Git Tree lists the aliases in `~/.ssh/config` and the files it includes, or you can type one.
 2. Choose **Add existing** to use a repository that's already on the server, or **Create new** to make one there. A new repository is either cloned on the server from one of this repository's remotes, or pushed from this machine.
@@ -180,7 +180,7 @@ User names, ports, keys and jump hosts stay in `~/.ssh/config`. The file lives i
 
 On each refresh, Git Tree reads every host over one SSH call: its worktrees, their branches and how many uncommitted changes each has. It reuses one SSH connection per host (OpenSSH's connection sharing), so a refresh after the first costs about one network round trip; Windows' OpenSSH can't share connections, so there each refresh connects again. When a server's branches moved, Git Tree fetches them into hidden refs under `refs/git-tree/hosts/<name>/`, which don't show up in `git branch -a`. Git Tree asks before the first fetch from each host. A slow or unreachable host never holds up the local graph: it shows *unreachable*, with the time of its last good refresh, and never looks clean.
 
-Right-click a server worktree's label to open it in VS Code with [Remote-SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh), open a terminal there, fetch, pull or push on the server, copy its path or remove it. Right-click a commit to create a worktree on a server. Removing a host, in Repository Settings or with *Git Tree: Remove Remote Host*, also deletes its hidden refs.
+Right-click a server worktree's label to open it in VS Code with [Remote-SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh), open a terminal there, fetch, pull or push on the server, copy its path or remove it. Right-click a commit to create a worktree on a server. Removing a host, in the Remote Hosts panel or with *Git Tree: Remove Remote Host*, also deletes its hidden refs.
 
 A server worktree's Uncommitted Changes row shows how many files changed, but Git Tree can't list them from here. Open the worktree with Remote-SSH to see them.
 
@@ -196,17 +196,17 @@ The **Host** dropdown in the top bar picks which machines the graph shows. Tick 
 
 Click **All** to tick every row, or to clear them all when they're all ticked. Hover over a row and click **only** to show just that row. The closed dropdown reads *All*, the names you ticked (such as *Local, build-box*), a count such as *3 hosts*, or *None*. Git Tree reads only the hosts you ticked.
 
-Each tab remembers its own choice, also after VS Code restarts, as the Worktree dropdown does. A host you ticked that's later removed, or hidden in Repository Settings, is ignored. If none of the ticked hosts is left, the dropdown shows everything.
+Each tab remembers its own choice, also after VS Code restarts, as the Worktree dropdown does. A host you ticked that's later removed, or hidden in the Remote Hosts panel, is ignored. If none of the ticked hosts is left, the dropdown shows everything.
 
-The Worktree dropdown then lists only the worktrees from the sources the Host dropdown shows. If its choice is no longer listed, it goes back to **All**. The Host dropdown appears when a repository has a remote host. A host hidden in Repository Settings isn't listed. With `git-tree.remoteHosts.refreshInterval` turned on, the interval reads every host that a saved Host choice of the repository shows.
+The Worktree dropdown then lists only the worktrees from the sources the Host dropdown shows. If its choice is no longer listed, it goes back to **All**. The Host dropdown appears when a repository has a remote host. A host hidden in the Remote Hosts panel isn't listed. With `git-tree.remoteHosts.refreshInterval` turned on, the interval reads every host that a saved Host choice of the repository shows.
 
 The **Host** column names the host on each row that has a server's worktree or branch, or a server worktree's uncommitted changes. Rows with only this machine's worktrees leave it blank. The column appears when the graph shows a remote host, and `git-tree.defaultColumnVisibility` can hide it.
 
-Coding agents can keep the host list up to date. Click **Copy** next to *Using a coding agent?* in the Remote Hosts section, and paste the instruction into your agent's instructions, for example `CLAUDE.md` or `AGENTS.md`. The same text is in [the agent instruction](docs/remote-hosts-for-agents.md).
+Coding agents can keep the host list up to date. Click **Copy** next to *Using a coding agent?* in the Remote Hosts panel, and paste the instruction into your agent's instructions, for example `CLAUDE.md` or `AGENTS.md`. The same text is in [the agent instruction](docs/remote-hosts-for-agents.md).
 
 ### Manage worktrees
 
-Click **Manage Worktrees** in the top bar, next to Refresh, to see how much space each worktree takes and how far behind the main branch it is. The panel has a card for this machine, then one for each remote host that isn't hidden in Repository Settings:
+Click **Manage Worktrees** in the bottom bar, on the right, to see how much space each worktree takes and how far behind the main branch it is. The panel has a card for this machine, then one for each remote host that isn't hidden in the Remote Hosts panel:
 
 - **The host:** the disk that holds the repository, with the space used, the total and the space free, and the total size of the worktrees.
 - **Each worktree:** its name (**Root**, or the folder name, with `host:` in front on a server), its branch, its size on disk, whether it's clean or how many files changed, and how it relates to the main branch: *up to date*, *N behind*, *N ahead*, *diverged* or *detached*.
@@ -237,7 +237,9 @@ Each Git Tree tab shows one repository, and its title names the repository and t
 - **Branches dropdown:** show all branches, pick some, or use your own glob patterns (`git-tree.customBranchGlobPatterns`).
 - **Find** (Ctrl/Cmd+F): find commits by message, date, author, hash, branch or tag.
 - **Code review:** keep track of the files you've reviewed in a commit or a comparison. Reviews last across sessions.
-- **Repository settings:** show or hide remote branches, stashes and tags, manage remotes, link issue numbers in commit messages to your tracker, and set up pull request creation for GitHub, GitLab, Bitbucket or your own provider.
+- **The bottom bar:** Refresh, Fetch, Find and the terminal on the left. On the right, the buttons of the panels: Manage Worktrees, Remote Hosts, Issues & Pull Requests and Repository Settings. The button of the open panel is pressed, and clicking it again closes the panel.
+- **Repository Settings:** name the repository, choose its initial branches, show or hide remote branches, stashes and tags, set your Git user details, and manage remotes.
+- **Issues & Pull Requests:** link issue numbers in commit messages to your tracker, and set up pull request creation for GitHub, GitLab, Bitbucket or your own provider.
 - **Columns:** resize them, and show or hide Worktree, Host, Date, Author and Commit.
 
 ### Keyboard shortcuts

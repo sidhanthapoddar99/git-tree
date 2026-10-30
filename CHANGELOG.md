@@ -12,7 +12,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **The buttons moved to a narrow bar along the bottom of the view.** Refresh, Fetch, Find and the terminal sit on its left, and the panels' buttons on its right. The button of the open panel is pressed, and clicking it again closes the panel. The top bar keeps only the Repo, Branches, Host and Worktree dropdowns, so they have the full width. Find still opens at the top, and Ctrl/Cmd+F works as before.
+- **Repository Settings is split into three panels.** *Repository Settings* keeps General, User Details, the Git remotes and the Git Tree configuration. *Remote Hosts* has the SSH hosts, and *Issues & Pull Requests* has Issue Linking and Pull Request Creation. Each has its own button in the bottom bar, and only one panel is open at a time. A tab restored with Repository Settings open, from an earlier version, opens Repository Settings again.
 - **Each tab keeps its own Worktree and Host choice.** Two tabs of one repository can show different worktrees, and keep them across a restart. A new tab starts with the last choice made in that repository.
+
+### Fixed
+
+- In a narrow view, a Manage panel row's size no longer runs into its status. The size gets its own line.
 
 ## [0.8.0] - 2026-10-30
 

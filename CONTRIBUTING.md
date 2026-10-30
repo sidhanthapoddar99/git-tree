@@ -170,7 +170,7 @@ Before a release, go through these in the demo repository:
 - **Create and remove a worktree.** Create one from a commit with a new branch, and from a branch. Try a folder with `~` and `{repo}`. Remove it again.
 - **Commit details.** Open a commit, view a diff, open a file, copy its paths, and copy its path in another worktree.
 - **Tabs.** *View Git Tree in New Tab...* opens a second tab, and each tab's title names its repository and worktree.
-- **A narrow view.** Make the tab narrow. The top bar stays on one row.
+- **A narrow view.** Make the tab narrow. The top bar stays on one row, and the bottom bar keeps every button on one line.
 
 ## Screenshots for the README
 

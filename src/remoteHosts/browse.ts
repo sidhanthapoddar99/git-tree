@@ -2,7 +2,7 @@ import { RemoteFolderEntry } from '../types';
 import { validateServerPath } from './config';
 
 /*
- * The folder browser of Repository Settings: one script that `ssh <alias> sh -s -- <path>` runs on the server, and the
+ * The folder browser of the Remote Hosts panel: one script that `ssh <alias> sh -s -- <path>` runs on the server, and the
  * parser of what it prints. Only a POSIX shell runs there, and the script only reads. The path is the one argument,
  * which the caller checks and quotes.
  */

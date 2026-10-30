@@ -7,6 +7,9 @@ interface WorktreeLookup {
 
 const CLASS_COLUMN_WIDTH_ROW = 'columnWidthRow';
 
+/** A panel opened from the right of the bottom bar: the Manage panel, or a page of the Settings Widget. They take the same place, so only one is open at a time. */
+type BottomBarPanel = 'manage' | SettingsPage;
+
 /** What the rows of the table are rendered with, worked out once each time the table is rendered. */
 interface TableRowContext {
 	readonly colVisibility: { readonly worktree: boolean, readonly host: boolean, readonly date: boolean, readonly author: boolean, readonly commit: boolean };
@@ -78,6 +81,7 @@ class GitTreeView {
 
 	private readonly viewElem: HTMLElement;
 	private readonly controlsElem: HTMLElement;
+	private readonly bottomBarElem: HTMLElement;
 	private readonly tableElem: HTMLElement;
 	private readonly footerElem: HTMLElement;
 	private readonly refreshBtnElem: HTMLElement;
@@ -104,6 +108,7 @@ class GitTreeView {
 		};
 
 		this.controlsElem = document.getElementById('controls')!;
+		this.bottomBarElem = document.getElementById('bottomBar')!;
 		this.tableElem = document.getElementById('commitTable')!;
 		this.footerElem = document.getElementById('footer')!;
 		this.scrollShadowElem = <HTMLInputElement>document.getElementById('scrollShadow')!;
@@ -157,14 +162,13 @@ class GitTreeView {
 		this.settingsWidget = new SettingsWidget(this);
 		this.manageWidget = new ManageWidget(this);
 
-		// The Manage panel and Repository Settings take the same place, so opening one closes the other
-		const manageBtn = document.getElementById('manageBtn')!;
-		manageBtn.innerHTML = SVG_ICONS.worktree;
-		manageBtn.addEventListener('click', () => {
-			this.settingsWidget.close();
-			this.manageWidget.show(this.currentRepo);
+		this.bottomBarElem.querySelectorAll<HTMLElement>('[data-panel]').forEach((btn) => {
+			const panel = <BottomBarPanel>btn.dataset.panel;
+			if (panel !== 'manage') btn.title = SETTINGS_PAGES[panel].title;
+			btn.innerHTML = panel !== 'manage' ? SETTINGS_PAGES[panel].icon : SVG_ICONS.worktree;
+			btn.addEventListener('click', () => this.togglePanel(panel));
 		});
-		document.getElementById('settingsBtn')!.addEventListener('click', () => this.manageWidget.close());
+		this.renderPanelButtons();
 
 		alterClass(document.body, CLASS_BRANCH_LABELS_ALIGNED_TO_GRAPH, this.config.referenceLabels.branchLabelsAlignedToGraph);
 		alterClass(document.body, CLASS_TAG_LABELS_RIGHT_ALIGNED, this.config.referenceLabels.tagLabelsOnRight);
@@ -202,14 +206,12 @@ class GitTreeView {
 			this.requestLoadRepoInfoAndCommits(false, false);
 		}
 
-		const fetchBtn = document.getElementById('fetchBtn')!, findBtn = document.getElementById('findBtn')!, settingsBtn = document.getElementById('settingsBtn')!, terminalBtn = document.getElementById('terminalBtn')!;
+		const fetchBtn = document.getElementById('fetchBtn')!, findBtn = document.getElementById('findBtn')!, terminalBtn = document.getElementById('terminalBtn')!;
 		fetchBtn.title = 'Fetch' + (this.config.fetchAndPrune ? ' & Prune' : '') + ' from Remote(s)';
 		fetchBtn.innerHTML = SVG_ICONS.download;
 		fetchBtn.addEventListener('click', () => this.fetchFromRemotesAction());
 		findBtn.innerHTML = SVG_ICONS.search;
 		findBtn.addEventListener('click', () => this.findWidget.show(true));
-		settingsBtn.innerHTML = SVG_ICONS.gear;
-		settingsBtn.addEventListener('click', () => this.settingsWidget.show(this.currentRepo));
 		terminalBtn.innerHTML = SVG_ICONS.terminal;
 		terminalBtn.addEventListener('click', (e) => {
 			// A click while a menu is open only closes it, as any click does
@@ -375,7 +377,7 @@ class GitTreeView {
 	}
 
 	/**
-	 * Does the view show a remote host: it isn't hidden in Repository Settings, and the Host dropdown shows it?
+	 * Does the view show a remote host: it isn't hidden in the Remote Hosts panel, and the Host dropdown shows it?
 	 * @param name The host's name.
 	 */
 	private isRemoteHostShown(name: string) {
@@ -391,7 +393,7 @@ class GitTreeView {
 	private chooseHost(values: ReadonlyArray<string>) {
 		const rows = [LOCAL_HOSTS].concat(this.getAvailableRemoteHosts().map((host) => host.name));
 		const state = this.gitRepos[this.currentRepo], shownBefore = this.hostChoice;
-		// The saved choice is replaced even when the view shows the same, so the hosts it ignored (hidden in Repository Settings, or no longer known) aren't chosen again once they're back
+		// The saved choice is replaced even when the view shows the same, so the hosts it ignored (hidden in the Remote Hosts panel, or no longer known) aren't chosen again once they're back
 		state.hostChoice = rows.every((row) => values.includes(row)) ? null : values.slice();
 		const changed = !isSameHostChoice(shownBefore, this.hostChoice);
 		// The Worktree dropdown no longer lists a worktree from a source that isn't shown, so its choice goes back to All
@@ -470,7 +472,7 @@ class GitTreeView {
 		this.gitRemoteHosts = remoteHosts;
 		this.renderHostDropdown();
 		this.renderWorktreeDropdown();
-		// The hosts were just read again, so Repository Settings shows their new states
+		// The hosts were just read again, so the Remote Hosts panel shows their new states
 		this.settingsWidget.requestRemoteHosts();
 
 		if (!isRepo || (!this.currentRepoRefreshState.hard && arraysStrictlyEqual(this.gitBranches, branchOptions) && this.gitBranchHead === branchHead && arraysStrictlyEqual(this.gitRemotes, remotes))) {
@@ -790,7 +792,7 @@ class GitTreeView {
 	}
 
 	/**
-	 * Pass a response for the Remote Hosts card of Repository Settings to it.
+	 * Pass a response for the Remote Hosts card to it.
 	 * @param msg The response.
 	 * @returns TRUE => the card handled it, FALSE => the card didn't send it.
 	 */
@@ -1603,7 +1605,7 @@ class GitTreeView {
 	}
 
 	/**
-	 * Get the remote hosts that aren't hidden in Repository Settings (hideHosts): those the Host dropdown lists, and that worktrees can be created on.
+	 * Get the remote hosts that aren't hidden in the Remote Hosts panel (hideHosts): those the Host dropdown lists, and that worktrees can be created on.
 	 * @returns The hosts.
 	 */
 	public getAvailableRemoteHosts() {
@@ -1637,7 +1639,19 @@ class GitTreeView {
 	}
 
 	private renderFetchButton() {
-		alterClass(this.controlsElem, CLASS_FETCH_SUPPORTED, this.gitRemotes.length > 0);
+		alterClass(this.bottomBarElem, CLASS_FETCH_SUPPORTED, this.gitRemotes.length > 0);
+	}
+
+	/**
+	 * Show which panel is open, by pressing its button in the bottom bar.
+	 */
+	public renderPanelButtons() {
+		const settingsPage = this.settingsWidget.getOpenPage(), manageOpen = this.manageWidget.isVisible();
+		this.bottomBarElem.querySelectorAll<HTMLElement>('[data-panel]').forEach((btn) => {
+			const open = btn.dataset.panel === 'manage' ? manageOpen : btn.dataset.panel === settingsPage;
+			alterClass(btn, CLASS_ACTIVE, open);
+			btn.setAttribute('aria-pressed', open ? 'true' : 'false');
+		});
 	}
 
 	public renderRefreshButton() {
@@ -1830,7 +1844,7 @@ class GitTreeView {
 				visible: true,
 				onClick: () => this.createWorktreeAction(hash, false, target)
 			},
-			// One for each remote host whose entry in the config is valid, and that isn't hidden in Repository Settings
+			// One for each remote host whose entry in the config is valid, and that isn't hidden in the Remote Hosts panel
 			...this.getAvailableRemoteHosts().map((host): ContextMenuAction => ({
 				title: 'Create Worktree on ' + escapeHtml(host.name) + ELLIPSIS,
 				visible: host.state !== 'configError',
@@ -2286,6 +2300,22 @@ class GitTreeView {
 	 * there straight away. Otherwise a menu under the button lists this machine's worktrees, then each available remote host's.
 	 * @param button The terminal button.
 	 */
+	/**
+	 * Open a panel from the bottom bar, closing the one that is open. Its button closes it again.
+	 * @param panel The panel.
+	 */
+	private togglePanel(panel: BottomBarPanel) {
+		const wasOpen = panel === 'manage' ? this.manageWidget.isVisible() : this.settingsWidget.getOpenPage() === panel;
+		this.settingsWidget.close();
+		this.manageWidget.close();
+		if (wasOpen) return;
+		if (panel === 'manage') {
+			this.manageWidget.show(this.currentRepo);
+		} else {
+			this.settingsWidget.show(this.currentRepo, panel);
+		}
+	}
+
 	private openTerminalAction(button: HTMLElement) {
 		const openLocal = (path: string) => runAction({ command: 'openTerminal', repo: this.currentRepo, path: path }, 'Opening Terminal');
 		const openRemote = (host: string, path: string) => runAction({ command: 'openRemoteTerminal', repo: this.currentRepo, host: host, path: path }, 'Opening Terminal');
@@ -2305,7 +2335,7 @@ class GitTreeView {
 			onClick: onClick
 		});
 		const groups: (ContextMenuAction | ContextMenuHeading)[][] = [localWorktrees.map((worktree) => getAction(worktree, () => openLocal(worktree.path)))];
-		// Every host that isn't hidden in Repository Settings, whatever the Host dropdown shows. A host whose entry in the config is invalid can't be reached.
+		// Every host that isn't hidden in the Remote Hosts panel, whatever the Host dropdown shows. A host whose entry in the config is invalid can't be reached.
 		this.getAvailableRemoteHosts().filter((host) => host.state !== 'configError').forEach((host) => {
 			const hostWorktrees = sortWorktreesForMenu(this.gitWorktrees.filter((worktree) => worktree.host === host.name && !worktree.prunable));
 			// The view only has the worktrees of the hosts the Host dropdown shows, after their first refresh. The host's main worktree, from the config, is always offered.
@@ -3358,7 +3388,7 @@ class GitTreeView {
 			elem.remove();
 		}
 		if (isDocked) {
-			this.viewElem.style.bottom = '0px';
+			this.viewElem.style.bottom = '';
 		}
 		if (expandedCommit.commitElem !== null) {
 			expandedCommit.commitElem.classList.remove(CLASS_COMMIT_DETAILS_OPEN);
@@ -3706,9 +3736,9 @@ class GitTreeView {
 	}
 
 	private setCdvHeight(elem: HTMLElement, isDocked: boolean) {
-		let height = this.gitRepos[this.currentRepo].cdvHeight, windowHeight = window.innerHeight;
-		if (height > windowHeight - 40) {
-			height = Math.max(windowHeight - 40, 100);
+		let height = this.gitRepos[this.currentRepo].cdvHeight, maxHeight = this.getMaxCdvHeight();
+		if (height > maxHeight) {
+			height = maxHeight;
 			if (height !== this.gitRepos[this.currentRepo].cdvHeight) {
 				this.gitRepos[this.currentRepo].cdvHeight = height;
 				this.saveRepoState();
@@ -3717,7 +3747,15 @@ class GitTreeView {
 
 		let heightPx = height + 'px';
 		elem.style.height = heightPx;
-		if (isDocked) this.viewElem.style.bottom = heightPx;
+		// The docked view sits on the bottom bar, and the view ends at its top
+		if (isDocked) this.viewElem.style.bottom = 'calc(' + heightPx + ' + var(--git-tree-bottom-bar-height))';
+	}
+
+	/**
+	 * Get the tallest the Commit Details View can be: the height above the bottom bar, less 40px so some of the graph stays in view, and at least 100px.
+	 */
+	private getMaxCdvHeight() {
+		return Math.max(window.innerHeight - this.bottomBarElem.offsetHeight - 40, 100);
 	}
 
 	private setCdvDivider() {
@@ -3733,12 +3771,12 @@ class GitTreeView {
 
 		const processResizingCdvHeight: EventListener = (e) => {
 			if (prevY < 0) return;
-			let delta = (<MouseEvent>e).pageY - prevY, isDocked = this.isCdvDocked(), windowHeight = window.innerHeight;
+			let delta = (<MouseEvent>e).pageY - prevY, isDocked = this.isCdvDocked();
 			prevY = (<MouseEvent>e).pageY;
 			let height = this.gitRepos[this.currentRepo].cdvHeight + (isDocked ? -delta : delta);
 			if (height < 100) height = 100;
 			else if (height > 600) height = 600;
-			if (height > windowHeight - 40) height = Math.max(windowHeight - 40, 100);
+			height = Math.min(height, this.getMaxCdvHeight());
 
 			if (this.gitRepos[this.currentRepo].cdvHeight !== height) {
 				this.gitRepos[this.currentRepo].cdvHeight = height;
@@ -4235,7 +4273,7 @@ window.addEventListener('load', () => {
 			case 'createRemoteHostRepository':
 			case 'removeRemoteHost':
 			case 'saveRemoteHost':
-				// Repository Settings sent it. If it has closed since, the view reports it.
+				// The Remote Hosts panel sent it. If it has closed since, the view reports it.
 				if (!gitTree.processRemoteHostsResponse(msg)) refreshOrDisplayError(msg.error, 'Unable to Change the Remote Hosts');
 				break;
 			case 'runRemoteHostGit':
@@ -4656,7 +4694,7 @@ function getHostOfWorktreeKey(key: string) {
  * Resolve the Host dropdown's saved choice into the one the view applies, by the rules of getHostFilter (src/remoteHosts.ts): the names
  * of hosts that aren't available are ignored, and a choice of only such names is All, so a stale choice never hides everything.
  * @param choice The saved choice.
- * @param available The names of the available remote hosts: the repository's, without those hidden in Repository Settings.
+ * @param available The names of the available remote hosts: the repository's, without those hidden in the Remote Hosts panel.
  * @returns The choice the view applies.
  */
 function resolveHostChoice(choice: GG.HostChoice, available: ReadonlyArray<string>): GG.HostChoice {

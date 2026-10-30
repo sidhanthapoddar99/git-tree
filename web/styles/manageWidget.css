@@ -12,7 +12,7 @@
 	width:680px;
 	max-width:calc(100vw - 56px);
 	min-height:146px;
-	max-height:90vh;
+	max-height:min(90vh, calc(100vh - var(--git-tree-bottom-bar-height) - 8px)); /* Clear of the bottom bar */
 	box-sizing:border-box;
 	padding:0;
 	z-index:31;
@@ -213,13 +213,13 @@
 }
 
 
-/* Narrow views: the size, status and relation share a line under the name, with the button at its end. */
+/* Narrow views: the size gets a line under the name, and the status, the relation to main and the button share the next one. */
 
 @media (max-width:640px){
 	.manageRow{
-		grid-template-columns:minmax(0, 1fr) auto auto auto;
+		grid-template-columns:minmax(0, 1fr) auto auto;
 	}
-	.manageRowName{
+	.manageRowName, .manageRowSize{
 		grid-column:1 / -1;
 	}
 	.manageRowSize{
@@ -228,13 +228,14 @@
 		gap:6px;
 		min-width:0;
 		padding-left:20px;
+		white-space:nowrap;
 	}
 	.manageRowSize .manageBar{
 		flex:1;
 		min-width:24px;
 		max-width:120px;
 	}
-	.manageGitRow .manageRowSize{
-		grid-column:1 / -1;
+	.manageRowStatus{
+		padding-left:20px;
 	}
 }

@@ -187,7 +187,7 @@ export interface GitRemoteHost {
 	readonly lastRefresh: number | null; // When the last good refresh finished (milliseconds since 1970). NULL => none yet.
 }
 
-/** A remote host's entry in `.worktrees/git-tree.yaml`, as Repository Settings edits it. */
+/** A remote host's entry in `.worktrees/git-tree.yaml`, as the Remote Hosts panel edits it. */
 export interface RemoteHostEntry {
 	readonly name: string;
 	readonly ssh: string; // A Host alias from the SSH configuration
@@ -196,7 +196,7 @@ export interface RemoteHostEntry {
 	readonly forwardAgent: boolean; // TRUE => Git commands that Git Tree runs on the server (clone, fetch, pull, push) get the local SSH agent (ssh -A), so they can reach GitHub as the user
 }
 
-/** A remote host as Repository Settings shows it: its entry, and its state from the last refresh. */
+/** A remote host as the Remote Hosts panel shows it: its entry, and its state from the last refresh. */
 export interface GitRemoteHostSettings extends RemoteHostEntry {
 	readonly state: GitRemoteHostState;
 	readonly message: string | null;
@@ -211,7 +211,7 @@ export interface SshAlias {
 	readonly user: string | null; // `User`, NULL => not set
 }
 
-/** A folder on a server, as the folder browser of Repository Settings lists it. */
+/** A folder on a server, as the folder browser of the Remote Hosts panel lists it. */
 export interface RemoteFolderEntry {
 	readonly name: string;
 	readonly kind: 'folder' | 'repository' | 'worktree'; // A repository's main worktree, a linked worktree, or any other folder

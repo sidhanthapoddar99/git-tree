@@ -1,4 +1,4 @@
-/* Repository Settings
+/* Settings Widget: Repository Settings, Remote Hosts, and Issues & Pull Requests
  * A panel of cards. It uses only the theme's colours (with the view's own neutral tokens where a theme may leave one
  * unset), so light, dark and high contrast themes all look native. */
 
@@ -12,7 +12,7 @@
 	width:460px;
 	max-width:calc(100vw - 56px);
 	min-height:146px;
-	max-height:90vh;
+	max-height:min(90vh, calc(100vh - var(--git-tree-bottom-bar-height) - 8px)); /* Clear of the bottom bar */
 	box-sizing:border-box;
 	padding:0;
 	z-index:31;

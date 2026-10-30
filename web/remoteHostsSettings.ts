@@ -1,4 +1,4 @@
-/* Remote Hosts in Repository Settings
+/* The Remote Hosts panel
  * The Remote Hosts card: a row for each host in .worktrees/git-tree.yaml, and the form that adds or edits a host, with a
  * browser of the server's folders. Each action sends its own message, and its response comes back through
  * RemoteHostsSettings.processResponse. */

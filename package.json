@@ -1065,12 +1065,12 @@
 					"git-tree.repository.fetchAndPrune": {
 						"type": "boolean",
 						"default": false,
-						"description": "Before fetching from remote(s) using the Fetch button on the Git Tree View Control Bar, remove any remote-tracking references that no longer exist on the remote(s)."
+						"description": "Before fetching from remote(s) using the Fetch button in the Git Tree View's bottom bar, remove any remote-tracking references that no longer exist on the remote(s)."
 					},
 					"git-tree.repository.fetchAndPruneTags": {
 						"type": "boolean",
 						"default": false,
-						"description": "Before fetching from remote(s) using the Fetch button on the Git Tree View Control Bar, remove any local tags that no longer exist on the remote(s). Requires the \"Repository: Fetch And Prune\" setting to be enabled. Caution: If you work in repositories that have multiple remotes, it is not recommended to use this setting (instead you can prune tags for a specific remote via \"Fetch Remote\" Dialog from the Repository Settings Widget on the Git Tree View)."
+						"description": "Before fetching from remote(s) using the Fetch button in the Git Tree View's bottom bar, remove any local tags that no longer exist on the remote(s). Requires the \"Repository: Fetch And Prune\" setting to be enabled. Caution: If you work in repositories that have multiple remotes, it is not recommended to use this setting (instead you can prune tags for a specific remote via \"Fetch Remote\" Dialog from the Repository Settings Widget on the Git Tree View)."
 					},
 					"git-tree.repository.includeCommitsMentionedByReflogs": {
 						"type": "boolean",
@@ -1314,7 +1314,7 @@
 					"git-tree.fetchAndPrune": {
 						"type": "boolean",
 						"default": false,
-						"description": "Before fetching from remote(s) using the Fetch button on the Git Tree View Control Bar, remove any remote-tracking references that no longer exist on the remote(s).",
+						"description": "Before fetching from remote(s) using the Fetch button in the Git Tree View's bottom bar, remove any remote-tracking references that no longer exist on the remote(s).",
 						"deprecationMessage": "Depreciated: This setting has been renamed to git-tree.repository.fetchAndPrune",
 						"markdownDeprecationMessage": "Depreciated: This setting has been renamed to `#git-tree.repository.fetchAndPrune#`"
 					},

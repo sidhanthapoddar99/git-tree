@@ -67,7 +67,7 @@ export interface HostFilter {
  * Settings, and the choice is All or names it. A host that isn't shown has no worktrees, branches or rows in the view, and
  * the view's refreshes skip it. The webview's resolveHostChoice (web/main.ts) applies the same rules.
  * @param hostNames The names of the repository's remote hosts, from its config.
- * @param hideHosts The names of the hosts hidden in Repository Settings.
+ * @param hideHosts The names of the hosts hidden in the Remote Hosts panel.
  * @param hostChoice The Host dropdown's choice. The names it has of hosts that aren't in `hostNames`, or are hidden, are
  * ignored, and a choice of only such names counts as All, so a stale choice never hides everything.
  * @returns What the view shows.
@@ -115,7 +115,7 @@ export interface RemoteWorktree {
 	readonly commitIsLocal: boolean; // The worktree's HEAD commit is in this repository. FALSE => its rows say the commit isn't on this machine.
 }
 
-/** What Repository Settings shows of a repository's remote hosts. */
+/** What the Remote Hosts panel shows of a repository's remote hosts. */
 export interface RemoteHostsSettings {
 	readonly hosts: GitRemoteHostSettings[];
 	readonly configFile: string | null; // NULL => the repository has no main worktree Git Tree can find
@@ -271,7 +271,7 @@ export class RemoteHosts extends Disposable {
 	 * Each host refreshes on its own, with a time limit, and `onDidChange` fires when one changed something.
 	 * The hosts the view doesn't show are skipped, so they cost no SSH call.
 	 * @param repo The path of the repository.
-	 * @param hideHosts The names of the hosts hidden in Repository Settings.
+	 * @param hideHosts The names of the hosts hidden in the Remote Hosts panel.
 	 * @param hostChoice The Host dropdown's choice.
 	 */
 	public refresh(repo: string, hideHosts: ReadonlyArray<string> = [], hostChoice: HostChoice = null): void {
@@ -430,10 +430,10 @@ export class RemoteHosts extends Disposable {
 	}
 
 
-	/* Repository Settings */
+	/* The Remote Hosts Panel */
 
 	/**
-	 * Get what Repository Settings shows of a repository's remote hosts: each host's entry and state, the config file,
+	 * Get what the Remote Hosts panel shows of a repository's remote hosts: each host's entry and state, the config file,
 	 * the SSH aliases, and the instruction for coding agents. It reads only local files, and never waits for a server:
 	 * each host's state is from its last refresh.
 	 * @param repo The path of the repository.
