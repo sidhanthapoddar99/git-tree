@@ -9,6 +9,7 @@ import { getConfig } from './config';
 import { BranchListEntry, CommitDetailsEntry, DiffOutput, Engine, EngineAnswer, EngineDetailsFormat, EngineFormat, EngineLogRequest, LogEntry, ShowRefEntry, StashListEntry, TagDetailsEntry, WorktreeListEntry } from './engine';
 import { Logger } from './logger';
 import { HOST_REFS_PREFIX, RemoteHostSnapshot, RemoteHosts, getHostBranchesPrefix, getHostFilter } from './remoteHosts';
+import { ProcessResult, runProcess } from './remoteHosts/ssh';
 import { CommitOrdering, DateType, DeepWriteable, ErrorInfo, ErrorInfoExtensionPrefix, GitCommit, GitCommitDetails, GitCommitStash, GitConfigLocation, GitFileChange, GitFileStatus, GitPushBranchMode, GitRemoteHost, GitRepoConfig, GitRepoConfigBranches, GitResetMode, GitSignature, GitSignatureStatus, GitStash, GitTagDetails, GitWorktree, HostChoice, MergeActionOn, RebaseActionOn, SquashMessageFormat, TagType, Writeable } from './types';
 import { GitExecutable, UNCOMMITTED, abbrevCommit, getGitExecutableError, getPathFromStr, getPathFromUri, openGitTerminal, pathWithTrailingSlash, realpath, resolveSpawnOutput, showErrorMessage } from './utils';
 import { Disposable } from './utils/disposable';
@@ -1470,6 +1471,20 @@ export class DataSource extends Disposable {
 
 		const exists = await Promise.all(graphPaths.map((graphPath) => new Promise<boolean>((resolve) => fs.stat(path.resolve(repo, graphPath), (err) => resolve(err === null)))));
 		return exists.includes(true) ? null : this.runGitCommand(['commit-graph', 'write', '--reachable'], repo);
+	}
+
+	/**
+	 * Run Git in a folder, and collect its exit code and output, for the readers and actions that live outside DataSource
+	 * (the Manage panel), so they run the same Git as the view. It never rejects.
+	 * @param args The arguments to pass to Git.
+	 * @param cwd The folder to run Git in.
+	 * @param timeout The time limit, in milliseconds.
+	 * @returns The result. NULL => Git Tree can't run Git (getGitExecutableError says why).
+	 */
+	public runGit(args: ReadonlyArray<string>, cwd: string, timeout: number): Promise<ProcessResult | null> {
+		if (this.gitExecutable === null) return Promise.resolve(null);
+		this.logger.logCmd('git', args.slice());
+		return runProcess(this.gitExecutable.path, args, { cwd: cwd, timeout: timeout });
 	}
 
 	/**

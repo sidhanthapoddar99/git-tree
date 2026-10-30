@@ -18,6 +18,7 @@ Worktrees let you keep several branches checked out at once, each in its own fol
 - 🌳 **Worktrees in the graph.** A Worktree column labels every worktree on the commit it's on, and each worktree's uncommitted changes get their own row.
 - 🔎 **A worktree filter.** Show one worktree's history and changes, the main worktree's, or everything at once.
 - 🛠️ **Worktree actions.** Create a worktree from a commit or a branch, open it in a new window, remove it, or copy its path. Ctrl+click a worktree to open it.
+- 📊 **A Manage panel.** See each worktree's size on disk, its changes and how far behind main it is, on this machine and your servers, and fast-forward it to main when that's safe.
 - 🖥️ **Worktrees on SSH servers.** See the worktrees on your servers in the same graph, add a server from your SSH aliases by browsing its folders, and fetch, pull or push there with your SSH agent.
 - 🗂️ **One tab per repository.** Keep several repositories open side by side.
 - ⚡ **Fast and light.** A Rust engine reads the repository without starting `git`, and the graph draws only the rows on screen. The view opens up to 3× faster than Git Graph, and drawing 5,000 commits takes 24 ms instead of 400.
@@ -202,6 +203,20 @@ The Worktree dropdown then lists only the worktrees from the sources the Host dr
 The **Host** column names the host on each row that has a server's worktree or branch, or a server worktree's uncommitted changes. Rows with only this machine's worktrees leave it blank. The column appears when the graph shows a remote host, and `git-tree.defaultColumnVisibility` can hide it.
 
 Coding agents can keep the host list up to date. Click **Copy** next to *Using a coding agent?* in the Remote Hosts section, and paste the instruction into your agent's instructions, for example `CLAUDE.md` or `AGENTS.md`. The same text is in [the agent instruction](docs/remote-hosts-for-agents.md).
+
+### Manage worktrees
+
+Click **Manage Worktrees** in the top bar, next to Refresh, to see how much space each worktree takes and how far behind the main branch it is. The panel has a card for this machine, then one for each remote host that isn't hidden in Repository Settings:
+
+- **The host:** the disk that holds the repository, with the space used, the total and the space free, and the total size of the worktrees.
+- **Each worktree:** its name (**Root**, or the folder name, with `host:` in front on a server), its branch, its size on disk, whether it's clean or how many files changed, and how it relates to the main branch: *up to date*, *N behind*, *N ahead*, *diverged* or *detached*.
+- **Git data (.git):** the objects and history that every worktree shares, as one row.
+
+Each size is counted once. Worktrees inside the main worktree, such as `.worktrees/feature-login`, and the `.git` folder have their own rows, so Root's size leaves them out. Git's facts show at once, and the sizes fill in as `du` measures them, which can take a while for folders such as `node_modules`. Each host loads on its own, so a slow or unreachable host only holds up its own card, never the graph. **Refresh** in the panel reads every host again. Esc or the close button closes the panel.
+
+**Fast-forward** brings a worktree's branch up to the main branch with `git merge --ff-only`, but only when nothing can be lost. The main branch is the local branch that `origin/HEAD` points to, or `main`, or else `master`. The button works only when the worktree has no uncommitted changes or untracked files, is on a branch other than main, hasn't diverged from main, and main is ahead of it. Otherwise it's greyed out, and hovering over it says why, for example *3 uncommitted changes* or *Diverged from main*. Git Tree checks every rule again just before it runs. On a server it runs over SSH, with the same rules.
+
+Sizes come from `du` and `df`, which Linux and macOS both have. On Windows the panel shows the worktrees and Fast-forward, but no sizes.
 
 ## Everyday use
 

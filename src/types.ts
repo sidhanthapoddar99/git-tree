@@ -1551,6 +1551,86 @@ export interface ResponseViewScm extends ResponseWithErrorInfo {
 	readonly command: 'viewScm';
 }
 
+/* The Manage panel: each host's worktrees, their sizes on disk, and Fast-forward */
+
+/**
+ * How a worktree relates to its repository's main branch:
+ * - `main`: it has the main branch checked out.
+ * - `detached`: it has no branch checked out.
+ * - `compared`: the commits only it has (`ahead`), and the commits only main has (`behind`).
+ * - `unknown`: there's no main branch, its folder is missing, or Git couldn't compare them.
+ */
+export type WorktreeMainRelation =
+	{ readonly kind: 'main' }
+	| { readonly kind: 'detached' }
+	| { readonly kind: 'compared', readonly ahead: number, readonly behind: number }
+	| { readonly kind: 'unknown' };
+
+/** A worktree as the Manage panel shows it. */
+export interface ManagedWorktree {
+	readonly worktree: GitWorktree; // `path` names it in a Fast-forward request
+	readonly changes: number | null; // The number of `git status --porcelain` lines, untracked files included. NULL => the status couldn't be read.
+	readonly relation: WorktreeMainRelation;
+	readonly fastForwardRefusal: string | null; // NULL => Fast-forward can run, otherwise why it can't
+}
+
+/** What the Manage panel shows of a host's Git. */
+export interface ManagedHostGit {
+	readonly mainBranch: string | null; // NULL => there's none, and mainBranchError says why
+	readonly mainBranchError: string | null;
+	readonly worktrees: ReadonlyArray<ManagedWorktree>; // The main worktree first
+}
+
+/** The space on a disk, in kilobytes, from `df -Pk`. */
+export interface DiskSpace {
+	readonly total: number;
+	readonly used: number;
+	readonly free: number;
+}
+
+/** A folder's own size on disk, in kilobytes: the worktrees and the Git folder inside it are left out, since they have their own rows. */
+export interface ManagedSize {
+	readonly path: string; // The worktree's path as ManagedWorktree gave it, or the Git folder's path
+	readonly size: number | null; // NULL => it couldn't be measured
+}
+
+/** What the Manage panel shows of a host's disk. */
+export interface ManagedHostSizes {
+	readonly disk: DiskSpace | null; // The disk that holds the main worktree. NULL => df couldn't read it.
+	readonly worktrees: ReadonlyArray<ManagedSize>; // One per worktree whose folder exists
+	readonly gitData: ManagedSize; // The Git folder that all the worktrees share
+	readonly warning: string | null; // Why the sizes may be too small, when du couldn't read some folders
+}
+
+export interface RequestLoadWorktreeStats extends RepoRequest {
+	readonly command: 'loadWorktreeStats';
+	readonly hosts: ReadonlyArray<string | null>; // NULL => this machine, otherwise a remote host's name
+	readonly requestId: number;
+}
+export interface ResponseLoadWorktreeStats extends ResponseWithErrorInfo {
+	// Each host answers on its own: first its Git (`part` git), then its sizes (`part` sizes), which can take much longer.
+	// A host whose Git couldn't be read answers once, with the error.
+	readonly command: 'loadWorktreeStats';
+	readonly repo: string;
+	readonly requestId: number;
+	readonly host: string | null;
+	readonly part: 'git' | 'sizes';
+	readonly git: ManagedHostGit | null;
+	readonly sizes: ManagedHostSizes | null;
+}
+
+export interface RequestFastForwardWorktree extends RepoRequest {
+	readonly command: 'fastForwardWorktree';
+	readonly host: string | null; // NULL => this machine
+	readonly path: string; // The worktree's path, which the extension checks against its own list
+}
+export interface ResponseFastForwardWorktree extends ResponseWithErrorInfo {
+	readonly command: 'fastForwardWorktree';
+	readonly repo: string;
+	readonly host: string | null;
+	readonly path: string;
+}
+
 export type RequestMessage =
 	RequestAddRemote
 	| RequestBrowseRemoteHost
@@ -1628,7 +1708,9 @@ export type RequestMessage =
 	| RequestViewDiff
 	| RequestViewDiffWithWorkingFile
 	| RequestViewFileAtRevision
-	| RequestViewScm;
+	| RequestViewScm
+	| RequestLoadWorktreeStats
+	| RequestFastForwardWorktree;
 
 export type ResponseMessage =
 	ResponseAddRemote
@@ -1704,7 +1786,9 @@ export type ResponseMessage =
 	| ResponseViewDiff
 	| ResponseViewDiffWithWorkingFile
 	| ResponseViewFileAtRevision
-	| ResponseViewScm;
+	| ResponseViewScm
+	| ResponseLoadWorktreeStats
+	| ResponseFastForwardWorktree;
 
 
 /** Helper Types */

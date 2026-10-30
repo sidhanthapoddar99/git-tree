@@ -473,6 +473,27 @@ describe('RemoteHosts', () => {
 			}
 		});
 
+		it('Should refresh a host whose script SSH refused, so later scripts wait instead of adding failed logins', async () => {
+			// Setup
+			await refresh();
+			calls = [];
+			servers['box'].answer = { code: 255, stderr: 'dev@box: Permission denied (publickey).\n' };
+
+			// Run
+			const first = await remoteHosts.runScript(main, 'box', 'echo read\n', [], 1000, false);
+			await settle();
+			const callsAfterFirst = sshCalls().length;
+			const second = await remoteHosts.runScript(main, 'box', 'echo read\n', [], 1000, false);
+			await settle();
+
+			// Assert
+			expect(first).toStrictEqual({ error: expect.stringMatching(/Permission denied \(publickey\)\.$/) });
+			expect(sshCalls().filter((call) => call.options.input === STATUS_SCRIPT)).toHaveLength(1); // The refresh that records it
+			expect(remoteHosts.getHosts(main)[0].host.state).toBe('needsAuthentication');
+			expect(second).toStrictEqual({ error: remoteHosts.getHosts(main)[0].host.message });
+			expect(sshCalls()).toHaveLength(callsAfterFirst);
+		});
+
 		it('Should show needsAuthentication when the host key isn\'t known', async () => {
 			// Run
 			const { now } = await refreshWithAnswer({ code: 255, stderr: 'Host key verification failed.\n' });

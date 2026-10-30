@@ -17,9 +17,10 @@ import { Logger } from '../src/logger';
 import { RemoteHostSnapshot } from '../src/remoteHosts';
 import { AGENT_INSTRUCTION } from '../src/remoteHosts/agentInstruction';
 import { RepoChangeEvent, RepoManager } from '../src/repoManager';
-import { CodeReview, CommitOrdering, GitCommitStash, GitConfigLocation, GitFileStatus, GitPushBranchMode, GitRemoteHostSettings, GitResetMode, GitTreeViewGlobalState, GitTreeViewWorkspaceState, MergeActionOn, PullRequestConfig, PullRequestProvider, RebaseActionOn, RemoteHostEntry, RequestMessage, ResponseMessage, TagType } from '../src/types';
+import { CodeReview, CommitOrdering, GitCommitStash, GitConfigLocation, GitFileStatus, GitPushBranchMode, GitRemoteHostSettings, GitResetMode, GitTreeViewGlobalState, GitTreeViewWorkspaceState, ManagedHostGit, ManagedHostSizes, MergeActionOn, PullRequestConfig, PullRequestProvider, RebaseActionOn, RemoteHostEntry, RequestMessage, ResponseMessage, TagType } from '../src/types';
 import * as utils from '../src/utils';
 import { EventEmitter } from '../src/utils/event';
+import { WorktreeStats, WorktreeStatsAnswer } from '../src/worktreeStats';
 
 import { waitForExpect } from './helpers/expectations';
 import { mockRepoState } from './helpers/utils';
@@ -4660,6 +4661,98 @@ describe('GitTreeView', () => {
 					{ command: 'removeRemoteWorktree', error: 'Remote hosts aren\'t available.' },
 					{ command: 'askRemoteHostFetchConsent', error: 'Remote hosts aren\'t available.' }
 				]));
+			});
+		});
+	});
+
+	describe('Manage panel', () => {
+		const hostGit: ManagedHostGit = { mainBranch: 'main', mainBranchError: null, worktrees: [] };
+		const hostSizes: ManagedHostSizes = { disk: { total: 100, used: 40, free: 60 }, worktrees: [{ path: '/path/to/repo', size: 12 }], gitData: { path: '/path/to/repo/.git', size: 30 }, warning: null };
+		let spyOnLoad: jest.SpyInstance;
+		let spyOnFastForward: jest.SpyInstance;
+		let onDidReceiveMessage: (msg: RequestMessage) => void;
+		let messages: ResponseMessage[];
+
+		beforeEach(() => {
+			GitTreeView.createOrShow('/path/to/extension', dataSource, extensionState, avatarManager, repoManager, logger, null);
+			const mockedWebviewPanel = vscode.getMockedWebviewPanel(0);
+			onDidReceiveMessage = mockedWebviewPanel.mocks.panel.webview.onDidReceiveMessage;
+			messages = mockedWebviewPanel.mocks.messages;
+			spyOnLoad = jest.spyOn(WorktreeStats.prototype, 'load');
+			spyOnFastForward = jest.spyOn(WorktreeStats.prototype, 'fastForward');
+		});
+
+		afterEach(() => {
+			spyOnLoad.mockRestore();
+			spyOnFastForward.mockRestore();
+		});
+
+		it('Should load each host, and send each part as it arrives', async () => {
+			// Setup
+			spyOnLoad.mockImplementation(async (_repo: string, host: string | null, send: (answer: WorktreeStatsAnswer) => void) => {
+				send({ part: 'git', git: hostGit, sizes: null, error: null });
+				send(host === null ? { part: 'sizes', git: null, sizes: hostSizes, error: null } : { part: 'sizes', git: null, sizes: null, error: 'du failed' });
+			});
+
+			// Run
+			onDidReceiveMessage({ command: 'loadWorktreeStats', repo: '/path/to/repo', hosts: [null, 'server'], requestId: 7 });
+
+			// Assert
+			await waitForExpect(() => expect(messages).toHaveLength(4));
+			expect(spyOnLoad).toHaveBeenCalledWith('/path/to/repo', null, expect.any(Function));
+			expect(spyOnLoad).toHaveBeenCalledWith('/path/to/repo', 'server', expect.any(Function));
+			expect(messages).toStrictEqual([
+				{ command: 'loadWorktreeStats', repo: '/path/to/repo', requestId: 7, host: null, part: 'git', git: hostGit, sizes: null, error: null },
+				{ command: 'loadWorktreeStats', repo: '/path/to/repo', requestId: 7, host: null, part: 'sizes', git: null, sizes: hostSizes, error: null },
+				{ command: 'loadWorktreeStats', repo: '/path/to/repo', requestId: 7, host: 'server', part: 'git', git: hostGit, sizes: null, error: null },
+				{ command: 'loadWorktreeStats', repo: '/path/to/repo', requestId: 7, host: 'server', part: 'sizes', git: null, sizes: null, error: 'du failed' }
+			]);
+		});
+
+		it('Should refuse a repository that isn\'t in Git Tree, without reading or fast-forwarding it', async () => {
+			// Run
+			onDidReceiveMessage({ command: 'loadWorktreeStats', repo: '/path/to/unknown', hosts: [null, 'server'], requestId: 3 });
+			onDidReceiveMessage({ command: 'fastForwardWorktree', repo: '/path/to/unknown', host: null, path: '/path/to/unknown/.worktrees/feature' });
+
+			// Assert
+			await waitForExpect(() => expect(messages).toHaveLength(3));
+			expect(spyOnLoad).not.toHaveBeenCalled();
+			expect(spyOnFastForward).not.toHaveBeenCalled();
+			expect(messages).toStrictEqual([
+				{ command: 'loadWorktreeStats', repo: '/path/to/unknown', requestId: 3, host: null, part: 'git', git: null, sizes: null, error: 'The repository /path/to/unknown isn\'t in Git Tree.' },
+				{ command: 'loadWorktreeStats', repo: '/path/to/unknown', requestId: 3, host: 'server', part: 'git', git: null, sizes: null, error: 'The repository /path/to/unknown isn\'t in Git Tree.' },
+				{ command: 'fastForwardWorktree', repo: '/path/to/unknown', host: null, path: '/path/to/unknown/.worktrees/feature', error: 'The repository /path/to/unknown isn\'t in Git Tree.' }
+			]);
+		});
+
+		it('Should answer other messages while the sizes are measured', async () => {
+			// Setup
+			spyOnLoad.mockImplementation((_repo: string, _host: string | null, send: (answer: WorktreeStatsAnswer) => void) => {
+				send({ part: 'git', git: hostGit, sizes: null, error: null });
+				return new Promise(() => { });
+			});
+			spyOnFastForward.mockResolvedValueOnce(null);
+
+			// Run
+			onDidReceiveMessage({ command: 'loadWorktreeStats', repo: '/path/to/repo', hosts: [null], requestId: 1 });
+			onDidReceiveMessage({ command: 'fastForwardWorktree', repo: '/path/to/repo', host: null, path: '/path/to/repo/.worktrees/feature' });
+
+			// Assert
+			await waitForExpect(() => expect(messages).toHaveLength(2));
+			expect(messages[1]).toStrictEqual({ command: 'fastForwardWorktree', repo: '/path/to/repo', host: null, path: '/path/to/repo/.worktrees/feature', error: null });
+		});
+
+		it('Should fast-forward a worktree, and send the error', async () => {
+			// Setup
+			spyOnFastForward.mockResolvedValueOnce('Git Tree didn\'t fast-forward /home/dev/app-wt on "server": Diverged from main.');
+
+			// Run
+			onDidReceiveMessage({ command: 'fastForwardWorktree', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-wt' });
+
+			// Assert
+			await waitForExpect(() => {
+				expect(spyOnFastForward).toHaveBeenCalledWith('/path/to/repo', 'server', '/home/dev/app-wt');
+				expect(messages).toStrictEqual([{ command: 'fastForwardWorktree', repo: '/path/to/repo', host: 'server', path: '/home/dev/app-wt', error: 'Git Tree didn\'t fast-forward /home/dev/app-wt on "server": Diverged from main.' }]);
 			});
 		});
 	});

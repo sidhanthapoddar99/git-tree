@@ -70,6 +70,7 @@ class GitTreeView {
 
 	private readonly findWidget: FindWidget;
 	private readonly settingsWidget: SettingsWidget;
+	private readonly manageWidget: ManageWidget;
 	private readonly repoDropdown: Dropdown;
 	private readonly branchDropdown: Dropdown;
 	private readonly hostDropdown: Dropdown;
@@ -150,6 +151,16 @@ class GitTreeView {
 
 		this.findWidget = new FindWidget(this);
 		this.settingsWidget = new SettingsWidget(this);
+		this.manageWidget = new ManageWidget(this);
+
+		// The Manage panel and Repository Settings take the same place, so opening one closes the other
+		const manageBtn = document.getElementById('manageBtn')!;
+		manageBtn.innerHTML = SVG_ICONS.worktree;
+		manageBtn.addEventListener('click', () => {
+			this.settingsWidget.close();
+			this.manageWidget.show(this.currentRepo);
+		});
+		document.getElementById('settingsBtn')!.addEventListener('click', () => this.manageWidget.close());
 
 		alterClass(document.body, CLASS_BRANCH_LABELS_ALIGNED_TO_GRAPH, this.config.referenceLabels.branchLabelsAlignedToGraph);
 		alterClass(document.body, CLASS_TAG_LABELS_RIGHT_ALIGNED, this.config.referenceLabels.tagLabelsOnRight);
@@ -260,6 +271,7 @@ class GitTreeView {
 		this.renderFetchButton();
 		this.closeCommitDetails(false);
 		this.settingsWidget.close();
+		this.manageWidget.close();
 		this.saveState();
 		this.refresh(true);
 	}
@@ -779,6 +791,15 @@ class GitTreeView {
 	 */
 	public processRemoteHostsResponse(msg: RemoteHostsResponse) {
 		return this.settingsWidget.processRemoteHostsResponse(msg);
+	}
+
+	/**
+	 * Pass a response for the Manage panel to it.
+	 * @param msg The response.
+	 * @returns TRUE => the panel handled it, FALSE => the panel has closed, or shows another repository.
+	 */
+	public processManageResponse(msg: ManageResponse) {
+		return this.manageWidget.processResponse(msg);
 	}
 
 	public processLoadConfig(msg: GG.ResponseLoadConfig) {
@@ -1580,7 +1601,7 @@ class GitTreeView {
 	 * Get the remote hosts that aren't hidden in Repository Settings (hideHosts): those the Host dropdown lists, and that worktrees can be created on.
 	 * @returns The hosts.
 	 */
-	private getAvailableRemoteHosts() {
+	public getAvailableRemoteHosts() {
 		const hideHosts = this.gitRepos[this.currentRepo].hideHosts;
 		return this.gitRemoteHosts.filter((host) => !hideHosts.includes(host.name));
 	}
@@ -3039,6 +3060,9 @@ class GitTreeView {
 				} else if (this.settingsWidget.isVisible()) {
 					if (!this.settingsWidget.handleEscape()) this.settingsWidget.close();
 					handledEvent(e);
+				} else if (this.manageWidget.isVisible()) {
+					this.manageWidget.close();
+					handledEvent(e);
 				} else if (this.findWidget.isVisible()) {
 					this.findWidget.close();
 					handledEvent(e);
@@ -4448,6 +4472,17 @@ window.addEventListener('load', () => {
 				break;
 			case 'viewScm':
 				finishOrDisplayError(msg.error, 'Unable to open the Source Control View');
+				break;
+			case 'loadWorktreeStats':
+				gitTree.processManageResponse(msg);
+				break;
+			case 'fastForwardWorktree':
+				// The Manage panel shows an error in the worktree's row. If it has closed since, the view reports it.
+				if (!gitTree.processManageResponse(msg)) {
+					refreshOrDisplayError(msg.error, 'Unable to Fast-forward the Worktree');
+				} else if (msg.error === null) {
+					gitTree.refresh(false);
+				}
 				break;
 		}
 	});

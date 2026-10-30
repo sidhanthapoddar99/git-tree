@@ -405,6 +405,30 @@ export class RemoteHosts extends Disposable {
 		return this.finishAction(found.entry, found.host, result, 'run ' + command + ' in ' + worktreePath);
 	}
 
+	/**
+	 * Run a fixed script on a host for a reader or an action outside this file (the Manage panel), as
+	 * `sh -s -- <the host's path> <arguments>`. The host's path comes from the config, never from the caller. A host that
+	 * needs authentication is left alone until refreshes would try it again. A call that SSH refused starts a refresh, as
+	 * an action does, which records the host's state and starts that wait, so these calls don't keep adding failed logins.
+	 * @param repo The path of the repository.
+	 * @param host The host's name.
+	 * @param script The script.
+	 * @param args The script's arguments after the host's path.
+	 * @param timeout The time limit, in milliseconds.
+	 * @param changesHost The script changes the host, so the host refreshes afterwards.
+	 * @returns The result of a call that connected (the script may still have failed), or why the host couldn't be used.
+	 */
+	public async runScript(repo: string, host: string, script: string, args: ReadonlyArray<string>, timeout: number, changesHost: boolean): Promise<{ result: ProcessResult } | { error: string }> {
+		const found = await this.findHost(repo, host);
+		if (typeof found === 'string') return { error: found };
+		if (found.host.state === 'needsAuthentication' && Date.now() < found.host.retryAfter && found.host.message !== null) return { error: found.host.message };
+
+		const result = await this.runOnHost(found.host.config.ssh, script, [trimTrailingSlashes(found.host.config.path)].concat(args), timeout, false);
+		const sshFailure = classifySshFailure(result, found.host.config.ssh);
+		if (changesHost || sshFailure !== null) this.refreshHost(found.entry, found.host);
+		return sshFailure !== null ? { error: sshFailure.message } : { result: result };
+	}
+
 
 	/* Repository Settings */
 

@@ -955,7 +955,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 	right:0;
 	top:0;
 	height:32px;
-	padding:4px 132px 4px 0;
+	padding:4px 162px 4px 0;
 	border-bottom:1px solid var(--git-tree-border);
 	line-height:32px;
 	font-weight:700;
@@ -1007,7 +1007,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 	}
 }
 
-#findBtn, #terminalBtn, #settingsBtn, #fetchBtn, #refreshBtn{
+#findBtn, #terminalBtn, #settingsBtn, #fetchBtn, #manageBtn, #refreshBtn{
 	position:absolute;
 	top:50%;
 	width:20px;
@@ -1018,16 +1018,19 @@ body.tagLabelsRightAligned .gitRef.tag{
 	user-select:none;
 }
 #findBtn{
-	right:100px;
+	right:130px;
 }
 #terminalBtn{
-	right:70px;
+	right:100px;
 }
 #settingsBtn{
-	right:40px;
+	right:70px;
 }
 #fetchBtn{
 	display:none;
+	right:70px;
+}
+#manageBtn{
 	right:40px;
 }
 #refreshBtn{
@@ -1036,7 +1039,7 @@ body.tagLabelsRightAligned .gitRef.tag{
 #refreshBtn.refreshing{
 	cursor:default;
 }
-#findBtn svg, #terminalBtn svg, #settingsBtn svg, #fetchBtn svg, #refreshBtn svg{
+#findBtn svg, #terminalBtn svg, #settingsBtn svg, #fetchBtn svg, #manageBtn svg, #refreshBtn svg{
 	position:absolute;
 	fill:var(--vscode-editor-foreground);
 	opacity:0.8;
@@ -1047,14 +1050,14 @@ body.tagLabelsRightAligned .gitRef.tag{
 #findBtn svg, #terminalBtn svg{
 	stroke-width:0.5px;
 }
-#findBtn:hover svg, #terminalBtn:hover svg, #settingsBtn:hover svg, #fetchBtn:hover svg, #refreshBtn:hover svg{
+#findBtn:hover svg, #terminalBtn:hover svg, #settingsBtn:hover svg, #fetchBtn:hover svg, #manageBtn:hover svg, #refreshBtn:hover svg{
 	opacity:1;
 	stroke-width:0.5px;
 }
 #findBtn:hover svg, #terminalBtn:hover svg{
 	stroke-width:1px;
 }
-#findBtn svg, #terminalBtn svg, #settingsBtn svg, #fetchBtn svg{
+#findBtn svg, #terminalBtn svg, #settingsBtn svg, #fetchBtn svg, #manageBtn svg{
 	left:1px;
 	top:1px;
 	width:18px !important;
@@ -1075,16 +1078,16 @@ body.tagLabelsRightAligned .gitRef.tag{
 }
 
 #controls.fetchSupported{
-	padding-right:162px;
+	padding-right:192px;
 }
 #controls.fetchSupported #findBtn{
-	right:130px;
+	right:160px;
 }
 #controls.fetchSupported #terminalBtn{
-	right:100px;
+	right:130px;
 }
 #controls.fetchSupported #settingsBtn{
-	right:70px;
+	right:100px;
 }
 #controls.fetchSupported #fetchBtn{
 	display:block;

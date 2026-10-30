@@ -13,6 +13,7 @@ import { RepoManager } from './repoManager';
 import { ErrorInfo, GitConfigLocation, GitPushBranchMode, GitRepoSet, GitTreeViewConfig, GitTreeViewInitialState, GitWorktree, LoadGitTreeViewTo, RequestMessage, ResponseMessage, TabIconColourTheme } from './types';
 import { UNCOMMITTED, archive, copyFilePathToClipboard, copyToClipboard, createPullRequest, escapeHtml, getNonce, getRepoName, openExtensionSettings, openExternalUrl, openFile, openWorktree, showErrorMessage, viewDiff, viewDiffWithWorkingFile, viewFileAtRevision, viewScm } from './utils';
 import { Disposable, toDisposable } from './utils/disposable';
+import { WorktreeStats, WorktreeStatsAnswer } from './worktreeStats';
 
 const REMOTE_HOSTS_UNAVAILABLE = 'Remote hosts aren\'t available.';
 
@@ -38,6 +39,7 @@ export class GitTreeView extends Disposable {
 	private readonly repoFileWatcher: RepoFileWatcher;
 	private readonly repoManager: RepoManager;
 	private readonly logger: Logger;
+	private readonly worktreeStats: WorktreeStats;
 	private isGraphViewLoaded: boolean = false;
 	private isPanelVisible: boolean = true;
 	private currentRepo: string | null = null; // The repository the file watcher follows. It is reset to null while the view is hidden.
@@ -122,6 +124,7 @@ export class GitTreeView extends Disposable {
 		this.extensionState = extensionState;
 		this.repoManager = repoManager;
 		this.logger = logger;
+		this.worktreeStats = new WorktreeStats(dataSource);
 		this.loadViewTo = loadViewTo;
 		this.shownRepo = loadViewTo !== null ? loadViewTo.repo : null;
 
@@ -822,6 +825,29 @@ export class GitTreeView extends Disposable {
 					error: await viewScm()
 				});
 				break;
+			case 'loadWorktreeStats': {
+				// Each host loads on its own, and answers as each part arrives. It isn't awaited, so slow sizes neither hold
+				// other messages nor keep the file watcher muted.
+				const repo = msg.repo, requestId = msg.requestId, unknownRepoError = this.getUnknownRepoError(repo);
+				msg.hosts.forEach((host) => {
+					const send = (answer: WorktreeStatsAnswer) => this.sendMessage({ command: 'loadWorktreeStats', repo: repo, requestId: requestId, host: host, ...answer });
+					if (unknownRepoError !== null) {
+						send({ part: 'git', git: null, sizes: null, error: unknownRepoError });
+					} else {
+						this.worktreeStats.load(repo, host, send);
+					}
+				});
+				break;
+			}
+			case 'fastForwardWorktree':
+				this.sendMessage({
+					command: 'fastForwardWorktree',
+					repo: msg.repo,
+					host: msg.host,
+					path: msg.path,
+					error: this.getUnknownRepoError(msg.repo) || await this.worktreeStats.fastForward(msg.repo, msg.host, msg.path)
+				});
+				break;
 		}
 
 		this.repoFileWatcher.unmute();
@@ -860,7 +886,7 @@ export class GitTreeView extends Disposable {
 	 */
 	private async openTerminal(repo: string, worktreePath: string): Promise<ErrorInfo> {
 		const repoState = this.repoManager.getRepos()[repo];
-		if (typeof repoState === 'undefined') return 'The repository ' + repo + ' isn\'t in Git Tree.';
+		if (typeof repoState === 'undefined') return getUnknownRepoMessage(repo);
 		let worktrees: GitWorktree[];
 		try {
 			worktrees = await this.dataSource.getWorktrees(repo);
@@ -873,6 +899,15 @@ export class GitTreeView extends Disposable {
 		if (worktree.prunable) return 'The folder of the worktree ' + worktree.path + ' no longer exists.';
 		const label = worktree.isMain ? 'Root' : worktree.name;
 		return this.dataSource.openGitTerminal(worktree.path, null, (repoState.name || getRepoName(repo)) + ' (' + label + ')');
+	}
+
+	/**
+	 * Check a repository's path from the Webview before acting on it, so actions only run in repositories in Git Tree.
+	 * @param repo The path of the repository.
+	 * @returns The error, or NULL if Git Tree knows the repository.
+	 */
+	private getUnknownRepoError(repo: string): ErrorInfo {
+		return typeof this.repoManager.getRepos()[repo] === 'undefined' ? getUnknownRepoMessage(repo) : null;
 	}
 
 	/**
@@ -1021,6 +1056,7 @@ export class GitTreeView extends Disposable {
 					<div id="terminalBtn" title="Open a Terminal"></div>
 					<div id="settingsBtn" title="Repository Settings"></div>
 					<div id="fetchBtn"></div>
+					<div id="manageBtn" title="Manage Worktrees"></div>
 					<div id="refreshBtn"></div>
 				</div>
 				<div id="content">
@@ -1123,4 +1159,12 @@ export function standardiseCspSource(cspSource: string) {
 	} else {
 		return cspSource;
 	}
+}
+
+/**
+ * Get the error for a repository's path from the Webview that isn't a repository in Git Tree.
+ * @param repo The path.
+ */
+function getUnknownRepoMessage(repo: string) {
+	return 'The repository ' + repo + ' isn\'t in Git Tree.';
 }
